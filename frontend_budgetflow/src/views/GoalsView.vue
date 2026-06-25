@@ -134,7 +134,7 @@ function progressPct(goal) {
 
 function progressColor(pct) {
   if (pct >= 100) return '#16a34a'
-  if (pct >= 60) return '#2563eb'
+  if (pct >= 60) return '#7c3aed'
   return '#f59e0b'
 }
 
@@ -166,7 +166,7 @@ function monthlyInstallment(goal) {
         <p class="text-[13px] text-gray-400 mt-0.5">Suis tes projets et la progression de tes économies</p>
       </div>
       <button
-        class="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-[7px] text-[13px] font-medium cursor-pointer border-none"
+        class="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-[7px] text-[13px] font-medium cursor-pointer border-none"
         @click="showAddForm = !showAddForm"
       >
         <font-awesome-icon icon="plus" /> Ajouter
@@ -174,12 +174,12 @@ function monthlyInstallment(goal) {
     </div>
 
     <!-- Formulaire ajout -->
-    <div v-if="showAddForm" class="bg-white dark:bg-gray-800 border border-blue-500/25 rounded-[10px] px-5 py-[18px] mb-5">
+    <div v-if="showAddForm" class="bg-white dark:bg-gray-800 border border-violet-500/25 rounded-[10px] px-5 py-[18px] mb-5">
       <h3 class="text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-3.5">Nouvel objectif</h3>
       <div class="grid gap-2.5" style="grid-template-columns: 1fr 160px 130px 150px 140px">
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Nom</label>
-          <input v-model="newGoal.name" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" placeholder="Ex: Voyage au Japon" />
+          <input v-model="newGoal.name" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" placeholder="Ex: Voyage au Japon" />
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Compte</label>
@@ -190,19 +190,19 @@ function monthlyInstallment(goal) {
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Objectif (€)</label>
-          <input v-model.number="newGoal.targetAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+          <input v-model.number="newGoal.targetAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Déjà disponible (€)</label>
-          <input v-model.number="newGoal.initialAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+          <input v-model.number="newGoal.initialAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Date cible</label>
-          <input v-model="newGoal.deadline" type="date" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+          <input v-model="newGoal.deadline" type="date" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
         </div>
       </div>
       <div class="flex gap-2 mt-3">
-        <button class="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-[7px] text-[13px] font-medium cursor-pointer border-none" @click="add">Créer</button>
+        <button class="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-[7px] text-[13px] font-medium cursor-pointer border-none" @click="add">Créer</button>
         <button class="px-3 py-1.5 bg-transparent text-gray-500 border border-gray-200 dark:border-gray-700 rounded-[6px] text-[12.5px] cursor-pointer" @click="showAddForm = false">Annuler</button>
       </div>
     </div>
@@ -221,7 +221,7 @@ function monthlyInstallment(goal) {
           <div class="grid gap-2.5" style="grid-template-columns: 1fr 160px 130px 150px 140px">
             <div class="flex flex-col gap-1">
               <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Nom</label>
-              <input v-model="editBuffer.name" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+              <input v-model="editBuffer.name" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Compte</label>
@@ -232,15 +232,15 @@ function monthlyInstallment(goal) {
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Objectif (€)</label>
-              <input v-model.number="editBuffer.targetAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+              <input v-model.number="editBuffer.targetAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Déjà disponible (€)</label>
-              <input v-model.number="editBuffer.initialAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+              <input v-model.number="editBuffer.initialAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Date cible</label>
-              <input v-model="editBuffer.deadline" type="date" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+              <input v-model="editBuffer.deadline" type="date" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
             </div>
           </div>
           <div class="flex gap-2 mt-2.5">
@@ -257,7 +257,7 @@ function monthlyInstallment(goal) {
               <span class="text-[15px] font-semibold text-gray-950 dark:text-gray-50">{{ goal.name }}</span>
               <span class="text-[12px] text-gray-400">{{ goal.account?.name }}</span>
               <span class="text-[12px] text-gray-400">🗓 {{ fmtDate(goal.deadline) }}</span>
-              <span v-if="monthlyInstallment(goal) !== null && !goal.isCompleted" class="text-[12.5px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded-full">
+              <span v-if="monthlyInstallment(goal) !== null && !goal.isCompleted" class="text-[12.5px] font-semibold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-2 py-0.5 rounded-full">
                 <template v-if="monthlyInstallment(goal) === 0">Objectif atteint</template>
                 <template v-else-if="monthsUntil(goal.deadline) === 0">Délai dépassé</template>
                 <template v-else>

@@ -420,7 +420,7 @@ async function deleteFromModal() {
                 <span class="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-full px-1.5 py-px">{{ (draggableLinesMap[section._id] || []).length }}</span>
               </div>
               <button
-                class="flex items-center gap-1.5 text-[12.5px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-none rounded-md px-2.5 py-1.25 cursor-pointer font-medium hover:bg-blue-100 dark:hover:bg-blue-950/60"
+                class="flex items-center gap-1.5 text-[12.5px] text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/40 border-none rounded-md px-2.5 py-1.25 cursor-pointer font-medium hover:bg-violet-100 dark:hover:bg-violet-950/60"
                 @click="openAddModal(section._id)"
               >
                 <font-awesome-icon icon="plus" /> Ajouter
@@ -514,7 +514,7 @@ async function deleteFromModal() {
             <span class="text-[12px] text-gray-400 bg-gray-100 dark:bg-gray-700 rounded-full px-1.5 py-px">{{ (draggableLinesMap['none'] || []).length }}</span>
           </div>
           <button
-            class="flex items-center gap-1.5 text-[12.5px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-none rounded-md px-2.5 py-1.25 cursor-pointer font-medium hover:bg-blue-100 dark:hover:bg-blue-950/60"
+            class="flex items-center gap-1.5 text-[12.5px] text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/40 border-none rounded-md px-2.5 py-1.25 cursor-pointer font-medium hover:bg-violet-100 dark:hover:bg-violet-950/60"
             @click="openAddModal('none')"
           >
             <font-awesome-icon icon="plus" /> Ajouter
@@ -733,7 +733,7 @@ async function deleteFromModal() {
 :global(.dark) .row-text { color: #9ca3af; }
 
 .theme-badge { font-size: 11.5px; padding: 2px 8px; border-radius: 20px; font-weight: 500; }
-.check-on { font-size: 13px; color: #2563eb; font-weight: 600; }
+.check-on { font-size: 13px; color: #7c3aed; font-weight: 600; }
 
 .input-cell {
   width: 100%;
@@ -746,7 +746,7 @@ async function deleteFromModal() {
   color: #1a1a1a;
 }
 :global(.dark) .input-cell { background: #374151; border-color: #4b5563; color: #f3f4f6; }
-.input-cell:focus { border-color: #2563eb; }
+.input-cell:focus { border-color: #7c3aed; }
 .input-cell--sm { max-width: 72px; }
 
 .select-cell {
@@ -766,10 +766,10 @@ async function deleteFromModal() {
 
 .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
-.btn-edit { font-size: 12px; color: #2563eb; background: none; border: none; cursor: pointer; padding: 2px 4px; }
+.btn-edit { font-size: 12px; color: #7c3aed; background: none; border: none; cursor: pointer; padding: 2px 4px; }
 .btn-edit:hover { text-decoration: underline; }
 .btn-delete { font-size: 12px; color: #ef4444; background: none; border: none; cursor: pointer; padding: 2px 4px; }
-.btn-save { font-size: 12px; color: white; background: #2563eb; border: none; border-radius: 5px; padding: 3px 8px; cursor: pointer; font-weight: 500; }
+.btn-save { font-size: 12px; color: white; background: #7c3aed; border: none; border-radius: 5px; padding: 3px 8px; cursor: pointer; font-weight: 500; }
 .btn-save--income { background: #16a34a; }
 .btn-cancel { font-size: 12px; color: #6b7280; background: none; border: none; cursor: pointer; }
 :global(.dark) .btn-cancel { color: #9ca3af; }
@@ -780,7 +780,7 @@ async function deleteFromModal() {
 :global(.dark) .drag-handle { color: #4b5563; }
 :global(.dark) .drag-handle:hover { color: #6b7280; }
 
-.drag-ghost { opacity: 0.4; background: #eff6ff !important; }
+.drag-ghost { opacity: 0.4; background: #f5f3ff !important; }
 .lines-table { width: 100%; }
 
 /* ─── Formulaire dans le modal ─────────────────────────── */
@@ -796,21 +796,21 @@ async function deleteFromModal() {
   padding: 8px 10px; border: 1.5px solid #e5e7eb; border-radius: 8px;
   font-size: 13px; outline: none; background: #fff; color: #1a1a1a;
 }
-.form-input:focus { border-color: #2563eb; }
+.form-input:focus { border-color: #7c3aed; }
 :global(.dark) .form-input { background: #374151; border-color: #4b5563; color: #f3f4f6; }
 .toggle-half {
   padding: 7px 14px; border: 1.5px solid #e5e7eb; border-radius: 8px;
   background: #fff; color: #6b7280; font-size: 12.5px; cursor: pointer; white-space: nowrap;
 }
-.toggle-half--on { border-color: #2563eb; background: #eff6ff; color: #2563eb; font-weight: 600; }
+.toggle-half--on { border-color: #7c3aed; background: #f5f3ff; color: #7c3aed; font-weight: 600; }
 :global(.dark) .toggle-half { background: #374151; border-color: #4b5563; color: #9ca3af; }
-:global(.dark) .toggle-half--on { background: rgba(37,99,235,0.22); border-color: #3b82f6; color: #93c5fd; }
+:global(.dark) .toggle-half--on { background: rgba(124,58,237,0.22); border-color: #8b5cf6; color: #c4b5fd; }
 .modal-btn {
   padding: 8px 16px; border: none; border-radius: 8px;
   font-size: 13px; font-weight: 500; cursor: pointer;
 }
-.modal-btn--primary { background: #2563eb; color: #fff; }
-.modal-btn--primary:hover { background: #1d4ed8; }
+.modal-btn--primary { background: #7c3aed; color: #fff; }
+.modal-btn--primary:hover { background: #6d28d9; }
 .modal-btn--secondary { background: #f1f5f9; color: #475569; }
 :global(.dark) .modal-btn--secondary { background: #374151; color: #d1d5db; }
 .modal-btn--danger { background: none; color: #ef4444; margin-right: auto; }

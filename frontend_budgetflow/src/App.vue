@@ -17,63 +17,154 @@ const navLinks = [
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden">
+  <div class="app-shell flex flex-col h-screen overflow-hidden">
 
-    <!-- ─── Sidebar ─────────────────────────────────────────── -->
-    <aside class="w-[220px] min-w-[220px] bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col py-4 px-3">
-
+    <!-- ─── Header ─────────────────────────────────────────── -->
+    <header class="glass-card app-header">
       <!-- Logo -->
-      <div class="flex items-center gap-2.5 px-2.5 pb-5 pt-2 font-semibold text-[15px] text-gray-950 dark:text-gray-100">
-        <span class="w-7 h-7 bg-blue-600 rounded-md flex items-center justify-center text-white text-[13px]">
+      <div class="flex items-center gap-2.5 font-semibold text-[15px] text-gray-950 dark:text-gray-100 shrink-0">
+        <span class="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center text-white text-[13px]">
           <font-awesome-icon icon="wallet" />
         </span>
-        <span>BudgetFlow</span>
+        <span class="hidden lg:inline">BudgetFlow</span>
       </div>
 
-      <!-- Navigation principale -->
-      <nav class="flex flex-col gap-0.5 flex-1">
+      <!-- Onglets (barre en pilule) -->
+      <nav class="nav-pills">
         <router-link
           v-for="link in navLinks"
           :key="link.to"
           :to="link.to"
-          class="flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-[13.5px] transition-colors duration-150"
-          :class="route.path === link.to
-            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-medium'
-            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-950 dark:hover:text-gray-100'"
+          class="nav-pill"
+          :class="{ 'nav-pill--active': route.path === link.to }"
         >
-          <font-awesome-icon :icon="link.icon" class="w-[15px] text-center text-[13px]" />
+          <font-awesome-icon :icon="link.icon" class="nav-pill-icon" />
           <span>{{ link.name }}</span>
         </router-link>
       </nav>
 
-      <!-- Bas de sidebar : Paramètres + toggle dark mode -->
-      <div class="border-t border-gray-200 dark:border-gray-700 pt-2.5 mt-2.5 flex flex-col gap-0.5">
+      <!-- Actions à droite -->
+      <div class="flex items-center gap-2 shrink-0">
         <router-link
           to="/parametres"
-          class="flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-[13.5px] transition-colors duration-150"
-          :class="route.path === '/parametres'
-            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-medium'
-            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-950 dark:hover:text-gray-100'"
+          class="icon-btn"
+          :class="{ 'icon-btn--active': route.path === '/parametres' }"
+          title="Paramètres"
         >
-          <font-awesome-icon icon="gear" class="w-[15px] text-center text-[13px]" />
-          <span>Paramètres</span>
+          <font-awesome-icon icon="gear" />
         </router-link>
-
-        <!-- Toggle thème clair / sombre -->
         <button
+          class="icon-btn"
           @click="toggleDark"
-          class="flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-[13.5px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-950 dark:hover:text-gray-100 transition-colors duration-150 w-full cursor-pointer border-none bg-transparent"
+          :title="isDark ? 'Thème clair' : 'Thème sombre'"
         >
-          <font-awesome-icon :icon="isDark ? 'sun' : 'moon'" class="w-[15px] text-center text-[13px]" />
-          <span>{{ isDark ? 'Thème clair' : 'Thème sombre' }}</span>
+          <font-awesome-icon :icon="isDark ? 'sun' : 'moon'" />
         </button>
       </div>
-    </aside>
+    </header>
 
     <!-- ─── Contenu principal ────────────────────────────────── -->
-    <main class="flex-1 overflow-y-auto px-9 py-8 bg-[#f7f7f5] dark:bg-gray-950">
+    <main class="flex-1 overflow-y-auto px-8 pb-8 pt-4">
       <router-view />
     </main>
 
   </div>
 </template>
+
+<style scoped>
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 16px 16px 6px;
+  padding: 10px 16px;
+  border-radius: 18px;
+  flex-shrink: 0;
+}
+
+/* Barre d'onglets en pilule */
+.nav-pills {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(120, 120, 145, 0.10);
+  border-radius: 14px;
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.nav-pills::-webkit-scrollbar {
+  display: none;
+}
+:global(.dark) .nav-pills {
+  background: rgba(255, 255, 255, 0.06);
+}
+.nav-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.nav-pill:hover {
+  color: #111827;
+}
+:global(.dark) .nav-pill {
+  color: #9ca3af;
+}
+:global(.dark) .nav-pill:hover {
+  color: #f3f4f6;
+}
+.nav-pill--active {
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 2px 8px rgba(17, 24, 39, 0.10);
+}
+:global(.dark) .nav-pill--active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.nav-pill-icon {
+  font-size: 12px;
+}
+
+/* Boutons icônes ronds à droite */
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  color: #475569;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.icon-btn:hover {
+  background: #fff;
+  color: #7c3aed;
+}
+.icon-btn--active {
+  color: #7c3aed;
+}
+:global(.dark) .icon-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: #cbd5e1;
+}
+:global(.dark) .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #c4b5fd;
+}
+:global(.dark) .icon-btn--active {
+  color: #c4b5fd;
+}
+</style>

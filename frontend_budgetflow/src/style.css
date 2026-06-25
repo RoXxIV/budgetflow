@@ -21,3 +21,93 @@
     color: inherit;
   }
 }
+
+/* ─── Thème "glassmorphism" ──────────────────────────────── */
+
+/* Fond dégradé pastel bien visible (mesh multicolore) */
+.app-shell {
+  background-color: #f4f1fb;
+  background-image:
+    radial-gradient(820px 620px at -2% -8%, rgba(255, 176, 145, 0.55), transparent 55%),
+    radial-gradient(820px 700px at 102% -5%, rgba(189, 168, 255, 0.60), transparent 55%),
+    radial-gradient(1000px 820px at 88% 108%, rgba(134, 239, 213, 0.50), transparent 55%),
+    radial-gradient(820px 720px at -5% 110%, rgba(170, 190, 255, 0.50), transparent 55%);
+}
+.dark .app-shell {
+  background-color: #0a0e1a;
+  background-image:
+    radial-gradient(820px 620px at -2% -8%, rgba(129, 90, 220, 0.40), transparent 55%),
+    radial-gradient(820px 700px at 102% -5%, rgba(168, 85, 247, 0.32), transparent 55%),
+    radial-gradient(1000px 820px at 88% 108%, rgba(16, 185, 169, 0.28), transparent 55%),
+    radial-gradient(820px 720px at -5% 110%, rgba(56, 96, 230, 0.30), transparent 55%);
+}
+
+/* Carte en verre dépoli — bien détachée du fond */
+.glass-card {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(22px) saturate(165%);
+  -webkit-backdrop-filter: blur(22px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 22px;
+  box-shadow:
+    0 18px 45px -12px rgba(76, 70, 140, 0.22),
+    0 6px 16px -8px rgba(76, 70, 140, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+.dark .glass-card {
+  background: rgba(26, 33, 52, 0.6);
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow:
+    0 22px 50px -14px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Sidebar en verre */
+.glass-sidebar {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border-right: 1px solid rgba(255, 255, 255, 0.6);
+}
+.dark .glass-sidebar {
+  background: rgba(12, 17, 30, 0.55);
+  border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Tuile KPI (à l'intérieur d'une carte en verre) */
+.kpi-tile {
+  position: relative;
+  padding: 18px 20px;
+}
+
+/* Icône KPI dans un carré arrondi coloré */
+.kpi-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.kpi-icon--green { background: rgba(16, 185, 129, 0.15); color: #059669; }
+.kpi-icon--red { background: rgba(239, 68, 68, 0.14); color: #ef4444; }
+.kpi-icon--gray { background: rgba(100, 116, 139, 0.15); color: #64748b; }
+.kpi-icon--violet { background: rgba(124, 58, 237, 0.15); color: #7c3aed; }
+.dark .kpi-icon--green { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+.dark .kpi-icon--red { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.dark .kpi-icon--gray { background: rgba(148, 163, 184, 0.18); color: #cbd5e1; }
+.dark .kpi-icon--violet { background: rgba(139, 92, 246, 0.22); color: #c4b5fd; }
+.kpi-tile + .kpi-tile::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14%;
+  height: 72%;
+  width: 1px;
+  background: rgba(15, 23, 42, 0.08);
+}
+.dark .kpi-tile + .kpi-tile::before {
+  background: rgba(255, 255, 255, 0.08);
+}

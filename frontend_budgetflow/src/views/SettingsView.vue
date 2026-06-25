@@ -413,7 +413,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
             </label>
           </div>
           <div class="flex items-center gap-3">
-            <button class="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[13px] font-medium cursor-pointer border-none transition-colors" @click="saveSettings">
+            <button class="flex items-center px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-[13px] font-medium cursor-pointer border-none transition-colors" @click="saveSettings">
               Sauvegarder
             </button>
             <Transition name="toast">
@@ -438,14 +438,14 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
   outline: none;
   background: #fafafa;
 }
-.input-field:focus { border-color: #2563eb; background: #fff; }
+.input-field:focus { border-color: #7c3aed; background: #fff; }
 
 :global(.dark) .input-field {
   background: #374151;
   border-color: #4b5563;
   color: #f3f4f6;
 }
-:global(.dark) .input-field:focus { border-color: #3b82f6; background: #1f2937; }
+:global(.dark) .input-field:focus { border-color: #8b5cf6; background: #1f2937; }
 
 .select-field {
   padding: 7px 8px;
@@ -477,7 +477,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
 .btn-add {
   width: 32px;
   height: 32px;
-  background: #2563eb;
+  background: #7c3aed;
   color: white;
   border: none;
   border-radius: 6px;
@@ -488,7 +488,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
   font-size: 12px;
   flex-shrink: 0;
 }
-.btn-add:hover { background: #1d4ed8; }
+.btn-add:hover { background: #6d28d9; }
 
 .list-row {
   display: flex;
@@ -513,12 +513,12 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
   white-space: nowrap;
 }
 :global(.dark) .badge { background: #374151; color: #9ca3af; }
-.badge-blue { background: #eff6ff; color: #2563eb; }
-:global(.dark) .badge-blue { background: rgba(37,99,235,0.2); color: #93c5fd; }
+.badge-blue { background: #f5f3ff; color: #7c3aed; }
+:global(.dark) .badge-blue { background: rgba(124,58,237,0.2); color: #c4b5fd; }
 .badge-orange { background: #fff7ed; color: #ea580c; }
 :global(.dark) .badge-orange { background: rgba(234,88,12,0.2); color: #fdba74; }
 
-.btn-inline-edit { font-size: 12px; color: #2563eb; background: none; border: none; cursor: pointer; padding: 2px 4px; }
+.btn-inline-edit { font-size: 12px; color: #7c3aed; background: none; border: none; cursor: pointer; padding: 2px 4px; }
 .btn-inline-edit:hover { text-decoration: underline; }
 .btn-inline-delete { font-size: 12px; color: #ef4444; background: none; border: none; cursor: pointer; padding: 2px 4px; }
 .btn-inline-delete:hover { text-decoration: underline; }

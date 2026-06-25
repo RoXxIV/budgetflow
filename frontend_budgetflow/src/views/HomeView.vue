@@ -72,7 +72,7 @@ const totalPatrimoine = computed(() =>
 
 // ─── Navigation rapide ───────────────────────────────────────
 const quickLinks = [
-  { label: 'Éditer le template', description: 'Gérer les lignes budgétaires par défaut', icon: 'table-list', to: '/template', color: '#2563eb', bg: '#eff6ff', darkBg: 'rgba(37,99,235,0.15)' },
+  { label: 'Éditer le template', description: 'Gérer les lignes budgétaires par défaut', icon: 'table-list', to: '/template', color: '#7c3aed', bg: '#f5f3ff', darkBg: 'rgba(124,58,237,0.15)' },
   { label: 'Objectifs', description: "Suivre vos objectifs d'épargne", icon: 'bullseye', to: '/objectifs', color: '#16a34a', bg: '#f0fdf4', darkBg: 'rgba(22,163,74,0.15)' },
   { label: 'Investissements', description: 'ETF, crypto, actions — suivi DCA', icon: 'arrow-trend-up', to: '/investissements', color: '#7c3aed', bg: '#f5f3ff', darkBg: 'rgba(124,58,237,0.15)' },
   { label: 'Statistiques', description: 'Analyse de vos dépenses et revenus', icon: 'chart-bar', to: '/statistiques', color: '#ea580c', bg: '#fff7ed', darkBg: 'rgba(234,88,12,0.15)' },
@@ -93,7 +93,7 @@ const quickLinks = [
       </div>
       <router-link
         to="/sheet/nouveau"
-        class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-2.25 text-[13.5px] font-medium transition-colors whitespace-nowrap"
+        class="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg px-4 py-2.25 text-[13.5px] font-medium transition-colors whitespace-nowrap"
       >
         <font-awesome-icon icon="plus" />
         Nouveau sheet

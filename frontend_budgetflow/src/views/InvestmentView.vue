@@ -83,7 +83,7 @@ const totalGainPct = computed(() => {
 })
 
 const typeLabel = { ETF: 'ETF', CRYPTO: 'Crypto', STOCK: 'Action', OTHER: 'Autre' }
-const typeColor = { ETF: '#2563eb', CRYPTO: '#f59e0b', STOCK: '#16a34a', OTHER: '#6b7280' }
+const typeColor = { ETF: '#7c3aed', CRYPTO: '#f59e0b', STOCK: '#16a34a', OTHER: '#6b7280' }
 
 function fmt(n) { return (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
@@ -98,7 +98,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
         <p class="text-[13px] text-gray-400 mt-0.5">Suivi de tes placements et de leur valeur actuelle</p>
       </div>
       <button
-        class="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-[7px] text-[13px] font-medium cursor-pointer border-none"
+        class="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-[7px] text-[13px] font-medium cursor-pointer border-none"
         @click="showAddForm = !showAddForm"
       >
         <font-awesome-icon icon="plus" /> Ajouter
@@ -127,12 +127,12 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
     </div>
 
     <!-- Formulaire ajout -->
-    <div v-if="showAddForm" class="bg-white dark:bg-gray-800 border border-blue-500/25 rounded-[10px] px-5 py-4.5 mb-5">
+    <div v-if="showAddForm" class="bg-white dark:bg-gray-800 border border-violet-500/25 rounded-[10px] px-5 py-4.5 mb-5">
       <h3 class="text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-3.5">Nouvel investissement</h3>
       <div class="grid gap-2.5 mb-3.5" style="grid-template-columns: 1fr 120px 160px 130px">
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Nom</label>
-          <input v-model="newInvestment.name" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" placeholder="Ex: MSCI World" />
+          <input v-model="newInvestment.name" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" placeholder="Ex: MSCI World" />
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Type</label>
@@ -149,11 +149,11 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
         </div>
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">DCA mensuel (€)</label>
-          <input v-model.number="newInvestment.monthlyInvestment" type="number" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+          <input v-model.number="newInvestment.monthlyInvestment" type="number" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
         </div>
       </div>
       <div class="flex gap-2">
-        <button class="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-[7px] text-[13px] font-medium cursor-pointer border-none" @click="add">Créer</button>
+        <button class="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-[7px] text-[13px] font-medium cursor-pointer border-none" @click="add">Créer</button>
         <button class="px-3 py-1.5 bg-transparent text-gray-500 border border-gray-200 dark:border-gray-700 rounded-md text-[12.5px] cursor-pointer" @click="showAddForm = false">Annuler</button>
       </div>
     </div>
@@ -167,7 +167,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
           <div class="grid gap-2.5 mb-3" style="grid-template-columns: 1fr 120px 160px 130px">
             <div class="flex flex-col gap-1">
               <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Nom</label>
-              <input v-model="editBuffer.name" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+              <input v-model="editBuffer.name" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Type</label>
@@ -184,7 +184,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">DCA mensuel (€)</label>
-              <input v-model.number="editBuffer.monthlyInvestment" type="number" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none" />
+              <input v-model.number="editBuffer.monthlyInvestment" type="number" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
             </div>
           </div>
           <div class="flex gap-2">
@@ -233,7 +233,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
             <!-- Total investi -->
             <div class="flex flex-col gap-[3px]">
               <span class="text-[11.5px] text-gray-400">Total investi</span>
-              <span class="text-[15px] font-semibold text-blue-600 dark:text-blue-400">{{ fmt(inv.totalInvested) }} €</span>
+              <span class="text-[15px] font-semibold text-violet-600 dark:text-violet-400">{{ fmt(inv.totalInvested) }} €</span>
             </div>
             <!-- % gain/perte -->
             <div v-if="gainPct(inv) !== null" class="flex flex-col gap-[3px]">
@@ -247,7 +247,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
               <span class="text-[11.5px] text-gray-400">Valeur actuelle</span>
               <div class="relative">
                 <input
-                  class="w-[120px] pr-7 pl-2.5 py-[5px] border border-gray-200 dark:border-gray-700 rounded-md text-[14px] font-semibold text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-blue-500 dark:focus:border-blue-400 focus:outline-none"
+                  class="w-[120px] pr-7 pl-2.5 py-[5px] border border-gray-200 dark:border-gray-700 rounded-md text-[14px] font-semibold text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none"
                   type="number"
                   step="0.01"
                   :value="currentValueEdits[inv._id]"

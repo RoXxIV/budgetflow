@@ -79,7 +79,7 @@ function onBlur() {
   color: #1a1a1a;
 }
 .theme-input:focus {
-  border-color: #2563eb;
+  border-color: #7c3aed;
 }
 :global(.dark) .theme-input {
   background: #374151;

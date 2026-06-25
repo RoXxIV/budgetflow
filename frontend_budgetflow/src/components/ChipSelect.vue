@@ -60,12 +60,12 @@ function select(val) {
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
 .chip:hover {
-  border-color: #c7d2fe;
+  border-color: #ddd6fe;
 }
 .chip--active {
-  border-color: #2563eb;
-  background: #eff6ff;
-  color: #2563eb;
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  color: #7c3aed;
   font-weight: 600;
 }
 :global(.dark) .chip {
@@ -74,11 +74,11 @@ function select(val) {
   color: #d1d5db;
 }
 :global(.dark) .chip:hover {
-  border-color: #6366f1;
+  border-color: #8b5cf6;
 }
 :global(.dark) .chip--active {
-  background: rgba(37, 99, 235, 0.22);
-  border-color: #3b82f6;
-  color: #93c5fd;
+  background: rgba(124, 58, 237, 0.22);
+  border-color: #8b5cf6;
+  color: #c4b5fd;
 }
 </style>

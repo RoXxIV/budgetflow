@@ -68,7 +68,7 @@ const allHidden = computed(() => hidden.value.size === series.value.length)
 
 // ─── Palette de fallback ───────────────────────────────────
 const FALLBACK_COLORS = [
-  '#2563eb','#16a34a','#dc2626','#d97706','#7c3aed',
+  '#7c3aed','#16a34a','#dc2626','#d97706','#7c3aed',
   '#0891b2','#db2777','#65a30d','#ea580c','#4f46e5',
   '#0d9488','#b45309','#9333ea','#059669','#e11d48',
 ]

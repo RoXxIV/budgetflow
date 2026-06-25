@@ -23,6 +23,8 @@ import {
   faMoon,
   faSun,
   faPiggyBank,
+  faCreditCard,
+  faFileInvoice,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -48,6 +50,8 @@ library.add(
   faMoon,
   faSun,
   faPiggyBank,
+  faCreditCard,
+  faFileInvoice,
 )
 
 export { FontAwesomeIcon }

@@ -875,7 +875,7 @@ function toggleInvestment(id) {
           <option v-for="s in sheets" :key="s._id" :value="s">{{ s.name }}</option>
         </select>
         <button
-          class="flex items-center gap-1.5 py-2 px-3.5 bg-blue-600 hover:bg-blue-700 text-white border-none rounded-[7px] text-[13px] font-medium cursor-pointer"
+          class="flex items-center gap-1.5 py-2 px-3.5 bg-violet-600 hover:bg-violet-700 text-white border-none rounded-[7px] text-[13px] font-medium cursor-pointer"
           @click="openCreateForm"
         >
           <font-awesome-icon icon="plus" /> Nouveau sheet
@@ -884,11 +884,11 @@ function toggleInvestment(id) {
     </div>
 
     <!-- ─── Formulaire création ───────────────────────── -->
-    <div v-if="showCreateForm" class="bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-900/50 rounded-xl px-5 py-4.5 mb-5">
+    <div v-if="showCreateForm" class="glass-card px-5 py-4.5 mb-5">
       <h3 class="text-[14px] font-semibold text-gray-950 dark:text-gray-100 mb-3.5">Nouveau sheet</h3>
       <div class="flex flex-col gap-1">
         <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Nom</label>
-        <input v-model="newSheetForm.name" class="py-1.75 px-2.5 border border-[#e8e8e5] dark:border-gray-600 rounded-md text-[13px] text-gray-950 dark:text-gray-100 outline-none bg-gray-50 dark:bg-gray-700 focus:border-blue-500" placeholder="Ex: Mars 2026" autofocus />
+        <input v-model="newSheetForm.name" class="py-1.75 px-2.5 border border-[#e8e8e5] dark:border-gray-600 rounded-md text-[13px] text-gray-950 dark:text-gray-100 outline-none bg-gray-50 dark:bg-gray-700 focus:border-violet-500" placeholder="Ex: Mars 2026" autofocus />
       </div>
       <div class="my-3.5 flex flex-col gap-2">
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-[0.04em] mb-1">Solde début de mois (par compte)</p>
@@ -905,7 +905,7 @@ function toggleInvestment(id) {
         </div>
       </div>
       <div class="flex gap-2">
-        <button class="flex items-center gap-1.5 py-2 px-3.5 bg-blue-600 hover:bg-blue-700 text-white border-none rounded-[7px] text-[13px] font-medium cursor-pointer" @click="submitCreate">Créer depuis le template</button>
+        <button class="flex items-center gap-1.5 py-2 px-3.5 bg-violet-600 hover:bg-violet-700 text-white border-none rounded-[7px] text-[13px] font-medium cursor-pointer" @click="submitCreate">Créer depuis le template</button>
         <button class="py-1.75 px-3 bg-transparent text-gray-500 dark:text-gray-400 border border-[#e8e8e5] dark:border-gray-600 rounded-md text-[13px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700" @click="showCreateForm = false">Annuler</button>
       </div>
     </div>
@@ -913,7 +913,7 @@ function toggleInvestment(id) {
     <!-- ─── Aucun sheet ───────────────────────────────── -->
     <div v-if="!currentSheet && sheets.length === 0" class="text-center py-15 flex flex-col items-center gap-4 text-gray-400">
       <p>Aucun sheet pour l'instant.</p>
-      <button class="flex items-center gap-1.5 py-2 px-3.5 bg-blue-600 hover:bg-blue-700 text-white border-none rounded-[7px] text-[13px] font-medium cursor-pointer" @click="showCreateForm = true">
+      <button class="flex items-center gap-1.5 py-2 px-3.5 bg-violet-600 hover:bg-violet-700 text-white border-none rounded-[7px] text-[13px] font-medium cursor-pointer" @click="showCreateForm = true">
         <font-awesome-icon icon="plus" /> Créer le premier sheet
       </button>
     </div>
@@ -939,13 +939,13 @@ function toggleInvestment(id) {
         </select>
         <button
           v-if="pendingStatus !== currentSheet.status"
-          class="py-1 px-3 border-none rounded-md text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+          class="py-1 px-3 border-none rounded-md text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white cursor-pointer"
           @click="applyStatus"
         >Valider</button>
       </div>
 
       <!-- ─── Bilan mensuel ─────────────────────────── -->
-      <div class="bg-white dark:bg-gray-800 border border-green-200 dark:border-green-900/50 rounded-xl overflow-hidden">
+      <div class="glass-card overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100">
             <font-awesome-icon icon="chart-bar" /> Bilan du mois
@@ -957,28 +957,40 @@ function toggleInvestment(id) {
             {{ showAccountBalances ? '▲ Masquer comptes' : '▼ Soldes des comptes' }}
           </button>
         </div>
-        <div class="grid grid-cols-4 gap-px bg-gray-100 dark:bg-gray-700">
-          <div class="flex flex-col gap-1 px-4 py-3.5 bg-white dark:bg-gray-800">
-            <span class="text-[11.5px] text-gray-400 font-medium">Reste réel{{ settings?.mainAccount ? ' — ' + (settings.mainAccount.name || '') : '' }}</span>
-            <span class="text-[17px] font-bold" :class="bilan.resteReel >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'">
-              {{ fmt(bilan.resteReel) }} €
-            </span>
-            <span v-if="!settings?.mainAccount" class="text-[11px] text-amber-500">Configurer un compte principal dans les paramètres</span>
+        <div class="grid grid-cols-4">
+          <div class="kpi-tile flex items-start gap-3">
+            <span class="kpi-icon kpi-icon--green"><font-awesome-icon icon="wallet" /></span>
+            <div class="flex flex-col gap-0.5 min-w-0">
+              <span class="text-[22px] font-bold tracking-tight leading-tight" :class="bilan.resteReel >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'">
+                {{ fmt(bilan.resteReel) }} €
+              </span>
+              <span class="text-[11.5px] text-gray-400 font-medium truncate">Reste réel{{ settings?.mainAccount ? ' — ' + (settings.mainAccount.name || '') : '' }}</span>
+              <span v-if="!settings?.mainAccount" class="text-[11px] text-amber-500">Configurer un compte principal</span>
+            </div>
           </div>
-          <div class="flex flex-col gap-1 px-4 py-3.5 bg-white dark:bg-gray-800">
-            <span class="text-[11.5px] text-gray-400 font-medium">Dépenses{{ bilan.mainAccountName ? ' — ' + bilan.mainAccountName : '' }}</span>
-            <span class="text-[17px] font-bold text-red-500">{{ fmt(bilan.totalActualExpense) }} €</span>
+          <div class="kpi-tile flex items-start gap-3">
+            <span class="kpi-icon kpi-icon--red"><font-awesome-icon icon="credit-card" /></span>
+            <div class="flex flex-col gap-0.5 min-w-0">
+              <span class="text-[22px] font-bold tracking-tight leading-tight text-red-500">{{ fmt(bilan.totalActualExpense) }} €</span>
+              <span class="text-[11.5px] text-gray-400 font-medium truncate">Dépenses{{ bilan.mainAccountName ? ' — ' + bilan.mainAccountName : '' }}</span>
+            </div>
           </div>
-          <div class="flex flex-col gap-1 px-4 py-3.5 bg-white dark:bg-gray-800">
-            <span class="text-[11.5px] text-gray-400 font-medium">Dépenses fixes prévues</span>
-            <span class="text-[17px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(bilan.totalPlannedExpense) }} €</span>
+          <div class="kpi-tile flex items-start gap-3">
+            <span class="kpi-icon kpi-icon--gray"><font-awesome-icon icon="file-invoice" /></span>
+            <div class="flex flex-col gap-0.5 min-w-0">
+              <span class="text-[22px] font-bold tracking-tight leading-tight text-gray-950 dark:text-gray-50">{{ fmt(bilan.totalPlannedExpense) }} €</span>
+              <span class="text-[11.5px] text-gray-400 font-medium truncate">Dépenses fixes prévues</span>
+            </div>
           </div>
-          <div class="flex flex-col gap-1 px-4 py-3.5 bg-white dark:bg-gray-800">
-            <span class="text-[11.5px] text-gray-400 font-medium">À économiser ({{ bilan.savingRate }}%)</span>
-            <span class="text-[17px] font-bold" :class="bilan.restantEconomie <= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'">
-              {{ fmt(bilan.restantEconomie) }} €
-            </span>
-            <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ fmt(bilan.dejaMisDeCote) }} / {{ fmt(bilan.montantEconomie) }} € mis de côté</span>
+          <div class="kpi-tile flex items-start gap-3">
+            <span class="kpi-icon kpi-icon--violet"><font-awesome-icon icon="piggy-bank" /></span>
+            <div class="flex flex-col gap-0.5 min-w-0">
+              <span class="text-[22px] font-bold tracking-tight leading-tight" :class="bilan.restantEconomie <= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'">
+                {{ fmt(bilan.restantEconomie) }} €
+              </span>
+              <span class="text-[11.5px] text-gray-400 font-medium truncate">À économiser ({{ bilan.savingRate }}%)</span>
+              <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ fmt(bilan.dejaMisDeCote) }} / {{ fmt(bilan.montantEconomie) }} € mis de côté</span>
+            </div>
           </div>
         </div>
 
@@ -1008,9 +1020,9 @@ function toggleInvestment(id) {
       </div>
 
       <!-- ─── Grille 2 colonnes ──────────────────── -->
-      <div class="columns-2 gap-4">
+      <div class="columns-2 gap-5">
         <!-- ─── Revenus ──────────────────────────────── -->
-        <div class="bg-white dark:bg-gray-800 border border-green-200 dark:border-green-900/30 rounded-xl overflow-hidden break-inside-avoid mb-4 inline-block w-full">
+        <div class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
           <div class="flex items-center justify-between text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-green-50 dark:bg-green-950/20">
             <span class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background: #16a34a"></span>
@@ -1102,7 +1114,7 @@ function toggleInvestment(id) {
                 </div>
               </div>
             </div>
-            <div class="section-totals dark:bg-gray-800 dark:border-gray-700">
+            <div class="section-totals dark:border-gray-700">
               <span class="totals-label">Total</span>
               <span class="col-r totals-val"
                 >{{ fmt(incomeLines.reduce((s, l) => s + (l.plannedAmount || 0), 0)) }} €</span
@@ -1124,13 +1136,13 @@ function toggleInvestment(id) {
         </div>
 
         <!-- ─── Lignes budgétaires ────────────────────── -->
-        <div v-for="group in linesBySection" :key="group.section._id" class="bg-white dark:bg-gray-800 border border-[#e8e8e5] dark:border-gray-700 rounded-xl overflow-hidden break-inside-avoid mb-4 inline-block w-full">
+        <div v-for="group in linesBySection" :key="group.section._id" class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
           <div class="flex items-center justify-between text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <span class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ background: group.section.color }"></span>
               {{ group.section.name }}
             </span>
-            <button class="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-950/50 border-none rounded-md py-1 px-2.5 cursor-pointer font-medium" @click="openAddLineModal(group.section._id)">
+            <button class="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/50 border-none rounded-md py-1 px-2.5 cursor-pointer font-medium" @click="openAddLineModal(group.section._id)">
               <font-awesome-icon icon="plus" /> Ajouter
             </button>
           </div>
@@ -1271,7 +1283,7 @@ function toggleInvestment(id) {
             <!-- Totaux de la section -->
             <div
               v-if="group.lines.length"
-              class="section-totals has-date dark:bg-gray-800 dark:border-gray-700"
+              class="section-totals has-date dark:border-gray-700"
               :class="{ 'section-totals--no-planned': !group.hasPlanned }"
             >
               <span class="totals-label">Total</span>
@@ -1297,7 +1309,7 @@ function toggleInvestment(id) {
         </div>
 
         <!-- ─── Objectifs d'épargne ───────────────────── -->
-        <div v-if="goals.length" class="bg-white dark:bg-gray-800 border border-[#e8e8e5] dark:border-gray-700 rounded-xl overflow-hidden break-inside-avoid mb-4 inline-block w-full">
+        <div v-if="goals.length" class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <font-awesome-icon icon="piggy-bank" /> Objectifs d'épargne
           </h3>
@@ -1379,7 +1391,7 @@ function toggleInvestment(id) {
         </div>
 
         <!-- ─── Investissements ───────────────────────── -->
-        <div v-if="investments.length" class="bg-white dark:bg-gray-800 border border-[#e8e8e5] dark:border-gray-700 rounded-xl overflow-hidden break-inside-avoid mb-4 inline-block w-full">
+        <div v-if="investments.length" class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <font-awesome-icon icon="chart-line" /> Investissements
           </h3>
@@ -1403,7 +1415,7 @@ function toggleInvestment(id) {
                   <span
                     v-if="inv.type"
                     class="theme-badge"
-                    style="background: #eff6ff; color: #2563eb"
+                    style="background: #f5f3ff; color: #7c3aed"
                     >{{ inv.type }}</span
                   >
                 </span>
@@ -1477,7 +1489,7 @@ function toggleInvestment(id) {
         </div>
 
         <!-- ─── Relevés EDF ────────────────────────────── -->
-        <div v-if="readings.length" class="bg-white dark:bg-gray-800 border border-[#e8e8e5] dark:border-gray-700 rounded-xl overflow-hidden break-inside-avoid mb-4 inline-block w-full">
+        <div v-if="readings.length" class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <font-awesome-icon icon="bolt" /> Relevés de compteurs
           </h3>
@@ -1527,7 +1539,7 @@ function toggleInvestment(id) {
         <!-- ─── Calcul 50/50 ──────────────────────────── -->
         <div
           v-if="sharing && (sharing.sharedSum > 0 || sharing.partnerRentAmount > 0)"
-          class="bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-900/50 rounded-xl overflow-hidden break-inside-avoid mb-4 inline-block w-full"
+          class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full"
         >
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <font-awesome-icon icon="money-bill" /> Depenses partagées
@@ -1549,13 +1561,13 @@ function toggleInvestment(id) {
               <span>Part juste de chacun</span>
               <span>{{ fmt(sharing.userFairShare) }} €</span>
             </div>
-            <div class="flex justify-between items-center bg-blue-50 dark:bg-blue-950/30 rounded-lg px-3.5 py-2.5 mt-1.5 text-[14px] font-semibold text-blue-600 dark:text-blue-400">
+            <div class="flex justify-between items-center bg-violet-50 dark:bg-violet-950/30 rounded-lg px-3.5 py-2.5 mt-1.5 text-[14px] font-semibold text-violet-600 dark:text-violet-400">
               <span>Part du loyer</span>
               <span class="flex items-center gap-2.5">
                 <span class="text-[18px]">{{ fmt(Math.abs(sharing.amountToSend)) }} €</span>
                 <button
                   v-if="settings?.rentBudgetLine"
-                  class="text-[11.5px] py-0.75 px-2.5 border border-blue-300 rounded-md bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-950/70 text-blue-600 dark:text-blue-400 cursor-pointer font-medium"
+                  class="text-[11.5px] py-0.75 px-2.5 border border-violet-300 rounded-md bg-violet-50 dark:bg-violet-950/50 hover:bg-violet-100 dark:hover:bg-violet-950/70 text-violet-600 dark:text-violet-400 cursor-pointer font-medium"
                   @click="applyRentPlanned"
                   title="Pré-remplir le prévu de la ligne loyer"
                 >↓ Appliquer au loyer</button>
@@ -1567,7 +1579,7 @@ function toggleInvestment(id) {
       <!-- fin grille 2 colonnes -->
 
       <!-- ─── Snapshots comptes (lecture seule) ────────── -->
-      <div v-if="snapshots.length" class="bg-white dark:bg-gray-800 border border-[#e8e8e5] dark:border-gray-700 rounded-xl overflow-hidden opacity-85">
+      <div v-if="snapshots.length" class="glass-card overflow-hidden opacity-85">
         <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
           <font-awesome-icon icon="building-columns" /> Solde début de mois
         </h3>
@@ -1694,7 +1706,7 @@ function toggleInvestment(id) {
   display: grid;
   grid-template-columns: 1fr 90px 100px 90px 55px 36px;
   padding: 6px 16px;
-  background: #f9fafb;
+  background: rgba(255, 255, 255, 0.42);
   font-size: 11px;
   font-weight: 600;
   color: #9ca3af;
@@ -1757,10 +1769,10 @@ function toggleInvestment(id) {
   color: #6b7280;
 }
 .line-row:hover {
-  background: #f9fafb;
+  background: rgba(255, 255, 255, 0.42);
 }
 .line-row--open {
-  background: #eff6ff;
+  background: #f5f3ff;
 }
 .line-row--income .line-label {
   color: #16a34a;
@@ -1827,7 +1839,7 @@ function toggleInvestment(id) {
   align-items: center;
   padding: 8px 16px;
   border-top: 2px solid #e8e8e5;
-  background: #f9fafb;
+  background: rgba(255, 255, 255, 0.42);
 }
 .totals-label {
   font-size: 12px;
@@ -1846,8 +1858,8 @@ function toggleInvestment(id) {
   display: inline-block;
   font-size: 10px;
   font-weight: 700;
-  background: #eff6ff;
-  color: #2563eb;
+  background: #f5f3ff;
+  color: #7c3aed;
   border-radius: 4px;
   padding: 1px 4px;
   margin-right: 2px;
@@ -1855,7 +1867,7 @@ function toggleInvestment(id) {
 
 /* ─── Panneau transactions ────────────────────────────── */
 .tx-panel {
-  background: #f9fafb;
+  background: rgba(255, 255, 255, 0.42);
   border-top: 1px solid #e8e8e5;
   padding: 10px 16px 12px;
 }
@@ -1951,8 +1963,8 @@ function toggleInvestment(id) {
   color: #374151;
 }
 .btn-icon-action.active {
-  background: #eff6ff;
-  color: #3b82f6;
+  background: #f5f3ff;
+  color: #8b5cf6;
 }
 .tx-list {
   margin-bottom: 10px;
@@ -2003,7 +2015,7 @@ function toggleInvestment(id) {
   line-height: 1;
 }
 .btn-tx-edit:hover {
-  color: #2563eb;
+  color: #7c3aed;
 }
 .actual-toggle {
   display: inline-flex;
@@ -2064,7 +2076,7 @@ function toggleInvestment(id) {
   min-width: 100px;
 }
 .tx-input:focus {
-  border-color: #2563eb;
+  border-color: #7c3aed;
 }
 .tx-input--amount {
   max-width: 110px;
@@ -2089,7 +2101,7 @@ function toggleInvestment(id) {
   align-items: center;
   gap: 5px;
   padding: 6px 12px;
-  background: #2563eb;
+  background: #7c3aed;
   color: white;
   border: none;
   border-radius: 6px;
@@ -2099,7 +2111,7 @@ function toggleInvestment(id) {
   flex-shrink: 0;
 }
 .btn-tx-add:hover {
-  background: #1d4ed8;
+  background: #6d28d9;
 }
 .btn-tx-add--income {
   background: #16a34a;
@@ -2166,7 +2178,7 @@ function toggleInvestment(id) {
 
 /* ─── Dark mode ───────────────────────────────────────── */
 :global(.dark) .lines-head {
-  background: #1f2937;
+  background: rgba(31, 41, 55, 0.42);
   border-bottom-color: #374151;
   color: #6b7280;
 }
@@ -2177,7 +2189,7 @@ function toggleInvestment(id) {
   background: rgba(255, 255, 255, 0.04);
 }
 :global(.dark) .line-row--open {
-  background: rgba(37, 99, 235, 0.15);
+  background: rgba(124, 58, 237, 0.15);
 }
 :global(.dark) .line-row--income .line-label {
   color: #4ade80;
@@ -2193,7 +2205,7 @@ function toggleInvestment(id) {
 }
 :global(.dark) .section-totals {
   border-top-color: #374151;
-  background: #1f2937;
+  background: rgba(31, 41, 55, 0.42);
 }
 :global(.dark) .totals-label,
 :global(.dark) .totals-val {
@@ -2222,11 +2234,11 @@ function toggleInvestment(id) {
   color: #d1d5db;
 }
 :global(.dark) .btn-icon-action.active {
-  background: rgba(37, 99, 235, 0.2);
+  background: rgba(124, 58, 237, 0.2);
   color: #60a5fa;
 }
 :global(.dark) .tx-panel {
-  background: #1f2937;
+  background: rgba(31, 41, 55, 0.42);
   border-top-color: #374151;
 }
 :global(.dark) .line-meta {
@@ -2300,7 +2312,7 @@ function toggleInvestment(id) {
   color: #1a1a1a;
 }
 .form-input:focus {
-  border-color: #2563eb;
+  border-color: #7c3aed;
 }
 :global(.dark) .form-input {
   background: #374151;
@@ -2318,9 +2330,9 @@ function toggleInvestment(id) {
   white-space: nowrap;
 }
 .toggle-half--on {
-  border-color: #2563eb;
-  background: #eff6ff;
-  color: #2563eb;
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  color: #7c3aed;
   font-weight: 600;
 }
 :global(.dark) .toggle-half {
@@ -2329,9 +2341,9 @@ function toggleInvestment(id) {
   color: #9ca3af;
 }
 :global(.dark) .toggle-half--on {
-  background: rgba(37, 99, 235, 0.22);
-  border-color: #3b82f6;
-  color: #93c5fd;
+  background: rgba(124, 58, 237, 0.22);
+  border-color: #8b5cf6;
+  color: #c4b5fd;
 }
 .modal-btn {
   padding: 8px 16px;
@@ -2342,11 +2354,11 @@ function toggleInvestment(id) {
   cursor: pointer;
 }
 .modal-btn--primary {
-  background: #2563eb;
+  background: #7c3aed;
   color: #fff;
 }
 .modal-btn--primary:hover {
-  background: #1d4ed8;
+  background: #6d28d9;
 }
 .modal-btn--secondary {
   background: #f1f5f9;
