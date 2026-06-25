@@ -1,14 +1,17 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 
 const props = defineProps({
   modelValue: { default: null }, // theme _id ou null
   themes: { type: Array, required: true },
+  placeholder: { type: String, default: '— Thème —' },
 })
 const emit = defineEmits(['update:modelValue'])
 
 const query = ref('')
 const open = ref(false)
+const inputRef = ref(null)
+const dropStyle = ref({})
 
 const selected = computed(
   () => props.themes.find((t) => t._id === props.modelValue) || null,
@@ -19,6 +22,17 @@ const filtered = computed(() => {
   return props.themes.filter((t) => t.name.toLowerCase().includes(q))
 })
 
+function positionDropdown() {
+  const el = inputRef.value
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  dropStyle.value = {
+    position: 'fixed',
+    top: `${r.bottom + 4}px`,
+    left: `${r.left}px`,
+    width: `${r.width}px`,
+  }
+}
 function choose(t) {
   emit('update:modelValue', t ? t._id : null)
   query.value = ''
@@ -27,6 +41,7 @@ function choose(t) {
 function onFocus() {
   open.value = true
   query.value = ''
+  nextTick(positionDropdown)
 }
 function onBlur() {
   // léger délai pour laisser le clic d'option se déclencher
@@ -40,26 +55,29 @@ function onBlur() {
 <template>
   <div class="theme-select">
     <input
+      ref="inputRef"
       class="theme-input"
       :value="open ? query : selected ? selected.name : ''"
-      :placeholder="selected ? selected.name : '— Thème —'"
+      :placeholder="selected ? selected.name : placeholder"
       @input="query = $event.target.value"
       @focus="onFocus"
       @blur="onBlur"
     />
-    <div v-if="open" class="theme-dropdown">
-      <div class="theme-option theme-option--none" @mousedown.prevent="choose(null)">— Aucun —</div>
-      <div
-        v-for="t in filtered"
-        :key="t._id"
-        class="theme-option"
-        @mousedown.prevent="choose(t)"
-      >
-        <span class="theme-dot" :style="{ background: t.color || '#d1d5db' }"></span>
-        {{ t.name }}
+    <teleport to="body">
+      <div v-if="open" class="theme-dropdown" :style="dropStyle">
+        <div class="theme-option theme-option--none" @mousedown.prevent="choose(null)">— Aucun —</div>
+        <div
+          v-for="t in filtered"
+          :key="t._id"
+          class="theme-option"
+          @mousedown.prevent="choose(t)"
+        >
+          <span class="theme-dot" :style="{ background: t.color || '#d1d5db' }"></span>
+          {{ t.name }}
+        </div>
+        <div v-if="!filtered.length" class="theme-empty">Aucun thème</div>
       </div>
-      <div v-if="!filtered.length" class="theme-empty">Aucun thème</div>
-    </div>
+    </teleport>
   </div>
 </template>
 
@@ -86,24 +104,24 @@ function onBlur() {
   border-color: #4b5563;
   color: #f3f4f6;
 }
+</style>
+
+<style>
+/* Menu téléporté au body : styles globaux (pas scoped) */
 .theme-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
-  max-height: 220px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+  max-height: 240px;
   overflow-y: auto;
-  z-index: 10;
+  z-index: 200;
 }
-:global(.dark) .theme-dropdown {
+.dark .theme-dropdown {
   background: #1f2937;
   border-color: #374151;
 }
-.theme-option {
+.theme-dropdown .theme-option {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -112,25 +130,25 @@ function onBlur() {
   color: #374151;
   cursor: pointer;
 }
-.theme-option:hover {
+.theme-dropdown .theme-option:hover {
   background: #f3f4f6;
 }
-:global(.dark) .theme-option {
+.dark .theme-dropdown .theme-option {
   color: #d1d5db;
 }
-:global(.dark) .theme-option:hover {
+.dark .theme-dropdown .theme-option:hover {
   background: #374151;
 }
-.theme-option--none {
+.theme-dropdown .theme-option--none {
   color: #9ca3af;
 }
-.theme-dot {
+.theme-dropdown .theme-dot {
   width: 9px;
   height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.theme-empty {
+.theme-dropdown .theme-empty {
   padding: 8px 10px;
   font-size: 12px;
   color: #9ca3af;

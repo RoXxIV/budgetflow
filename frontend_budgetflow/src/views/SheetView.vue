@@ -27,6 +27,7 @@ import { buildSnapshotMap, computeAccountDeltaMap, resolveBalance } from '@/util
 import AppModal from '@/components/AppModal.vue'
 import ChipSelect from '@/components/ChipSelect.vue'
 import ThemeSelect from '@/components/ThemeSelect.vue'
+import SectionCard from '@/components/SectionCard.vue'
 
 // ─── State global ────────────────────────────────────────
 const sheets = ref([])
@@ -57,6 +58,15 @@ function openCreateForm() {
   showCreateForm.value = true
 }
 const openLineId = ref(null)
+
+// Sections repliables (repliées par défaut)
+const openSections = ref({})
+function toggleSection(id) {
+  openSections.value[id] = !openSections.value[id]
+}
+function isSectionOpen(id) {
+  return !!openSections.value[id]
+}
 
 // Formulaires contributions/investissements
 const newContribForms = ref({}) // { [goalId]: { amount, date, notes } }
@@ -177,6 +187,10 @@ const linesBySection = computed(() => {
     .map((g) => ({ ...g, hasPlanned: g.lines.some((l) => (l.plannedAmount || 0) > 0) }))
     .sort((a, b) => (a.section.order ?? Infinity) - (b.section.order ?? Infinity))
 })
+
+// Répartition des sections en 2 colonnes (masonry flex, sans trou ni saut)
+const sectionsLeft = computed(() => linesBySection.value.filter((_, i) => i % 2 === 0))
+const sectionsRight = computed(() => linesBySection.value.filter((_, i) => i % 2 === 1))
 
 // ─── Snapshots ────────────────────────────────────────────
 // Map { accountId → balance_initiale } construite depuis les AccountSnapshot du sheet
@@ -365,10 +379,11 @@ const liveAccountBalances = computed(() => {
 const sharing = computed(() => {
   if (!settings.value) return null
   const partnerRentAmount = settings.value.partnerRentAmount || 0
-  const sharedLines = lines.value.filter((l) => l.isShared)
-  const sharedSum = sharedLines.reduce((s, l) => s + (l.actualAmount || l.plannedAmount || 0), 0)
+  // ½ est porté par chaque entrée → on somme les entrées marquées partagées
+  const allEntries = Object.values(lineTxs.value).flat()
+  const sharedSum = allEntries.filter((e) => e.isShared).reduce((s, e) => s + (e.amount || 0), 0)
 
-  // Dépassement EDF : si la ligne liée est ½ et sans actualAmount, ajouter l'excédent
+  // Dépassement EDF : si la ligne (template) est ½ et sans réel saisi, ajouter l'excédent estimé
   let edfOverage = 0
   for (const reading of readings.value) {
     const templateLineId = reading.meter?.budgetLine?._id || reading.meter?.budgetLine
@@ -656,9 +671,12 @@ async function saveLineModal() {
         budgetLine: line._id,
         label: f.label,
         details: (f.details || '').trim() || undefined,
+        theme: f.theme || undefined,
         amount,
         flow: 'expense',
         account: f.fromAccount || undefined,
+        paymentMethod: f.paymentMethod || undefined,
+        isShared: f.isShared,
         date: defaultTxDate(line),
       })
     }
@@ -692,7 +710,7 @@ const lineTxs = ref({}) // { [lineId]: [transaction] }
 const newLineTxForms = ref({}) // { [lineId]: { amount, details } }
 
 function defaultLineTxForm() {
-  return { amount: '', details: '' }
+  return { amount: '', details: '', theme: null }
 }
 
 // Date par défaut d'une entrée :
@@ -722,13 +740,48 @@ function lineDate(line) {
   return entries.length === 1 ? entries[0].date : null
 }
 
+// Résout un thème (id ou objet déjà peuplé) en objet { name, color }
+function resolveTheme(t) {
+  if (!t) return null
+  if (typeof t === 'object') return t
+  return themes.value.find((x) => x._id === t) || null
+}
+
+// Thème effectif d'une entrée : le sien, sinon repli sur le thème de la ligne (anciennes entrées)
+function entryThemeId(line, t) {
+  return (t.theme?._id || t.theme) || (line.theme?._id || line.theme) || null
+}
+function entryTheme(line, t) {
+  return resolveTheme(entryThemeId(line, t))
+}
+
+// Badge thème du parent : affiché seulement si toutes les entrées partagent UN SEUL thème.
+// Plusieurs thèmes différents → pas de badge (on déroule pour voir chacune).
+function lineThemeBadge(line) {
+  const entries = lineEntries(line)
+  if (!entries.length) return resolveTheme(line.theme)
+  const ids = new Set(entries.map((t) => entryThemeId(line, t)))
+  return ids.size === 1 ? resolveTheme([...ids][0]) : null
+}
+
+// Au moins une entrée partagée ½
+function lineHasShared(line) {
+  return lineEntries(line).some((t) => t.isShared)
+}
+
 function toggleLineTx(line) {
   if (openTxLineId.value === line._id) {
     openTxLineId.value = null
     return
   }
   openTxLineId.value = line._id
-  if (!newLineTxForms.value[line._id]) newLineTxForms.value[line._id] = defaultLineTxForm()
+  if (!newLineTxForms.value[line._id]) {
+    newLineTxForms.value[line._id] = {
+      amount: '',
+      details: '',
+      theme: line.theme?._id || line.theme || null, // pré-remplissage du thème
+    }
+  }
 }
 
 async function submitLineTx(line) {
@@ -740,6 +793,7 @@ async function submitLineTx(line) {
     budgetLine: line._id,
     label: line.label,
     details: (form.details || '').trim() || undefined,
+    theme: form.theme || undefined,
     amount,
     flow: 'expense',
     account: line.fromAccount?._id || line.fromAccount || undefined,
@@ -747,7 +801,8 @@ async function submitLineTx(line) {
   })
   lineTxs.value[line._id] = [...(lineTxs.value[line._id] || []), tx]
   line.actualAmount = (line.actualAmount || 0) + amount // miroir du $inc backend
-  newLineTxForms.value[line._id] = defaultLineTxForm()
+  // on garde le thème choisi pour l'entrée suivante (pré-remplissage)
+  newLineTxForms.value[line._id] = { amount: '', details: '', theme: form.theme || null }
 }
 
 async function deleteLineTx(line, txId) {
@@ -759,7 +814,7 @@ async function deleteLineTx(line, txId) {
 
 // ─── Édition d'une entrée (montant / détails / date) ──────
 const editingTxId = ref(null)
-const editTxBuffer = ref({ amount: '', details: '', date: '' })
+const editTxBuffer = ref({ amount: '', details: '', date: '', theme: null })
 
 function startEditTx(t) {
   editingTxId.value = t._id
@@ -767,6 +822,7 @@ function startEditTx(t) {
     amount: t.amount,
     details: t.details || '',
     date: new Date(t.date).toISOString().substring(0, 10),
+    theme: t.theme?._id || t.theme || null,
   }
 }
 
@@ -780,6 +836,7 @@ async function saveEditTx(line, t) {
   const { data: updated } = await updateTransaction(t._id, {
     amount,
     details: (editTxBuffer.value.details || '').trim() || undefined,
+    theme: editTxBuffer.value.theme || null,
     date: editTxBuffer.value.date,
   })
   const arr = lineTxs.value[line._id] || []
@@ -788,6 +845,122 @@ async function saveEditTx(line, t) {
   if (idx !== -1) arr[idx] = updated
   line.actualAmount = (line.actualAmount || 0) + (amount - oldAmount)
   editingTxId.value = null
+}
+
+// ─── Modal entrée (ajout / édition d'une sous-ligne) ──────
+const txModalOpen = ref(false)
+const txModalMode = ref('add') // 'add' | 'edit'
+const txModalLine = ref(null)
+const txModalTx = ref(null)
+const txForm = ref({})
+
+function openAddTxModal(line) {
+  txModalMode.value = 'add'
+  txModalLine.value = line
+  txModalTx.value = null
+  const prev = newLineTxForms.value[line._id] || {}
+  txForm.value = {
+    amount: '',
+    details: '',
+    theme: prev.theme || line.theme?._id || line.theme || null,
+    account:
+      line.fromAccount?._id ||
+      line.fromAccount ||
+      settings.value?.mainAccount?._id ||
+      settings.value?.mainAccount ||
+      '',
+    paymentMethod: line.paymentMethod || 'CB',
+    isShared: !!line.isShared,
+    date: defaultTxDate(line),
+  }
+  txModalOpen.value = true
+}
+
+function openEditTxModal(line, t) {
+  txModalMode.value = 'edit'
+  txModalLine.value = line
+  txModalTx.value = t
+  txForm.value = {
+    amount: t.amount,
+    details: t.details || '',
+    theme: t.theme?._id || t.theme || line.theme?._id || line.theme || null,
+    account: t.account?._id || t.account || '',
+    paymentMethod: t.paymentMethod || 'CB',
+    isShared: !!t.isShared,
+    date: new Date(t.date).toISOString().substring(0, 10),
+  }
+  txModalOpen.value = true
+}
+
+function closeTxModal() {
+  txModalOpen.value = false
+}
+
+async function saveTxModal() {
+  const f = txForm.value
+  const amount = parseFloat(f.amount)
+  if (isNaN(amount) || !amount) return
+  const line = txModalLine.value
+
+  if (txModalMode.value === 'add') {
+    const { data: tx } = await createTransaction({
+      sheet: currentSheet.value._id,
+      budgetLine: line._id,
+      label: line.label,
+      details: (f.details || '').trim() || undefined,
+      theme: f.theme || undefined,
+      amount,
+      flow: 'expense',
+      account: f.account || undefined,
+      paymentMethod: f.paymentMethod || undefined,
+      isShared: f.isShared,
+      date: f.date,
+    })
+    lineTxs.value[line._id] = [...(lineTxs.value[line._id] || []), tx]
+    line.actualAmount = (line.actualAmount || 0) + amount
+    // mémorise le thème pour pré-remplir la prochaine entrée
+    newLineTxForms.value[line._id] = { amount: '', details: '', theme: f.theme || null }
+  } else {
+    const t = txModalTx.value
+    const { data: updated } = await updateTransaction(t._id, {
+      details: (f.details || '').trim() || undefined,
+      theme: f.theme || null,
+      amount,
+      account: f.account || null,
+      paymentMethod: f.paymentMethod || undefined,
+      isShared: f.isShared,
+      date: f.date,
+    })
+    const arr = lineTxs.value[line._id] || []
+    const idx = arr.findIndex((x) => x._id === t._id)
+    const oldAmount = idx !== -1 ? arr[idx].amount : 0
+    if (idx !== -1) arr[idx] = updated
+    line.actualAmount = (line.actualAmount || 0) + (amount - oldAmount)
+  }
+  txModalOpen.value = false
+}
+
+// ─── Contexte passé à <SectionCard> (évite ~20 props) ─────
+const sectionCtx = {
+  toggleSection,
+  isSectionOpen,
+  openAddLineModal,
+  openEditLineModal,
+  isTxOpen: (line) => openTxLineId.value === line._id,
+  toggleLineTx,
+  lineEntries,
+  lineThemeBadge,
+  lineDate,
+  lineHasShared,
+  entryTheme,
+  actualClass,
+  remainingClass,
+  remaining,
+  openEditTxModal,
+  openAddTxModal,
+  deleteLineTx,
+  fmt,
+  fmtDate,
 }
 
 // ─── Ajout revenu (nouvelle ligne) ───────────────────────
@@ -1020,9 +1193,11 @@ function toggleInvestment(id) {
       </div>
 
       <!-- ─── Grille 2 colonnes ──────────────────── -->
-      <div class="columns-2 gap-5">
+      <div class="flex gap-5 items-start">
+        <!-- ─── Colonne gauche ─────────────────────────── -->
+        <div class="flex-1 min-w-0 flex flex-col gap-5">
         <!-- ─── Revenus ──────────────────────────────── -->
-        <div class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
+        <div class="glass-card overflow-hidden">
           <div class="flex items-center justify-between text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-green-50 dark:bg-green-950/20">
             <span class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background: #16a34a"></span>
@@ -1135,181 +1310,15 @@ function toggleInvestment(id) {
           </div>
         </div>
 
-        <!-- ─── Lignes budgétaires ────────────────────── -->
-        <div v-for="group in linesBySection" :key="group.section._id" class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
-          <div class="flex items-center justify-between text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-            <span class="flex items-center gap-2">
-              <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ background: group.section.color }"></span>
-              {{ group.section.name }}
-            </span>
-            <button class="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/50 border-none rounded-md py-1 px-2.5 cursor-pointer font-medium" @click="openAddLineModal(group.section._id)">
-              <font-awesome-icon icon="plus" /> Ajouter
-            </button>
-          </div>
-
-          <div class="lines-table">
-            <div class="lines-head has-date" :class="{ 'lines-row--no-planned': !group.hasPlanned }">
-              <span>Description</span>
-              <span class="col-date">Date</span>
-              <span v-if="group.hasPlanned" class="col-r">Prévu</span>
-              <span class="col-r">Réel</span>
-              <span v-if="group.hasPlanned" class="col-r">Reste</span>
-              <span class="col-flags">½</span>
-              <span></span>
-            </div>
-
-            <div v-if="!group.lines.length" class="section-empty">Aucune ligne budgétaire</div>
-
-            <div v-for="line in group.lines" :key="line._id" class="line-wrap">
-              <div
-                class="line-row has-date"
-                :class="{
-                  'line-row--open': openLineId === line._id,
-                  'line-row--income': line.flow === 'income',
-                  'lines-row--no-planned': !group.hasPlanned,
-                }"
-              >
-                <span class="line-label">
-                  {{ line.label
-                  }}<template v-if="lineEntries(line).length === 1 && lineEntries(line)[0].details">
-                    - {{ lineEntries(line)[0].details }}</template>
-                  <span
-                    v-if="line.theme"
-                    class="theme-badge"
-                    :style="{ background: line.theme.color + '22', color: line.theme.color }"
-                  >
-                    {{ line.theme.name }}
-                  </span>
-                </span>
-                <span class="col-date line-date">{{ lineDate(line) ? fmtDate(lineDate(line)) : '—' }}</span>
-                <span v-if="group.hasPlanned" class="col-r line-planned">{{ fmt(line.plannedAmount) }} €</span>
-                <span class="col-r">
-                  <button
-                    type="button"
-                    class="actual-toggle"
-                    :class="actualClass(line)"
-                    @click.stop="toggleLineTx(line)"
-                    title="Voir / ajouter les entrées"
-                  >
-                    {{ fmt(line.actualAmount || 0) }} €
-                    <span class="line-chevron">{{ openTxLineId === line._id ? '▼' : '▶' }}</span>
-                  </button>
-                </span>
-                <span v-if="group.hasPlanned" class="col-r line-remaining" :class="remainingClass(line)">
-                  {{ fmt(remaining(line)) }} €
-                </span>
-                <span class="col-flags">
-                  <span v-if="line.isShared" class="flag-on">½</span>
-                </span>
-                <button
-                  class="btn-icon-action"
-                  @click.stop="openEditLineModal(line)"
-                  title="Modifier"
-                >
-                  <font-awesome-icon icon="pen" />
-                </button>
-              </div>
-
-              <!-- Panneau : transactions de la ligne (les entrées qui composent le total) -->
-              <div v-if="openTxLineId === line._id" class="tx-panel" @click.stop>
-                <div v-if="(lineTxs[line._id] || []).length" class="tx-list">
-                  <template v-for="t in lineTxs[line._id]" :key="t._id">
-                    <!-- Édition d'une entrée -->
-                    <div v-if="editingTxId === t._id" class="tx-add-form tx-edit-form" @click.stop>
-                      <input
-                        v-model.number="editTxBuffer.amount"
-                        type="number"
-                        step="0.01"
-                        class="tx-input tx-input--amount"
-                        placeholder="Montant €"
-                        @keyup.enter="saveEditTx(line, t)"
-                      />
-                      <input
-                        v-model="editTxBuffer.details"
-                        class="tx-input"
-                        placeholder="Détails (optionnel)"
-                      />
-                      <input
-                        v-model="editTxBuffer.date"
-                        type="date"
-                        class="tx-input tx-input--date"
-                      />
-                      <button class="btn-tx-add" @click.stop="saveEditTx(line, t)">OK</button>
-                      <button class="btn-tx-del" @click.stop="cancelEditTx">✕</button>
-                    </div>
-                    <!-- Affichage d'une entrée -->
-                    <div v-else class="tx-row tx-row--line">
-                      <span class="tx-date">{{ fmtDate(t.date) }}</span>
-                      <span class="tx-label">
-                        {{ line.label }}<template v-if="t.details"> - {{ t.details }}</template>
-                      </span>
-                      <span class="tx-amount tx-expense">{{ fmt(t.amount) }} €</span>
-                      <button
-                        class="btn-tx-edit"
-                        @click.stop="startEditTx(t)"
-                        title="Modifier"
-                      ><font-awesome-icon icon="pen" /></button>
-                      <button
-                        class="btn-tx-del"
-                        @click.stop="deleteLineTx(line, t._id)"
-                        title="Supprimer"
-                      >✕</button>
-                    </div>
-                  </template>
-                </div>
-                <p v-else class="tx-empty">Aucune entrée — ajoute un montant ci-dessous</p>
-
-                <div class="tx-add-form" @click.stop>
-                  <input
-                    v-model.number="newLineTxForms[line._id].amount"
-                    type="number"
-                    step="0.01"
-                    class="tx-input tx-input--amount"
-                    placeholder="Montant €"
-                    @keyup.enter="submitLineTx(line)"
-                  />
-                  <input
-                    v-model="newLineTxForms[line._id].details"
-                    class="tx-input"
-                    placeholder="Détails (optionnel)"
-                  />
-                  <button class="btn-tx-add" @click.stop="submitLineTx(line)">
-                    <font-awesome-icon icon="plus" /> Ajouter
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Totaux de la section -->
-            <div
-              v-if="group.lines.length"
-              class="section-totals has-date dark:border-gray-700"
-              :class="{ 'section-totals--no-planned': !group.hasPlanned }"
-            >
-              <span class="totals-label">Total</span>
-              <span class="col-date"></span>
-              <span v-if="group.hasPlanned" class="col-r totals-val"
-                >{{ fmt(group.lines.reduce((s, l) => s + (l.plannedAmount || 0), 0)) }} €</span
-              >
-              <span class="col-r totals-val"
-                >{{ fmt(group.lines.reduce((s, l) => s + (l.actualAmount || 0), 0)) }} €</span
-              >
-              <span
-                v-if="group.hasPlanned"
-                class="col-r totals-val"
-                :class="
-                  group.lines.reduce((s, l) => s + remaining(l), 0) >= 0 ? 'text-ok' : 'text-over'
-                "
-              >
-                {{ fmt(group.lines.reduce((s, l) => s + remaining(l), 0)) }} €
-              </span>
-              <span class="col-flags"></span>
-            </div>
-          </div>
-        </div>
-
+        <!-- ─── Sections (colonne gauche) ─────────────── -->
+        <SectionCard
+          v-for="group in sectionsLeft"
+          :key="group.section._id"
+          :group="group"
+          :ctx="sectionCtx"
+        />
         <!-- ─── Objectifs d'épargne ───────────────────── -->
-        <div v-if="goals.length" class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
+        <div v-if="goals.length" class="glass-card overflow-hidden">
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <font-awesome-icon icon="piggy-bank" /> Objectifs d'épargne
           </h3>
@@ -1391,7 +1400,7 @@ function toggleInvestment(id) {
         </div>
 
         <!-- ─── Investissements ───────────────────────── -->
-        <div v-if="investments.length" class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
+        <div v-if="investments.length" class="glass-card overflow-hidden">
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <font-awesome-icon icon="chart-line" /> Investissements
           </h3>
@@ -1488,8 +1497,21 @@ function toggleInvestment(id) {
           </div>
         </div>
 
+        </div>
+
+        <!-- ─── Colonne droite ─────────────────────────── -->
+        <div class="flex-1 min-w-0 flex flex-col gap-5">
+        <SectionCard
+          v-for="group in sectionsRight"
+          :key="group.section._id"
+          :group="group"
+          :ctx="sectionCtx"
+        />
+
+        <!-- ─── Modules (objectifs, invest, énergie, 50/50, soldes) ─── -->
+
         <!-- ─── Relevés EDF ────────────────────────────── -->
-        <div v-if="readings.length" class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full">
+        <div v-if="readings.length" class="glass-card overflow-hidden">
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <font-awesome-icon icon="bolt" /> Relevés de compteurs
           </h3>
@@ -1539,7 +1561,7 @@ function toggleInvestment(id) {
         <!-- ─── Calcul 50/50 ──────────────────────────── -->
         <div
           v-if="sharing && (sharing.sharedSum > 0 || sharing.partnerRentAmount > 0)"
-          class="glass-card overflow-hidden break-inside-avoid mb-5 inline-block w-full"
+          class="glass-card overflow-hidden"
         >
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <font-awesome-icon icon="money-bill" /> Depenses partagées
@@ -1575,8 +1597,9 @@ function toggleInvestment(id) {
             </div>
           </div>
         </div>
+        </div>
       </div>
-      <!-- fin grille 2 colonnes -->
+      <!-- fin colonnes -->
 
       <!-- ─── Snapshots comptes (lecture seule) ────────── -->
       <div v-if="snapshots.length" class="glass-card overflow-hidden opacity-85">
@@ -1636,28 +1659,34 @@ function toggleInvestment(id) {
           <label class="form-label">Vers</label>
           <ChipSelect v-model="lineForm.toAccount" :options="accountOptions" allow-none />
         </div>
-        <div class="form-field">
-          <label class="form-label">Mode de paiement</label>
-          <ChipSelect v-model="lineForm.paymentMethod" :options="paymentOptions" />
-        </div>
 
-        <div class="form-row">
-          <div class="form-field form-field--grow">
-            <label class="form-label">Thème</label>
-            <ThemeSelect v-model="lineForm.theme" :themes="themes" />
-          </div>
+        <!-- Paiement / Thème / ½ : seulement à la création (1ʳᵉ entrée). En édition c'est par entrée. -->
+        <template v-if="lineModalMode === 'add'">
           <div class="form-field">
-            <label class="form-label">Partagé ½</label>
-            <button
-              type="button"
-              class="toggle-half"
-              :class="{ 'toggle-half--on': lineForm.isShared }"
-              @click="lineForm.isShared = !lineForm.isShared"
-            >
-              {{ lineForm.isShared ? '½ Activé' : '½ Désactivé' }}
-            </button>
+            <label class="form-label">Mode de paiement</label>
+            <ChipSelect v-model="lineForm.paymentMethod" :options="paymentOptions" />
           </div>
-        </div>
+          <div class="form-row">
+            <div class="form-field form-field--grow">
+              <label class="form-label">Thème</label>
+              <ThemeSelect v-model="lineForm.theme" :themes="themes" />
+            </div>
+            <div class="form-field">
+              <label class="form-label">Partagé ½</label>
+              <button
+                type="button"
+                class="toggle-half"
+                :class="{ 'toggle-half--on': lineForm.isShared }"
+                @click="lineForm.isShared = !lineForm.isShared"
+              >
+                {{ lineForm.isShared ? '½ Activé' : '½ Désactivé' }}
+              </button>
+            </div>
+          </div>
+        </template>
+        <p v-else class="text-[12px] text-gray-400 dark:text-gray-500">
+          Paiement, thème et ½ se règlent sur chaque entrée (déroule la ligne).
+        </p>
       </div>
 
       <template #footer>
@@ -1674,10 +1703,73 @@ function toggleInvestment(id) {
         </button>
       </template>
     </AppModal>
+
+    <!-- ─── Modal entrée (sous-ligne) ────────────────────────── -->
+    <AppModal
+      v-if="txModalOpen"
+      :title="(txModalMode === 'add' ? 'Nouvelle entrée' : 'Modifier l\'entrée') + (txModalLine ? ' — ' + txModalLine.label : '')"
+      @close="closeTxModal"
+    >
+      <div class="form-grid">
+        <div class="form-row">
+          <div class="form-field form-field--grow">
+            <label class="form-label">Montant (€)</label>
+            <input
+              v-model.number="txForm.amount"
+              type="number"
+              step="0.01"
+              class="form-input"
+              placeholder="0.00"
+              @keyup.enter="saveTxModal"
+            />
+          </div>
+          <div class="form-field form-field--grow">
+            <label class="form-label">Date</label>
+            <input v-model="txForm.date" type="date" class="form-input" />
+          </div>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Détails (optionnel)</label>
+          <input v-model="txForm.details" class="form-input" placeholder="Ex: écouteurs" />
+        </div>
+        <div class="form-field">
+          <label class="form-label">Thème</label>
+          <ThemeSelect v-model="txForm.theme" :themes="themes" />
+        </div>
+        <div class="form-field">
+          <label class="form-label">Compte</label>
+          <ChipSelect v-model="txForm.account" :options="accountOptions" allow-none />
+        </div>
+        <div class="form-row">
+          <div class="form-field form-field--grow">
+            <label class="form-label">Mode de paiement</label>
+            <ChipSelect v-model="txForm.paymentMethod" :options="paymentOptions" />
+          </div>
+          <div class="form-field">
+            <label class="form-label">Partagé ½</label>
+            <button
+              type="button"
+              class="toggle-half"
+              :class="{ 'toggle-half--on': txForm.isShared }"
+              @click="txForm.isShared = !txForm.isShared"
+            >
+              {{ txForm.isShared ? '½ Activé' : '½ Désactivé' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <button class="modal-btn modal-btn--secondary" @click="closeTxModal">Annuler</button>
+        <button class="modal-btn modal-btn--primary" @click="saveTxModal">
+          {{ txModalMode === 'add' ? 'Ajouter' : 'Sauver' }}
+        </button>
+      </template>
+    </AppModal>
   </div>
 </template>
 
-<style scoped>
+<style>
 /* ─── Form helper (flex override on label input) ───────── */
 .expense-add-form__label {
   flex: 1;
@@ -2017,6 +2109,66 @@ function toggleInvestment(id) {
 .btn-tx-edit:hover {
   color: #7c3aed;
 }
+.tx-theme-wrap {
+  flex: 0 0 150px;
+  min-width: 120px;
+}
+/* Animation d'ouverture/fermeture du panneau d'entrées */
+.expand-enter-active,
+.expand-leave-active {
+  transition: max-height 0.24s ease, opacity 0.24s ease, transform 0.24s ease;
+  overflow: hidden;
+}
+.expand-enter-from,
+.expand-leave-to {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.expand-enter-to,
+.expand-leave-from {
+  max-height: 2200px;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.entry-count {
+  margin-left: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.1);
+  padding: 1px 7px;
+  border-radius: 20px;
+}
+.dark .entry-count {
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.18);
+}
+.btn-add-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 7px 14px;
+  border: 1.5px dashed #c4b5fd;
+  border-radius: 9px;
+  background: rgba(124, 58, 237, 0.06);
+  color: #7c3aed;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn-add-entry:hover {
+  background: rgba(124, 58, 237, 0.12);
+  border-color: #7c3aed;
+}
+.dark .btn-add-entry {
+  border-color: rgba(139, 92, 246, 0.5);
+  background: rgba(139, 92, 246, 0.12);
+  color: #c4b5fd;
+}
 .actual-toggle {
   display: inline-flex;
   align-items: center;
@@ -2177,101 +2329,101 @@ function toggleInvestment(id) {
 }
 
 /* ─── Dark mode ───────────────────────────────────────── */
-:global(.dark) .lines-head {
+.dark .lines-head {
   background: rgba(31, 41, 55, 0.42);
   border-bottom-color: #374151;
   color: #6b7280;
 }
-:global(.dark) .line-wrap {
+.dark .line-wrap {
   border-bottom-color: #1f2937;
 }
-:global(.dark) .line-row:hover {
+.dark .line-row:hover {
   background: rgba(255, 255, 255, 0.04);
 }
-:global(.dark) .line-row--open {
+.dark .line-row--open {
   background: rgba(124, 58, 237, 0.15);
 }
-:global(.dark) .line-row--income .line-label {
+.dark .line-row--income .line-label {
   color: #4ade80;
 }
-:global(.dark) .line-label {
+.dark .line-label {
   color: #d1d5db;
 }
-:global(.dark) .line-planned {
+.dark .line-planned {
   color: #9ca3af;
 }
-:global(.dark) .line-actual {
+.dark .line-actual {
   color: #f3f4f6;
 }
-:global(.dark) .section-totals {
+.dark .section-totals {
   border-top-color: #374151;
   background: rgba(31, 41, 55, 0.42);
 }
-:global(.dark) .totals-label,
-:global(.dark) .totals-val {
+.dark .totals-label,
+.dark .totals-val {
   color: #e5e7eb;
 }
-:global(.dark) .inline-actual-input {
+.dark .inline-actual-input {
   color: #f3f4f6;
 }
-:global(.dark) .inline-actual-input:hover,
-:global(.dark) .inline-actual-input:focus {
+.dark .inline-actual-input:hover,
+.dark .inline-actual-input:focus {
   border-color: #4b5563;
   background: #374151;
 }
-:global(.dark) .actual-toggle {
+.dark .actual-toggle {
   color: #f3f4f6;
 }
-:global(.dark) .actual-toggle:hover {
+.dark .actual-toggle:hover {
   border-color: #4b5563;
   background: #374151;
 }
-:global(.dark) .btn-icon-action {
+.dark .btn-icon-action {
   color: #6b7280;
 }
-:global(.dark) .btn-icon-action:hover {
+.dark .btn-icon-action:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #d1d5db;
 }
-:global(.dark) .btn-icon-action.active {
+.dark .btn-icon-action.active {
   background: rgba(124, 58, 237, 0.2);
   color: #60a5fa;
 }
-:global(.dark) .tx-panel {
+.dark .tx-panel {
   background: rgba(31, 41, 55, 0.42);
   border-top-color: #374151;
 }
-:global(.dark) .line-meta {
+.dark .line-meta {
   border-bottom-color: #374151;
 }
-:global(.dark) .line-meta-check {
+.dark .line-meta-check {
   color: #d1d5db;
 }
-:global(.dark) .income-actual-label {
+.dark .income-actual-label {
   color: #9ca3af;
 }
-:global(.dark) .tx-row {
+.dark .tx-row {
   background: #111827;
 }
-:global(.dark) .tx-label {
+.dark .tx-label {
   color: #d1d5db;
 }
-:global(.dark) .tx-amount {
+.dark .tx-amount {
   color: #d1d5db;
 }
-:global(.dark) .tx-input,
-:global(.dark) .tx-select {
+.dark .tx-input,
+.dark .tx-select {
   background: #374151;
   border-color: #4b5563;
   color: #f3f4f6;
 }
-:global(.dark) .edf-block {
+.dark .edf-block {
   border-bottom-color: #374151;
 }
-:global(.dark) .edf-name {
+.dark .edf-name {
   color: #f9fafb;
 }
-:global(.dark) .edf-cost {
+.dark .edf-cost {
   color: #9ca3af;
 }
 
@@ -2314,7 +2466,7 @@ function toggleInvestment(id) {
 .form-input:focus {
   border-color: #7c3aed;
 }
-:global(.dark) .form-input {
+.dark .form-input {
   background: #374151;
   border-color: #4b5563;
   color: #f3f4f6;
@@ -2335,12 +2487,12 @@ function toggleInvestment(id) {
   color: #7c3aed;
   font-weight: 600;
 }
-:global(.dark) .toggle-half {
+.dark .toggle-half {
   background: #374151;
   border-color: #4b5563;
   color: #9ca3af;
 }
-:global(.dark) .toggle-half--on {
+.dark .toggle-half--on {
   background: rgba(124, 58, 237, 0.22);
   border-color: #8b5cf6;
   color: #c4b5fd;
@@ -2364,7 +2516,7 @@ function toggleInvestment(id) {
   background: #f1f5f9;
   color: #475569;
 }
-:global(.dark) .modal-btn--secondary {
+.dark .modal-btn--secondary {
   background: #374151;
   color: #d1d5db;
 }

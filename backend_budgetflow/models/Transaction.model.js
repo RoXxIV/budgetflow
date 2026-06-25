@@ -18,6 +18,11 @@ const TransactionSchema = new Schema({
 
   details: String, // précision de l'entrée, affichée "label - details" (ex: Amazon - écouteurs)
 
+  theme: {
+    type: Types.ObjectId,
+    ref: "Theme",
+  }, // catégorie propre à cette entrée (gérée comme details : par entrée)
+
   amount: {
     type: Number,
     required: true,
@@ -33,6 +38,16 @@ const TransactionSchema = new Schema({
     type: Types.ObjectId,
     ref: "Account",
   }, // compte utilisé
+
+  paymentMethod: {
+    type: String,
+    enum: ["CB", "virement", "especes", "autre"],
+  }, // moyen de paiement de cette entrée
+
+  isShared: {
+    type: Boolean,
+    default: false,
+  }, // dépense partagée 50/50, propre à cette entrée
 
   date: {
     type: Date,

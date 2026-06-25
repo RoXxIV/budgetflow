@@ -99,6 +99,17 @@
 .dark .kpi-icon--red { background: rgba(239, 68, 68, 0.2); color: #f87171; }
 .dark .kpi-icon--gray { background: rgba(148, 163, 184, 0.18); color: #cbd5e1; }
 .dark .kpi-icon--violet { background: rgba(139, 92, 246, 0.22); color: #c4b5fd; }
+
+/* Mini-libellé sur les totaux d'une section repliée (Prévu/Réel/Reste) */
+.totals-cap {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
+  line-height: 1.2;
+}
 .kpi-tile + .kpi-tile::before {
   content: '';
   position: absolute;
