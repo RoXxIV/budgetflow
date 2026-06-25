@@ -1,0 +1,23 @@
+{
+  "name": "backend_budgetflow",
+  "version": "1.0.0",
+  "description": "Application budgétaire personnelle (mono-utilisateur). Pas d'auth pour l'instant, à ajouter plus tard.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "mongoose": "^9.2.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
