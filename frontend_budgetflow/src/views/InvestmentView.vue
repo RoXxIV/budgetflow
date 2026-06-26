@@ -107,15 +107,15 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
 
     <!-- Totaux -->
     <div class="flex gap-3 mb-5">
-      <div class="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-4.5 py-3.5 flex flex-col gap-1">
+      <div class="flex-1 glass-card px-4.5 py-3.5 flex flex-col gap-1">
         <span class="text-[12px] text-gray-400 font-medium">Total investi</span>
         <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalInvested) }} €</span>
       </div>
-      <div class="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-4.5 py-3.5 flex flex-col gap-1">
+      <div class="flex-1 glass-card px-4.5 py-3.5 flex flex-col gap-1">
         <span class="text-[12px] text-gray-400 font-medium">DCA mensuel</span>
         <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalMonthly) }} €/mois</span>
       </div>
-      <div class="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-4.5 py-3.5 flex flex-col gap-1">
+      <div class="flex-1 glass-card px-4.5 py-3.5 flex flex-col gap-1">
         <span class="text-[12px] text-gray-400 font-medium">Valeur actuelle totale</span>
         <div class="flex items-baseline gap-2.5">
           <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalCurrentValue) }} €</span>
@@ -127,7 +127,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
     </div>
 
     <!-- Formulaire ajout -->
-    <div v-if="showAddForm" class="bg-white dark:bg-gray-800 border border-violet-500/25 rounded-[10px] px-5 py-4.5 mb-5">
+    <div v-if="showAddForm" class="glass-card px-5 py-4.5 mb-5">
       <h3 class="text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-3.5">Nouvel investissement</h3>
       <div class="grid gap-2.5 mb-3.5" style="grid-template-columns: 1fr 120px 160px 130px">
         <div class="flex flex-col gap-1">
@@ -160,7 +160,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
 
     <!-- Liste -->
     <div class="flex flex-col gap-3">
-      <div v-for="inv in investments" :key="inv._id" class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-4.5 py-4">
+      <div v-for="inv in investments" :key="inv._id" class="glass-card px-4.5 py-4">
 
         <!-- Mode édition -->
         <template v-if="editingId === inv._id">

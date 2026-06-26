@@ -69,7 +69,7 @@ const sheetToDelete = computed(() =>
       class="fixed inset-0 bg-black/40 flex items-center justify-center z-1000"
       @click.self="cancelDelete"
     >
-      <div class="bg-white dark:bg-gray-800 rounded-xl px-8 py-7 max-w-110 w-[90%] flex flex-col items-center gap-3.5 text-center shadow-[0_8px_32px_rgba(0,0,0,0.18)]">
+      <div class="glass-card px-8 py-7 max-w-110 w-[90%] flex flex-col items-center gap-3.5 text-center">
         <div class="w-12 h-12 rounded-full bg-red-50 dark:bg-red-900/30 text-red-500 flex items-center justify-center text-[20px]">
           <font-awesome-icon icon="triangle-exclamation" />
         </div>
@@ -102,7 +102,7 @@ const sheetToDelete = computed(() =>
       <div
         v-for="sheet in sortedSheets"
         :key="sheet._id"
-        class="flex items-center justify-between bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-4.5 py-3.5 gap-4"
+        class="flex items-center justify-between glass-card px-4.5 py-3.5 gap-4"
       >
         <div class="flex flex-col gap-1 flex-1">
           <div class="text-[14.5px] font-semibold text-gray-950 dark:text-gray-50">{{ sheet.name || fmtPeriod(sheet.periodMonth) }}</div>

@@ -213,7 +213,7 @@ function fmt(n) {
       Aucune donnée à afficher. Assignez des thèmes à vos lignes budgétaires.
     </div>
 
-    <div v-else class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-6 py-5">
+    <div v-else class="glass-card px-6 py-5">
 
       <!-- Légende + contrôles -->
       <div class="flex items-start justify-between gap-4 mb-5 flex-wrap">

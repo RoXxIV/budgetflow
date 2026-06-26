@@ -174,7 +174,7 @@ function monthlyInstallment(goal) {
     </div>
 
     <!-- Formulaire ajout -->
-    <div v-if="showAddForm" class="bg-white dark:bg-gray-800 border border-violet-500/25 rounded-[10px] px-5 py-[18px] mb-5">
+    <div v-if="showAddForm" class="glass-card px-5 py-[18px] mb-5">
       <h3 class="text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-3.5">Nouvel objectif</h3>
       <div class="grid gap-2.5" style="grid-template-columns: 1fr 160px 130px 150px 140px">
         <div class="flex flex-col gap-1">
@@ -212,7 +212,7 @@ function monthlyInstallment(goal) {
       <div
         v-for="goal in goals"
         :key="goal._id"
-        class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-[18px] py-4"
+        class="glass-card px-[18px] py-4"
         :class="{ 'opacity-70': goal.isCompleted }"
       >
 

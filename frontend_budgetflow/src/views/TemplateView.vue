@@ -325,7 +325,7 @@ async function deleteFromModal() {
     <div class="flex flex-col gap-4">
 
       <!-- ─── Bloc Revenus ──────────────────────────────────── -->
-      <div class="bg-white dark:bg-gray-800 border border-green-200 dark:border-green-900/40 rounded-[10px] overflow-hidden">
+      <div class="glass-card overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 bg-green-50 dark:bg-green-950/30 border-b border-green-100 dark:border-green-900/40">
           <div class="flex items-center gap-2">
             <span class="w-2.5 h-2.5 rounded-full shrink-0 bg-green-600"></span>
@@ -411,7 +411,7 @@ async function deleteFromModal() {
         @end="onSectionReorder"
       >
         <template #item="{ element: section }">
-          <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] overflow-hidden">
+          <div class="glass-card overflow-hidden">
             <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
               <div class="flex items-center gap-2">
                 <span class="section-drag-handle drag-handle" title="Réordonner">⠿</span>
@@ -506,7 +506,7 @@ async function deleteFromModal() {
       </draggable>
 
       <!-- Section "Sans section" (toujours en bas, non draggable) -->
-      <div v-if="(draggableLinesMap['none'] || []).length || addingSectionId === 'none'" class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] overflow-hidden">
+      <div v-if="(draggableLinesMap['none'] || []).length || addingSectionId === 'none'" class="glass-card overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700/60">
           <div class="flex items-center gap-2">
             <span class="w-2.5 h-2.5 rounded-full shrink-0 bg-gray-300 dark:bg-gray-600"></span>

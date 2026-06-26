@@ -167,7 +167,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
     <div class="grid grid-cols-2 gap-4">
 
       <!-- ─── Comptes ──────────────────────────────────────── -->
-      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-5.5 py-5">
+      <div class="glass-card px-5.5 py-5">
         <h2 class="flex items-center gap-2 text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-4">
           <font-awesome-icon icon="building-columns" class="text-gray-400" /> Comptes
         </h2>
@@ -217,7 +217,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
       </div>
 
       <!-- ─── Catégories ───────────────────────────────────── -->
-      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-5.5 py-5">
+      <div class="glass-card px-5.5 py-5">
         <h2 class="flex items-center gap-2 text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-4">
           <font-awesome-icon icon="table-list" class="text-gray-400" /> Catégories
         </h2>
@@ -252,7 +252,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
       </div>
 
       <!-- ─── Thèmes ───────────────────────────────────────── -->
-      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-5.5 py-5">
+      <div class="glass-card px-5.5 py-5">
         <h2 class="flex items-center gap-2 text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-4">
           <font-awesome-icon icon="chart-bar" class="text-gray-400" /> Thèmes
         </h2>
@@ -296,7 +296,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
       </div>
 
       <!-- ─── Compteur EDF ─────────────────────────────────── -->
-      <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-5.5 py-5">
+      <div class="glass-card px-5.5 py-5">
         <h2 class="flex items-center gap-2 text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-4">
           <font-awesome-icon icon="bolt" class="text-gray-400" /> Compteur EDF
         </h2>
@@ -365,7 +365,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
       </div>
 
       <!-- ─── Général ──────────────────────────────────────── -->
-      <div v-if="settings" class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[10px] px-5.5 py-5 col-span-2">
+      <div v-if="settings" class="glass-card px-5.5 py-5 col-span-2">
         <h2 class="flex items-center gap-2 text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-4">
           <font-awesome-icon icon="gear" class="text-gray-400" /> Général
         </h2>

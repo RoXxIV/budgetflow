@@ -24,53 +24,51 @@
 
 /* ─── Thème "glassmorphism" ──────────────────────────────── */
 
-/* Fond dégradé pastel bien visible (mesh multicolore) */
+/* Fond sobre, quasi monochrome (une teinte violette douce) */
 .app-shell {
-  background-color: #f4f1fb;
+  background-color: #eceef3;
   background-image:
-    radial-gradient(820px 620px at -2% -8%, rgba(255, 176, 145, 0.55), transparent 55%),
-    radial-gradient(820px 700px at 102% -5%, rgba(189, 168, 255, 0.60), transparent 55%),
-    radial-gradient(1000px 820px at 88% 108%, rgba(134, 239, 213, 0.50), transparent 55%),
-    radial-gradient(820px 720px at -5% 110%, rgba(170, 190, 255, 0.50), transparent 55%);
+    radial-gradient(1100px 820px at 100% -15%, rgba(150, 128, 228, 0.20), transparent 62%),
+    radial-gradient(1000px 760px at -12% 115%, rgba(120, 142, 212, 0.13), transparent 62%);
 }
 .dark .app-shell {
-  background-color: #0a0e1a;
+  background-color: #0c0a12;
   background-image:
-    radial-gradient(820px 620px at -2% -8%, rgba(129, 90, 220, 0.40), transparent 55%),
-    radial-gradient(820px 700px at 102% -5%, rgba(168, 85, 247, 0.32), transparent 55%),
-    radial-gradient(1000px 820px at 88% 108%, rgba(16, 185, 169, 0.28), transparent 55%),
-    radial-gradient(820px 720px at -5% 110%, rgba(56, 96, 230, 0.30), transparent 55%);
+    radial-gradient(1100px 820px at 100% -12%, rgba(126, 96, 172, 0.30), transparent 60%),
+    radial-gradient(1000px 760px at -12% 112%, rgba(58, 78, 128, 0.22), transparent 62%);
 }
 
-/* Carte en verre dépoli — bien détachée du fond */
+/* Carte en verre dépoli — reflet diagonal + bord lumineux */
 .glass-card {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(22px) saturate(165%);
-  -webkit-backdrop-filter: blur(22px) saturate(165%);
-  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.48));
+  backdrop-filter: blur(28px) saturate(165%);
+  -webkit-backdrop-filter: blur(28px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.9);
   border-radius: 22px;
   box-shadow:
-    0 18px 45px -12px rgba(76, 70, 140, 0.22),
-    0 6px 16px -8px rgba(76, 70, 140, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    0 24px 56px -16px rgba(70, 60, 135, 0.32),
+    0 4px 14px -8px rgba(70, 60, 135, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 .dark .glass-card {
-  background: rgba(26, 33, 52, 0.6);
-  border-color: rgba(255, 255, 255, 0.10);
+  background: linear-gradient(135deg, rgba(42, 48, 74, 0.58), rgba(24, 29, 48, 0.40));
+  border-color: rgba(255, 255, 255, 0.14);
   box-shadow:
-    0 22px 50px -14px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 26px 60px -16px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 /* Sidebar en verre */
 .glass-sidebar {
-  background: rgba(255, 255, 255, 0.5);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
   border-right: 1px solid rgba(255, 255, 255, 0.6);
 }
 .dark .glass-sidebar {
-  background: rgba(12, 17, 30, 0.55);
+  background: rgba(12, 17, 30, 0.5);
   border-right-color: rgba(255, 255, 255, 0.08);
 }
 

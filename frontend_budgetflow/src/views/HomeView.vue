@@ -101,7 +101,7 @@ const quickLinks = [
     </div>
 
     <!-- ─── Carte patrimoine + comptes ──────────────────────── -->
-    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-5.5 py-5 mb-6">
+    <div class="glass-card px-5.5 py-5 mb-6">
 
       <!-- Patrimoine total -->
       <div class="flex items-baseline justify-between mb-4">
@@ -150,7 +150,7 @@ const quickLinks = [
         v-for="link in quickLinks"
         :key="link.to"
         :to="link.to"
-        class="flex items-center gap-3.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4.5 py-4 transition-[border-color,box-shadow] hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm"
+        class="flex items-center gap-3.5 glass-card px-4.5 py-4 transition-[border-color,box-shadow] hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm"
       >
         <div
           class="w-9.5 h-9.5 rounded-[9px] flex items-center justify-center text-[15px] shrink-0"
