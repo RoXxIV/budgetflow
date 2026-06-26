@@ -469,109 +469,7 @@ async function applyStatus() {
   currentSheet.value = sheets.value.find((s) => s._id === currentSheet.value._id)
 }
 
-// ─── Ajout ligne dépense dans le sheet ───────────────────
-const addingLineSectionId = ref(null)
-
-function defaultExpenseForm() {
-  return {
-    label: '',
-    amount: 0,
-    details: '',
-    fromAccount: '',
-    toAccount: '',
-    paymentMethod: 'CB',
-    isShared: false,
-    theme: null,
-  }
-}
-const newExpenseLineForm = ref(defaultExpenseForm())
-
-function startAddExpenseLine(sectionId) {
-  addingLineSectionId.value = sectionId
-  newExpenseLineForm.value = defaultExpenseForm()
-}
-
-function cancelAddExpenseLine() {
-  addingLineSectionId.value = null
-}
-
-async function submitAddExpenseLine(sectionId) {
-  if (!newExpenseLineForm.value.label.trim()) return
-  const f = newExpenseLineForm.value
-  const data = {
-    label: f.label,
-    plannedAmount: 0,
-    actualAmount: 0,
-    flow: 'expense',
-    section: sectionId === 'none' ? undefined : sectionId,
-    fromAccount: f.fromAccount || undefined,
-    toAccount: f.toAccount || undefined,
-    paymentMethod: f.paymentMethod || undefined,
-    isShared: f.isShared,
-    theme: f.theme || undefined,
-  }
-  const { data: line } = await createSheetLine(currentSheet.value._id, data)
-  // Le 1er montant saisi à la création devient la première transaction de la ligne
-  const amount = parseFloat(f.amount)
-  if (amount) {
-    await createTransaction({
-      sheet: currentSheet.value._id,
-      budgetLine: line._id,
-      label: f.label,
-      details: (f.details || '').trim() || undefined,
-      amount,
-      flow: 'expense',
-      account: f.fromAccount || undefined,
-      date: new Date().toISOString().substring(0, 10),
-    })
-  }
-  cancelAddExpenseLine()
-  await reloadLines()
-  buildLineTxMap((await getSheetTransactions(currentSheet.value._id)).data)
-}
-
-// ─── Édition d'une ligne (Depuis/Vers/Paiement/½) ────────
-const editingLineId = ref(null)
-const editLineBuffer = ref({})
 const paymentMethods = ['CB', 'virement', 'especes', 'autre']
-
-function startEditLine(line) {
-  editingLineId.value = line._id
-  editLineBuffer.value = {
-    fromAccount: line.fromAccount?._id || '',
-    toAccount: line.toAccount?._id || '',
-    paymentMethod: line.paymentMethod || 'CB',
-    isShared: line.isShared,
-    theme: line.theme?._id || line.theme || null,
-  }
-}
-
-function cancelEditLine() {
-  editingLineId.value = null
-}
-
-function closeLinePanel() {
-  openLineId.value = null
-  cancelEditLine()
-}
-
-function toggleLineEdit(line) {
-  if (openLineId.value === line._id) {
-    closeLinePanel()
-  } else {
-    openLineId.value = line._id
-    startEditLine(line)
-  }
-}
-
-async function saveEditLine(line) {
-  const data = { ...editLineBuffer.value }
-  if (!data.fromAccount) delete data.fromAccount
-  if (!data.toAccount) delete data.toAccount
-  const res = await updateSheetLine(currentSheet.value._id, line._id, data)
-  Object.assign(line, res.data)
-  closeLinePanel()
-}
 
 // ─── Montant réel direct ──────────────────────────────────
 const incomeActualEdits = ref({})
@@ -707,11 +605,7 @@ async function deleteFromModal() {
 // Le total réel de la ligne = somme des transactions (maintenu côté backend).
 const openTxLineId = ref(null)
 const lineTxs = ref({}) // { [lineId]: [transaction] }
-const newLineTxForms = ref({}) // { [lineId]: { amount, details } }
-
-function defaultLineTxForm() {
-  return { amount: '', details: '', theme: null }
-}
+const newLineTxForms = ref({}) // { [lineId]: { theme } } — mémoire du dernier thème pour pré-remplir
 
 // Date par défaut d'une entrée :
 //  - si la ligne a un "jour récurrent" (facture, défini dans le template) → ce jour appliqué au mois du sheet
@@ -784,67 +678,11 @@ function toggleLineTx(line) {
   }
 }
 
-async function submitLineTx(line) {
-  const form = newLineTxForms.value[line._id]
-  const amount = parseFloat(form?.amount)
-  if (!amount) return
-  const { data: tx } = await createTransaction({
-    sheet: currentSheet.value._id,
-    budgetLine: line._id,
-    label: line.label,
-    details: (form.details || '').trim() || undefined,
-    theme: form.theme || undefined,
-    amount,
-    flow: 'expense',
-    account: line.fromAccount?._id || line.fromAccount || undefined,
-    date: defaultTxDate(line),
-  })
-  lineTxs.value[line._id] = [...(lineTxs.value[line._id] || []), tx]
-  line.actualAmount = (line.actualAmount || 0) + amount // miroir du $inc backend
-  // on garde le thème choisi pour l'entrée suivante (pré-remplissage)
-  newLineTxForms.value[line._id] = { amount: '', details: '', theme: form.theme || null }
-}
-
 async function deleteLineTx(line, txId) {
   const tx = (lineTxs.value[line._id] || []).find((t) => t._id === txId)
   await deleteTransaction(txId)
   lineTxs.value[line._id] = (lineTxs.value[line._id] || []).filter((t) => t._id !== txId)
   if (tx) line.actualAmount = (line.actualAmount || 0) - tx.amount
-}
-
-// ─── Édition d'une entrée (montant / détails / date) ──────
-const editingTxId = ref(null)
-const editTxBuffer = ref({ amount: '', details: '', date: '', theme: null })
-
-function startEditTx(t) {
-  editingTxId.value = t._id
-  editTxBuffer.value = {
-    amount: t.amount,
-    details: t.details || '',
-    date: new Date(t.date).toISOString().substring(0, 10),
-    theme: t.theme?._id || t.theme || null,
-  }
-}
-
-function cancelEditTx() {
-  editingTxId.value = null
-}
-
-async function saveEditTx(line, t) {
-  const amount = parseFloat(editTxBuffer.value.amount)
-  if (isNaN(amount)) return
-  const { data: updated } = await updateTransaction(t._id, {
-    amount,
-    details: (editTxBuffer.value.details || '').trim() || undefined,
-    theme: editTxBuffer.value.theme || null,
-    date: editTxBuffer.value.date,
-  })
-  const arr = lineTxs.value[line._id] || []
-  const idx = arr.findIndex((x) => x._id === t._id)
-  const oldAmount = idx !== -1 ? arr[idx].amount : 0
-  if (idx !== -1) arr[idx] = updated
-  line.actualAmount = (line.actualAmount || 0) + (amount - oldAmount)
-  editingTxId.value = null
 }
 
 // ─── Modal entrée (ajout / édition d'une sous-ligne) ──────
@@ -1760,12 +1598,6 @@ function toggleInvestment(id) {
 </template>
 
 <style>
-/* ─── Form helper (flex override on label input) ───────── */
-.expense-add-form__label {
-  flex: 1;
-  min-width: 120px;
-}
-
 /* ─── Income actual form ──────────────────────────────── */
 .income-actual-form {
   display: flex;
@@ -1961,48 +1793,6 @@ function toggleInvestment(id) {
   border-top: 1px solid #e8e8e5;
   padding: 10px 16px 12px;
 }
-.line-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 6px 0 10px;
-  border-bottom: 1px dashed #e5e7eb;
-  margin-bottom: 10px;
-  font-size: 12px;
-}
-.line-meta-item {
-  color: #6b7280;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.line-meta-key {
-  font-weight: 600;
-  color: #374151;
-}
-.line-meta-check {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: #374151;
-  cursor: pointer;
-}
-.btn-line-edit {
-  margin-left: auto;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  border: 1px solid #d1d5db;
-  background: white;
-  color: #374151;
-  cursor: pointer;
-}
-.btn-line-edit:hover {
-  background: #f3f4f6;
-}
-
 .inline-actual-input {
   width: 72px;
   text-align: right;
@@ -2106,10 +1896,6 @@ function toggleInvestment(id) {
 }
 .btn-tx-edit:hover {
   color: #7c3aed;
-}
-.tx-theme-wrap {
-  flex: 0 0 150px;
-  min-width: 120px;
 }
 /* Animation d'ouverture/fermeture du panneau d'entrées */
 .expand-enter-active,
@@ -2390,12 +2176,6 @@ function toggleInvestment(id) {
 .dark .tx-panel {
   background: rgba(31, 41, 55, 0.42);
   border-top-color: #374151;
-}
-.dark .line-meta {
-  border-bottom-color: #374151;
-}
-.dark .line-meta-check {
-  color: #d1d5db;
 }
 .dark .income-actual-label {
   color: #9ca3af;

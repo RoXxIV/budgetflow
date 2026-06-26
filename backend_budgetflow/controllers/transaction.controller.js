@@ -1,10 +1,5 @@
 import * as transactionService from "../services/transaction.service.js";
 
-export const getByLine = async (req, res) => {
-  const txs = await transactionService.getByLine(req.params.lineId);
-  res.json(txs);
-};
-
 export const create = async (req, res) => {
   const tx = await transactionService.create(req.body);
   res.status(201).json(tx);

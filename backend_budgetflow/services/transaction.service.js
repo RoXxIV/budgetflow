@@ -1,10 +1,6 @@
 import Transaction from "../models/Transaction.model.js";
 import BudgetLine from "../models/BudgetLine.model.js";
 
-// Liste des transactions d'une ligne budgétaire (ordre chronologique)
-export const getByLine = (lineId) =>
-  Transaction.find({ budgetLine: lineId }).sort({ date: 1, _id: 1 });
-
 // Création d'une transaction + report sur le total réel de la ligne
 export const create = async (data) => {
   const tx = await Transaction.create(data);
