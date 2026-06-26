@@ -1230,17 +1230,16 @@ function toggleInvestment(id) {
             <button class="bg-transparent border-none text-gray-400 hover:text-red-500 cursor-pointer text-[14px] px-1" @click="showAddIncomeLine = false">✕</button>
           </div>
           <div class="lines-table">
-            <div class="lines-head">
+            <div class="lines-head lines-head--norest">
               <span>Description</span>
               <span class="col-r">Prévu</span>
               <span class="col-r">Réel</span>
-              <span class="col-r">Reste</span>
               <span class="col-flags"></span>
               <span></span>
             </div>
             <div v-for="line in incomeLines" :key="line._id" class="line-wrap">
               <div
-                class="line-row line-row--income"
+                class="line-row line-row--income line-row--norest"
                 :class="{ 'line-row--open': openLineId === line._id }"
               >
                 <span class="line-label">{{ line.label }}</span>
@@ -1258,7 +1257,6 @@ function toggleInvestment(id) {
                     placeholder="0.00"
                   />
                 </span>
-                <span class="col-r line-remaining" :class="remainingClass(line)">{{ fmt(remaining(line)) }} €</span>
                 <span class="col-flags"></span>
                 <button
                   class="btn-icon-action"
@@ -1289,7 +1287,7 @@ function toggleInvestment(id) {
                 </div>
               </div>
             </div>
-            <div class="section-totals dark:border-gray-700">
+            <div class="section-totals section-totals--norest dark:border-gray-700">
               <span class="totals-label">Total</span>
               <span class="col-r totals-val"
                 >{{ fmt(incomeLines.reduce((s, l) => s + (l.plannedAmount || 0), 0)) }} €</span
@@ -1297,14 +1295,6 @@ function toggleInvestment(id) {
               <span class="col-r totals-val text-income"
                 >{{ fmt(incomeLines.reduce((s, l) => s + (l.actualAmount || 0), 0)) }} €</span
               >
-              <span
-                class="col-r totals-val"
-                :class="
-                  incomeLines.reduce((s, l) => s + remaining(l), 0) >= 0 ? 'text-ok' : 'text-over'
-                "
-              >
-                {{ fmt(incomeLines.reduce((s, l) => s + remaining(l), 0)) }} €
-              </span>
               <span class="col-flags"></span>
             </div>
           </div>
@@ -1835,18 +1825,26 @@ function toggleInvestment(id) {
 .section-totals--no-planned {
   grid-template-columns: 1fr 90px 55px;
 }
+/* Bloc Revenus sans colonne Reste */
+.lines-head--norest,
+.line-row--norest {
+  grid-template-columns: 1fr 90px 100px 55px 36px;
+}
+.section-totals--norest {
+  grid-template-columns: 1fr 90px 90px 55px;
+}
 
 /* Avec colonne Date (dépenses) */
 .lines-head.has-date,
 .line-row.has-date {
-  grid-template-columns: 1fr 85px 90px 100px 90px 55px 36px;
+  grid-template-columns: 1fr 85px 90px 100px 55px 36px;
 }
 .lines-head.has-date.lines-row--no-planned,
 .line-row.has-date.lines-row--no-planned {
   grid-template-columns: 1fr 85px 100px 55px 36px;
 }
 .section-totals.has-date {
-  grid-template-columns: 1fr 85px 90px 90px 90px 55px;
+  grid-template-columns: 1fr 85px 90px 90px 55px;
 }
 .section-totals.has-date.section-totals--no-planned {
   grid-template-columns: 1fr 85px 90px 55px;

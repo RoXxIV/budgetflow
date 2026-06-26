@@ -36,7 +36,6 @@ defineProps({
             <span class="col-date">Date</span>
             <span v-if="group.hasPlanned" class="col-r">Prévu</span>
             <span class="col-r">Réel</span>
-            <span v-if="group.hasPlanned" class="col-r">Reste</span>
             <span class="col-flags">½</span>
             <span></span>
           </div>
@@ -72,9 +71,6 @@ defineProps({
                   {{ ctx.fmt(line.actualAmount || 0) }} €
                   <span class="line-chevron">{{ ctx.isTxOpen(line) ? '▼' : '▶' }}</span>
                 </button>
-              </span>
-              <span v-if="group.hasPlanned" class="col-r line-remaining" :class="ctx.remainingClass(line)">
-                {{ ctx.fmt(ctx.remaining(line)) }} €
               </span>
               <span class="col-flags">
                 <span v-if="ctx.lineHasShared(line)" class="flag-on">½</span>
@@ -134,14 +130,6 @@ defineProps({
         <span class="col-r totals-val">
           <span v-if="!ctx.isSectionOpen(group.section._id)" class="totals-cap">Réel</span>
           {{ ctx.fmt(group.lines.reduce((s, l) => s + (l.actualAmount || 0), 0)) }} €
-        </span>
-        <span
-          v-if="group.hasPlanned"
-          class="col-r totals-val"
-          :class="group.lines.reduce((s, l) => s + ctx.remaining(l), 0) >= 0 ? 'text-ok' : 'text-over'"
-        >
-          <span v-if="!ctx.isSectionOpen(group.section._id)" class="totals-cap">Reste</span>
-          {{ ctx.fmt(group.lines.reduce((s, l) => s + ctx.remaining(l), 0)) }} €
         </span>
         <span class="col-flags"></span>
       </div>
