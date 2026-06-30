@@ -786,6 +786,11 @@ const sectionCtx = {
   openEditLineModal,
   isTxOpen: (line) => openTxLineId.value === line._id,
   toggleLineTx,
+  // Clic sur le "Réel" : si aucune entrée → ajout direct (monoligne) ; sinon déroule
+  onReelClick: (line) => {
+    if (lineEntries(line).length === 0) openAddTxModal(line)
+    else toggleLineTx(line)
+  },
   lineEntries,
   lineThemeBadge,
   lineDate,

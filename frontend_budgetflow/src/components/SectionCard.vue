@@ -65,11 +65,11 @@ defineProps({
                   type="button"
                   class="actual-toggle"
                   :class="ctx.actualClass(line)"
-                  @click.stop="ctx.toggleLineTx(line)"
-                  title="Voir / ajouter les entrées"
+                  @click.stop="ctx.onReelClick(line)"
+                  :title="ctx.lineEntries(line).length === 0 ? 'Ajouter le montant' : 'Voir / ajouter les entrées'"
                 >
                   {{ ctx.fmt(line.actualAmount || 0) }} €
-                  <span class="line-chevron">{{ ctx.isTxOpen(line) ? '▼' : '▶' }}</span>
+                  <span class="line-chevron">{{ ctx.lineEntries(line).length === 0 ? '+' : (ctx.isTxOpen(line) ? '▼' : '▶') }}</span>
                 </button>
               </span>
               <span class="col-flags">
