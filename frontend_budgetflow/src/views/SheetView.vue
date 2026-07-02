@@ -379,9 +379,18 @@ const liveAccountBalances = computed(() => {
 const sharing = computed(() => {
   if (!settings.value) return null
   const partnerRentAmount = settings.value.partnerRentAmount || 0
-  // ½ est porté par chaque entrée → on somme les entrées marquées partagées
-  const allEntries = Object.values(lineTxs.value).flat()
-  const sharedSum = allEntries.filter((e) => e.isShared).reduce((s, e) => s + (e.amount || 0), 0)
+  // ½ est porté par chaque entrée → on somme les entrées partagées.
+  // Pour une ligne "partagée par défaut" (template) sans entrée encore saisie,
+  // on estime sur le prévu (comme avant) → le 50/50 marche dès le début du mois.
+  let sharedSum = 0
+  lines.value.forEach((l) => {
+    const sharedEntries = (lineTxs.value[l._id] || []).filter((e) => e.isShared)
+    if (sharedEntries.length) {
+      sharedSum += sharedEntries.reduce((s, e) => s + (e.amount || 0), 0)
+    } else if (l.isShared) {
+      sharedSum += l.plannedAmount || 0
+    }
+  })
 
   // Dépassement EDF : si la ligne (template) est ½ et sans réel saisi, ajouter l'excédent estimé
   let edfOverage = 0
