@@ -20,6 +20,7 @@ import { getThemes } from '@/api/themes.js'
 
 // ─── Utils ───────────────────────────────────────────────────
 import { fmt, fmtDate } from '@/utils/formatters.js'
+import { useCurrency } from '@/composables/useCurrency.js'
 import { computeEDF, computeEDFDetail } from '@/utils/edf.js'
 import { buildSnapshotMap, computeAccountDeltaMap, resolveBalance } from '@/utils/liveBalances.js'
 
@@ -28,6 +29,7 @@ import AppModal from '@/components/AppModal.vue'
 import ChipSelect from '@/components/ChipSelect.vue'
 import ThemeSelect from '@/components/ThemeSelect.vue'
 import SectionCard from '@/components/SectionCard.vue'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal.vue'
 
 // ─── State global ────────────────────────────────────────
 const sheets = ref([])
@@ -46,11 +48,46 @@ const themes = ref([])
 
 // ─── UI ───────────────────────────────────────────────────
 const showCreateForm = ref(false)
-const newSheetForm = ref({ name: '' })
+const newSheetForm = ref({ month: '' }) // format "YYYY-MM" (input type="month")
 const newSheetSnapshots = ref({}) // { [accountId]: balance }
 
+// Clé "YYYY-MM" d'un periodMonth (comparaisons en UTC, forme canonique du backend)
+function monthKey(d) {
+  const dt = new Date(d)
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+// Mois proposé par défaut : le mois suivant le dernier sheet existant, sinon le mois courant
+function defaultNewMonth() {
+  const latest = sheets.value
+    .filter((s) => s.periodMonth)
+    .map((s) => new Date(s.periodMonth))
+    .sort((a, b) => b - a)[0]
+  if (!latest) {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  }
+  return monthKey(new Date(Date.UTC(latest.getUTCFullYear(), latest.getUTCMonth() + 1, 1)))
+}
+
+// Nom auto-généré ("Décembre 2026") — le backend fait pareil, ceci n'est qu'un aperçu
+const newSheetName = computed(() => {
+  if (!newSheetForm.value.month) return ''
+  const [y, m] = newSheetForm.value.month.split('-').map(Number)
+  const label = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('fr-FR', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+  return label.charAt(0).toUpperCase() + label.slice(1)
+})
+
+const newSheetMonthTaken = computed(() =>
+  sheets.value.some((s) => monthKey(s.periodMonth) === newSheetForm.value.month)
+)
+
 function openCreateForm() {
-  newSheetForm.value = { name: '' }
+  newSheetForm.value = { month: defaultNewMonth() }
   newSheetSnapshots.value = {}
   accounts.value.forEach((a) => {
     newSheetSnapshots.value[a._id] = ''
@@ -73,6 +110,7 @@ const newContribForms = ref({}) // { [goalId]: { amount, date, notes } }
 const newInvestTxForms = ref({}) // { [investmentId]: { amount, date, notes } }
 
 const route = useRoute()
+const { currencySymbol } = useCurrency()
 
 // ─── Chargement ──────────────────────────────────────────
 onMounted(async () => {
@@ -144,22 +182,20 @@ function buildLineTxMap(allTxs) {
 
 // ─── Création sheet ───────────────────────────────────────
 async function submitCreate() {
-  if (!newSheetForm.value.name.trim()) return
-  const periodMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+  if (!newSheetForm.value.month || newSheetMonthTaken.value) return
+  const [y, m] = newSheetForm.value.month.split('-').map(Number)
+  const periodMonth = new Date(Date.UTC(y, m - 1, 1)).toISOString()
   const snapshots = Object.entries(newSheetSnapshots.value)
     .filter(([, v]) => v !== '' && v !== null)
     .map(([accountId, balance]) => ({ accountId, balance: parseFloat(balance) }))
-  // Archiver les sheets actifs avant création
-  const activeSheets = sheets.value.filter((s) => s.status === 'active')
-  await Promise.all(activeSheets.map((s) => updateSheet(s._id, { status: 'archived' })))
 
-  await createSheet({ periodMonth, name: newSheetForm.value.name.trim(), snapshots })
-  newSheetForm.value = { name: '' }
+  // Le backend gère le nom, le statut et l'archivage de l'ancien sheet actif
+  const { data: created } = await createSheet({ periodMonth, snapshots })
+  newSheetForm.value = { month: '' }
   newSheetSnapshots.value = {}
   showCreateForm.value = false
   await loadSheets()
-  const created = sheets.value[0]
-  if (created) await openSheet(created._id)
+  if (created?._id) await openSheet(created._id)
 }
 
 // ─── Lignes groupées par section (dépenses uniquement) ───
@@ -478,7 +514,12 @@ async function applyStatus() {
   currentSheet.value = sheets.value.find((s) => s._id === currentSheet.value._id)
 }
 
-const paymentMethods = ['CB', 'virement', 'especes', 'autre']
+// Moyens de paiement configurables (Paramètres), avec repli sur les valeurs historiques
+const DEFAULT_PAYMENT_METHODS = ['CB', 'virement', 'especes', 'autre']
+const paymentMethods = computed(() =>
+  settings.value?.paymentMethods?.length ? settings.value.paymentMethods : DEFAULT_PAYMENT_METHODS
+)
+const defaultPayment = computed(() => paymentMethods.value[0])
 
 // ─── Montant réel direct ──────────────────────────────────
 const incomeActualEdits = ref({})
@@ -506,6 +547,19 @@ async function deleteLine(lineId) {
   await reloadLines()
 }
 
+// ─── Confirmation de suppression de ligne ────────────────
+const lineToDelete = ref(null)
+
+function askDeleteLine(line) {
+  lineToDelete.value = line
+}
+async function doConfirmedDeleteLine() {
+  if (!lineToDelete.value) return
+  await deleteLine(lineToDelete.value._id)
+  if (lineModalOpen.value && lineModalLine.value?._id === lineToDelete.value._id) lineModalOpen.value = false
+  lineToDelete.value = null
+}
+
 // ─── Modal ligne de dépense (ajout / édition) ─────────────
 const lineModalOpen = ref(false)
 const lineModalMode = ref('add') // 'add' | 'edit'
@@ -516,7 +570,7 @@ const lineForm = ref({})
 const accountOptions = computed(() =>
   accounts.value.map((a) => ({ value: a._id, label: a.name })),
 )
-const paymentOptions = computed(() => paymentMethods.map((m) => ({ value: m, label: m })))
+const paymentOptions = computed(() => paymentMethods.value.map((m) => ({ value: m, label: m })))
 
 function openAddLineModal(sectionId) {
   lineModalMode.value = 'add'
@@ -528,7 +582,7 @@ function openAddLineModal(sectionId) {
     details: '',
     fromAccount: settings.value?.mainAccount?._id || settings.value?.mainAccount || '',
     toAccount: '',
-    paymentMethod: 'CB',
+    paymentMethod: defaultPayment.value,
     isShared: false,
     theme: null,
   }
@@ -542,7 +596,7 @@ function openEditLineModal(line) {
     label: line.label || '',
     fromAccount: line.fromAccount?._id || line.fromAccount || '',
     toAccount: line.toAccount?._id || line.toAccount || '',
-    paymentMethod: line.paymentMethod || 'CB',
+    paymentMethod: line.paymentMethod || defaultPayment.value,
     isShared: !!line.isShared,
     theme: line.theme?._id || line.theme || null,
   }
@@ -604,9 +658,8 @@ async function saveLineModal() {
   lineModalOpen.value = false
 }
 
-async function deleteFromModal() {
-  if (lineModalLine.value) await deleteLine(lineModalLine.value._id)
-  lineModalOpen.value = false
+function deleteFromModal() {
+  if (lineModalLine.value) askDeleteLine(lineModalLine.value)
 }
 
 // ─── Transactions par ligne de dépense ───────────────────
@@ -716,7 +769,7 @@ function openAddTxModal(line) {
       settings.value?.mainAccount?._id ||
       settings.value?.mainAccount ||
       '',
-    paymentMethod: line.paymentMethod || 'CB',
+    paymentMethod: line.paymentMethod || defaultPayment.value,
     isShared: !!line.isShared,
     date: defaultTxDate(line),
   }
@@ -732,7 +785,7 @@ function openEditTxModal(line, t) {
     details: t.details || '',
     theme: t.theme?._id || t.theme || line.theme?._id || line.theme || null,
     account: t.account?._id || t.account || '',
-    paymentMethod: t.paymentMethod || 'CB',
+    paymentMethod: t.paymentMethod || defaultPayment.value,
     isShared: !!t.isShared,
     date: new Date(t.date).toISOString().substring(0, 10),
   }
@@ -912,8 +965,21 @@ function toggleInvestment(id) {
     <div v-if="showCreateForm" class="glass-card px-5 py-4.5 mb-5">
       <h3 class="text-[14px] font-semibold text-gray-950 dark:text-gray-100 mb-3.5">Nouveau sheet</h3>
       <div class="flex flex-col gap-1">
-        <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Nom</label>
-        <input v-model="newSheetForm.name" class="py-1.75 px-2.5 border border-[#e8e8e5] dark:border-gray-600 rounded-md text-[13px] text-gray-950 dark:text-gray-100 outline-none bg-gray-50 dark:bg-gray-700 focus:border-violet-500" placeholder="Ex: Mars 2026" autofocus />
+        <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Mois</label>
+        <div class="flex items-center gap-3">
+          <input
+            v-model="newSheetForm.month"
+            type="month"
+            class="py-1.75 px-2.5 border border-[#e8e8e5] dark:border-gray-600 rounded-md text-[13px] text-gray-950 dark:text-gray-100 outline-none bg-gray-50 dark:bg-gray-700 focus:border-violet-500"
+            autofocus
+          />
+          <span v-if="newSheetName && !newSheetMonthTaken" class="text-[13px] font-medium text-violet-600 dark:text-violet-400">
+            → {{ newSheetName }}
+          </span>
+          <span v-if="newSheetMonthTaken" class="text-[12.5px] font-medium text-red-500">
+            Un sheet existe déjà pour {{ newSheetName }}
+          </span>
+        </div>
       </div>
       <div class="my-3.5 flex flex-col gap-2">
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-[0.04em] mb-1">Solde début de mois (par compte)</p>
@@ -930,7 +996,11 @@ function toggleInvestment(id) {
         </div>
       </div>
       <div class="flex gap-2">
-        <button class="flex items-center gap-1.5 py-2 px-3.5 bg-violet-600 hover:bg-violet-700 text-white border-none rounded-[7px] text-[13px] font-medium cursor-pointer" @click="submitCreate">Créer depuis le template</button>
+        <button
+          class="flex items-center gap-1.5 py-2 px-3.5 bg-violet-600 hover:bg-violet-700 text-white border-none rounded-[7px] text-[13px] font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="!newSheetForm.month || newSheetMonthTaken"
+          @click="submitCreate"
+        >Créer depuis le template</button>
         <button class="py-1.75 px-3 bg-transparent text-gray-500 dark:text-gray-400 border border-[#e8e8e5] dark:border-gray-600 rounded-md text-[13px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700" @click="showCreateForm = false">Annuler</button>
       </div>
     </div>
@@ -987,7 +1057,7 @@ function toggleInvestment(id) {
             <span class="kpi-icon kpi-icon--green"><font-awesome-icon icon="wallet" /></span>
             <div class="flex flex-col gap-0.5 min-w-0">
               <span class="text-[22px] font-bold tracking-tight leading-tight" :class="bilan.resteReel >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'">
-                {{ fmt(bilan.resteReel) }} €
+                {{ fmt(bilan.resteReel) }} {{ currencySymbol }}
               </span>
               <span class="text-[11.5px] text-gray-400 font-medium truncate">Reste réel{{ settings?.mainAccount ? ' — ' + (settings.mainAccount.name || '') : '' }}</span>
               <span v-if="!settings?.mainAccount" class="text-[11px] text-amber-500">Configurer un compte principal</span>
@@ -996,14 +1066,14 @@ function toggleInvestment(id) {
           <div class="kpi-tile flex items-start gap-3">
             <span class="kpi-icon kpi-icon--red"><font-awesome-icon icon="credit-card" /></span>
             <div class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-[22px] font-bold tracking-tight leading-tight text-red-500">{{ fmt(bilan.totalActualExpense) }} €</span>
+              <span class="text-[22px] font-bold tracking-tight leading-tight text-red-500">{{ fmt(bilan.totalActualExpense) }} {{ currencySymbol }}</span>
               <span class="text-[11.5px] text-gray-400 font-medium truncate">Dépenses{{ bilan.mainAccountName ? ' — ' + bilan.mainAccountName : '' }}</span>
             </div>
           </div>
           <div class="kpi-tile flex items-start gap-3">
             <span class="kpi-icon kpi-icon--gray"><font-awesome-icon icon="file-invoice" /></span>
             <div class="flex flex-col gap-0.5 min-w-0">
-              <span class="text-[22px] font-bold tracking-tight leading-tight text-gray-950 dark:text-gray-50">{{ fmt(bilan.totalPlannedExpense) }} €</span>
+              <span class="text-[22px] font-bold tracking-tight leading-tight text-gray-950 dark:text-gray-50">{{ fmt(bilan.totalPlannedExpense) }} {{ currencySymbol }}</span>
               <span class="text-[11.5px] text-gray-400 font-medium truncate">Dépenses fixes prévues</span>
             </div>
           </div>
@@ -1011,10 +1081,10 @@ function toggleInvestment(id) {
             <span class="kpi-icon kpi-icon--violet"><font-awesome-icon icon="piggy-bank" /></span>
             <div class="flex flex-col gap-0.5 min-w-0">
               <span class="text-[22px] font-bold tracking-tight leading-tight" :class="bilan.restantEconomie <= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'">
-                {{ fmt(bilan.restantEconomie) }} €
+                {{ fmt(bilan.restantEconomie) }} {{ currencySymbol }}
               </span>
               <span class="text-[11.5px] text-gray-400 font-medium truncate">À économiser ({{ bilan.savingRate }}%)</span>
-              <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ fmt(bilan.dejaMisDeCote) }} / {{ fmt(bilan.montantEconomie) }} € mis de côté</span>
+              <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ fmt(bilan.dejaMisDeCote) }} / {{ fmt(bilan.montantEconomie) }} {{ currencySymbol }} mis de côté</span>
             </div>
           </div>
         </div>
@@ -1031,14 +1101,14 @@ function toggleInvestment(id) {
               <span class="text-[10px] font-normal text-gray-400 bg-gray-100 dark:bg-gray-700 rounded px-1 py-px">{{ item.account.type }}</span>
             </span>
             <span class="text-right text-gray-400 text-xs">
-              {{ item.snapshot !== null ? fmt(item.snapshot) + ' €' : '—' }}
+              {{ item.snapshot !== null ? fmt(item.snapshot) + ' ' + currencySymbol : '—' }}
             </span>
             <span class="text-center text-gray-300">→</span>
             <span
               class="text-right font-semibold"
               :class="item.current !== null && item.current >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'"
             >
-              {{ item.current !== null ? fmt(item.current) + ' €' : '—' }}
+              {{ item.current !== null ? fmt(item.current) + ' ' + currencySymbol : '—' }}
             </span>
           </div>
         </div>
@@ -1072,7 +1142,7 @@ function toggleInvestment(id) {
               type="number"
               step="0.01"
               class="tx-input tx-input--amount"
-              placeholder="Prévu €"
+              :placeholder="'Prévu ' + currencySymbol"
             />
             <select v-model="newIncomeLineForm.toAccount" class="tx-select">
               <option value="">— Compte —</option>
@@ -1095,7 +1165,7 @@ function toggleInvestment(id) {
                 :class="{ 'line-row--open': openLineId === line._id }"
               >
                 <span class="line-label">{{ line.label }}</span>
-                <span class="col-r line-planned">{{ fmt(line.plannedAmount) }} €</span>
+                <span class="col-r line-planned">{{ fmt(line.plannedAmount) }} {{ currencySymbol }}</span>
                 <span class="col-r">
                   <input
                     type="number"
@@ -1133,7 +1203,7 @@ function toggleInvestment(id) {
                   <button
                     class="btn-tx-del"
                     style="margin-left: auto"
-                    @click.stop="deleteLine(line._id)"
+                    @click.stop="askDeleteLine(line)"
                     title="Supprimer"
                   >✕</button>
                 </div>
@@ -1142,10 +1212,10 @@ function toggleInvestment(id) {
             <div class="section-totals section-totals--norest dark:border-gray-700">
               <span class="totals-label">Total</span>
               <span class="col-r totals-val"
-                >{{ fmt(incomeLines.reduce((s, l) => s + (l.plannedAmount || 0), 0)) }} €</span
+                >{{ fmt(incomeLines.reduce((s, l) => s + (l.plannedAmount || 0), 0)) }} {{ currencySymbol }}</span
               >
               <span class="col-r totals-val text-income"
-                >{{ fmt(incomeLines.reduce((s, l) => s + (l.actualAmount || 0), 0)) }} €</span
+                >{{ fmt(incomeLines.reduce((s, l) => s + (l.actualAmount || 0), 0)) }} {{ currencySymbol }}</span
               >
               <span class="col-flags"></span>
             </div>
@@ -1182,18 +1252,18 @@ function toggleInvestment(id) {
                   <span class="line-chevron">{{ openGoalId === goal._id ? '▼' : '▶' }}</span>
                   {{ goal.name }}
                 </span>
-                <span class="col-r line-planned">{{ goalMonthly(goal) !== null ? fmt(goalMonthly(goal)) + ' €' : '—' }}</span>
+                <span class="col-r line-planned">{{ goalMonthly(goal) !== null ? fmt(goalMonthly(goal)) + ' ' + currencySymbol : '—' }}</span>
                 <span
                   class="col-r line-actual"
                   :class="totalContribForGoal(goal._id) > 0 ? 'text-income' : ''"
                 >
-                  {{ fmt(totalContribForGoal(goal._id)) }} €
+                  {{ fmt(totalContribForGoal(goal._id)) }} {{ currencySymbol }}
                 </span>
                 <span
                   class="col-r line-remaining"
                   :class="goalMonthly(goal) !== null ? ((goalMonthly(goal) - totalContribForGoal(goal._id)) <= 0 ? 'text-ok' : 'text-over') : ''"
                 >
-                  {{ goalMonthly(goal) !== null ? fmt(goalMonthly(goal) - totalContribForGoal(goal._id)) + ' €' : '—' }}
+                  {{ goalMonthly(goal) !== null ? fmt(goalMonthly(goal) - totalContribForGoal(goal._id)) + ' ' + currencySymbol : '—' }}
                 </span>
                 <span class="col-flags"></span>
               </div>
@@ -1205,7 +1275,7 @@ function toggleInvestment(id) {
                     <span class="tx-date">{{ fmtDate(c.date) }}</span>
                     <span class="tx-label">{{ c.notes || '—' }}</span>
                     <span class="tx-account"></span>
-                    <span class="tx-amount tx-income">+{{ fmt(c.amount) }} €</span>
+                    <span class="tx-amount tx-income">+{{ fmt(c.amount) }} {{ currencySymbol }}</span>
                     <button class="btn-tx-del" @click.stop="deleteContrib(c._id)" title="Supprimer">
                       ✕
                     </button>
@@ -1219,7 +1289,7 @@ function toggleInvestment(id) {
                     type="number"
                     step="0.01"
                     class="tx-input tx-input--amount"
-                    placeholder="Montant €"
+                    :placeholder="'Montant ' + currencySymbol"
                     @keyup.enter="submitContrib(goal._id)"
                   />
                   <input
@@ -1270,12 +1340,12 @@ function toggleInvestment(id) {
                     >{{ inv.type }}</span
                   >
                 </span>
-                <span class="col-r line-planned">{{ fmt(inv.monthlyInvestment) }} €</span>
+                <span class="col-r line-planned">{{ fmt(inv.monthlyInvestment) }} {{ currencySymbol }}</span>
                 <span
                   class="col-r line-actual"
                   :class="totalInvestedThisSheet(inv._id) > 0 ? 'text-income' : ''"
                 >
-                  {{ fmt(totalInvestedThisSheet(inv._id)) }} €
+                  {{ fmt(totalInvestedThisSheet(inv._id)) }} {{ currencySymbol }}
                 </span>
                 <span
                   class="col-r line-remaining"
@@ -1287,7 +1357,7 @@ function toggleInvestment(id) {
                         : ''
                   "
                 >
-                  {{ fmt(inv.monthlyInvestment - totalInvestedThisSheet(inv._id)) }} €
+                  {{ fmt(inv.monthlyInvestment - totalInvestedThisSheet(inv._id)) }} {{ currencySymbol }}
                 </span>
                 <span class="col-flags"></span>
               </div>
@@ -1299,7 +1369,7 @@ function toggleInvestment(id) {
                     <span class="tx-date">{{ fmtDate(t.date) }}</span>
                     <span class="tx-label">{{ t.notes || '—' }}</span>
                     <span class="tx-account">{{ t.investment?.account?.name }}</span>
-                    <span class="tx-amount tx-income">+{{ fmt(t.amount) }} €</span>
+                    <span class="tx-amount tx-income">+{{ fmt(t.amount) }} {{ currencySymbol }}</span>
                     <button
                       class="btn-tx-del"
                       @click.stop="deleteInvestTx(t._id)"
@@ -1317,7 +1387,7 @@ function toggleInvestment(id) {
                     type="number"
                     step="0.01"
                     class="tx-input tx-input--amount"
-                    placeholder="Montant €"
+                    :placeholder="'Montant ' + currencySymbol"
                     @keyup.enter="submitInvestTx(inv._id)"
                   />
                   <input
@@ -1361,21 +1431,21 @@ function toggleInvestment(id) {
             <div class="edf-header">
               <span class="edf-name">{{ reading.meter?.name }}</span>
               <div v-if="computeEDF(reading) !== null" class="edf-cost-block">
-                <span class="edf-cost">Coût estimé : <strong>{{ fmt(computeEDF(reading)) }} €</strong></span>
+                <span class="edf-cost">Coût estimé : <strong>{{ fmt(computeEDF(reading)) }} {{ currencySymbol }}</strong></span>
                 <span v-if="computeEDFDetail(reading)" class="edf-detail">
                   HP {{ computeEDFDetail(reading).hp }} kWh ×
-                  {{ fmt(computeEDFDetail(reading).htHP) }} € · HC
+                  {{ fmt(computeEDFDetail(reading).htHP) }} {{ currencySymbol }} · HC
                   {{ computeEDFDetail(reading).hc }} kWh ×
-                  {{ fmt(computeEDFDetail(reading).htHC) }} € (×{{ computeEDFDetail(reading).tvaRate }}% TVA) + Abo {{ fmt(computeEDFDetail(reading).subscriptionPrice) }} €
+                  {{ fmt(computeEDFDetail(reading).htHC) }} {{ currencySymbol }} (×{{ computeEDFDetail(reading).tvaRate }}% TVA) + Abo {{ fmt(computeEDFDetail(reading).subscriptionPrice) }} {{ currencySymbol }}
                 </span>
                 <span
                   v-if="reading.meter?.budgetLine?.plannedAmount"
                   class="edf-delta"
                   :class="computeEDF(reading) <= reading.meter.budgetLine.plannedAmount ? 'edf-delta--ok' : 'edf-delta--over'"
                 >
-                  Mensualité {{ fmt(reading.meter.budgetLine.plannedAmount) }} € &mdash;
+                  Mensualité {{ fmt(reading.meter.budgetLine.plannedAmount) }} {{ currencySymbol }} &mdash;
                   {{ computeEDF(reading) <= reading.meter.budgetLine.plannedAmount ? 'Économie' : 'Dépassement' }} :
-                  <strong>{{ fmt(Math.abs(reading.meter.budgetLine.plannedAmount - computeEDF(reading))) }} €</strong>
+                  <strong>{{ fmt(Math.abs(reading.meter.budgetLine.plannedAmount - computeEDF(reading))) }} {{ currencySymbol }}</strong>
                 </span>
               </div>
             </div>
@@ -1411,24 +1481,24 @@ function toggleInvestment(id) {
           <div class="px-4 py-3.5 flex flex-col gap-1.5">
             <div class="flex justify-between text-[13px] text-gray-500 dark:text-gray-400 py-0.75">
               <span>Totale dépenses partagées</span>
-              <span>{{ fmt(sharing.sharedSum) }} €</span>
+              <span>{{ fmt(sharing.sharedSum) }} {{ currencySymbol }}</span>
             </div>
             <div class="flex justify-between text-[13px] text-gray-500 dark:text-gray-400 py-0.75">
               <span>Montant du loyer</span>
-              <span>{{ fmt(sharing.partnerRentAmount) }} €</span>
+              <span>{{ fmt(sharing.partnerRentAmount) }} {{ currencySymbol }}</span>
             </div>
             <div class="flex justify-between text-[13px] py-0.75 border-t border-[#e8e8e5] dark:border-gray-600 pt-2 font-semibold text-gray-700 dark:text-gray-200">
               <span>Total commun</span>
-              <span>{{ fmt(sharing.total) }} €</span>
+              <span>{{ fmt(sharing.total) }} {{ currencySymbol }}</span>
             </div>
             <div class="flex justify-between text-[13px] text-gray-500 dark:text-gray-400 py-0.75">
               <span>Part juste de chacun</span>
-              <span>{{ fmt(sharing.userFairShare) }} €</span>
+              <span>{{ fmt(sharing.userFairShare) }} {{ currencySymbol }}</span>
             </div>
             <div class="flex justify-between items-center bg-violet-50 dark:bg-violet-950/30 rounded-lg px-3.5 py-2.5 mt-1.5 text-[14px] font-semibold text-violet-600 dark:text-violet-400">
               <span>Part du loyer</span>
               <span class="flex items-center gap-2.5">
-                <span class="text-[18px]">{{ fmt(Math.abs(sharing.amountToSend)) }} €</span>
+                <span class="text-[18px]">{{ fmt(Math.abs(sharing.amountToSend)) }} {{ currencySymbol }}</span>
                 <button
                   v-if="settings?.rentBudgetLine"
                   class="text-[11.5px] py-0.75 px-2.5 border border-violet-300 rounded-md bg-violet-50 dark:bg-violet-950/50 hover:bg-violet-100 dark:hover:bg-violet-950/70 text-violet-600 dark:text-violet-400 cursor-pointer font-medium"
@@ -1452,7 +1522,7 @@ function toggleInvestment(id) {
           <div v-for="account in accounts" :key="account._id" class="flex items-center gap-2">
             <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 min-w-25">{{ account.name }}</span>
             <span class="font-semibold text-gray-700 dark:text-gray-200">
-              {{ snapshotMap[account._id] != null ? fmt(snapshotMap[account._id]) + ' €' : '—' }}
+              {{ snapshotMap[account._id] != null ? fmt(snapshotMap[account._id]) + ' ' + currencySymbol : '—' }}
             </span>
           </div>
         </div>
@@ -1478,7 +1548,7 @@ function toggleInvestment(id) {
 
         <div v-if="lineModalMode === 'add'" class="form-row">
           <div class="form-field form-field--grow">
-            <label class="form-label">Montant (€)</label>
+            <label class="form-label">Montant ({{ currencySymbol }})</label>
             <input
               v-model.number="lineForm.amount"
               type="number"
@@ -1555,7 +1625,7 @@ function toggleInvestment(id) {
       <div class="form-grid">
         <div class="form-row">
           <div class="form-field form-field--grow">
-            <label class="form-label">Montant (€)</label>
+            <label class="form-label">Montant ({{ currencySymbol }})</label>
             <input
               v-model.number="txForm.amount"
               type="number"
@@ -1608,6 +1678,16 @@ function toggleInvestment(id) {
         </button>
       </template>
     </AppModal>
+
+    <!-- ─── Modale confirmation suppression ligne ────────── -->
+    <ConfirmDeleteModal
+      v-if="lineToDelete"
+      title="Supprimer cette ligne ?"
+      :label="lineToDelete.label"
+      warning="La ligne et toutes ses entrées de ce mois seront supprimées."
+      @confirm="doConfirmedDeleteLine"
+      @cancel="lineToDelete = null"
+    />
   </div>
 </template>
 

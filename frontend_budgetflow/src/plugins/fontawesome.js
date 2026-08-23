@@ -25,6 +25,9 @@ import {
   faPiggyBank,
   faCreditCard,
   faFileInvoice,
+  faArrowRight,
+  faEye,
+  faTriangleExclamation,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -52,6 +55,9 @@ library.add(
   faPiggyBank,
   faCreditCard,
   faFileInvoice,
+  faArrowRight,
+  faEye,
+  faTriangleExclamation,
 )
 
 export { FontAwesomeIcon }

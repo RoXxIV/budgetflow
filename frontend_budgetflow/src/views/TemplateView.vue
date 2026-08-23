@@ -7,6 +7,10 @@ import { getSections, reorderSections } from '@/api/sections.js'
 import { getThemes } from '@/api/themes.js'
 import { getSettings } from '@/api/settings.js'
 import AppModal from '@/components/AppModal.vue'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal.vue'
+import { useCurrency } from '@/composables/useCurrency.js'
+
+const { currencySymbol } = useCurrency()
 import ChipSelect from '@/components/ChipSelect.vue'
 import ThemeSelect from '@/components/ThemeSelect.vue'
 
@@ -35,7 +39,7 @@ function defaultLine() {
     theme: '',
     fromAccount: '',
     toAccount: '',
-    paymentMethod: 'CB',
+    paymentMethod: settings.value?.paymentMethods?.[0] || 'CB',
     isShared: false,
     recurringDay: '',
     notes: '',
@@ -165,7 +169,7 @@ function startEdit(line) {
     theme: line.theme?._id || '',
     fromAccount: line.fromAccount?._id || '',
     toAccount: line.toAccount?._id || '',
-    paymentMethod: line.paymentMethod || 'CB',
+    paymentMethod: line.paymentMethod || settings.value?.paymentMethods?.[0] || 'CB',
     isShared: line.isShared,
     recurringDay: line.recurringDay || '',
     notes: line.notes || '',
@@ -190,13 +194,26 @@ async function saveEdit(id) {
   await loadLines()
 }
 
-async function removeLine(id) {
-  await deleteTemplateLine(id)
+// ─── Confirmation de suppression ─────────────────────────
+const lineToDelete = ref(null)
+
+function askDeleteLine(line) {
+  lineToDelete.value = line
+}
+async function doConfirmedDeleteLine() {
+  if (!lineToDelete.value) return
+  await deleteTemplateLine(lineToDelete.value._id)
+  if (modalOpen.value && modalLine.value?._id === lineToDelete.value._id) modalOpen.value = false
+  lineToDelete.value = null
   await loadLines()
 }
 
 // ─── Helpers ─────────────────────────────────────────────
-const paymentMethods = ['CB', 'virement', 'especes', 'autre']
+// Moyens de paiement configurables (Paramètres), avec repli sur les valeurs historiques
+const DEFAULT_PAYMENT_METHODS = ['CB', 'virement', 'especes', 'autre']
+const paymentMethods = computed(() =>
+  settings.value?.paymentMethods?.length ? settings.value.paymentMethods : DEFAULT_PAYMENT_METHODS
+)
 
 // ─── Modal ligne (ajout / édition) ───────────────────────
 const modalOpen = ref(false)
@@ -206,7 +223,7 @@ const modalLine = ref(null)
 const form = ref({})
 
 const accountOptions = computed(() => accounts.value.map((a) => ({ value: a._id, label: a.name })))
-const paymentOptions = computed(() => paymentMethods.map((m) => ({ value: m, label: m })))
+const paymentOptions = computed(() => paymentMethods.value.map((m) => ({ value: m, label: m })))
 const typeOptions = [
   { value: 'fixed', label: 'Fixe' },
   { value: 'variable', label: 'Variable' },
@@ -223,7 +240,7 @@ function openAddModal(sectionId) {
     type: 'fixed',
     fromAccount: settings.value?.mainAccount?._id || settings.value?.mainAccount || '',
     toAccount: '',
-    paymentMethod: 'CB',
+    paymentMethod: settings.value?.paymentMethods?.[0] || 'CB',
     isShared: false,
     recurringDay: '',
     theme: null,
@@ -249,7 +266,7 @@ function openEditModal(line) {
     type: line.type || 'fixed',
     fromAccount: line.fromAccount?._id || line.fromAccount || '',
     toAccount: line.toAccount?._id || line.toAccount || '',
-    paymentMethod: line.paymentMethod || 'CB',
+    paymentMethod: line.paymentMethod || settings.value?.paymentMethods?.[0] || 'CB',
     isShared: !!line.isShared,
     recurringDay: line.recurringDay || '',
     theme: line.theme?._id || line.theme || null,
@@ -305,10 +322,8 @@ async function saveModal() {
   await loadLines()
 }
 
-async function deleteFromModal() {
-  if (modalLine.value) await deleteTemplateLine(modalLine.value._id)
-  modalOpen.value = false
-  await loadLines()
+function deleteFromModal() {
+  if (modalLine.value) askDeleteLine(modalLine.value)
 }
 </script>
 
@@ -372,11 +387,11 @@ async function deleteFromModal() {
               <div v-else class="table-row table-row--income">
                 <span class="line-drag-handle drag-handle">⠿</span>
                 <span class="col-label row-label row-label--income">{{ line.label }}</span>
-                <span class="col-amount row-amount row-amount--income">{{ line.plannedAmount > 0 ? line.plannedAmount + ' €' : '—' }}</span>
+                <span class="col-amount row-amount row-amount--income">{{ line.plannedAmount > 0 ? line.plannedAmount + ' ' + currencySymbol : '—' }}</span>
                 <span class="col-account row-text">{{ line.toAccount?.name || '—' }}</span>
                 <div class="row-actions">
                   <button class="btn-edit" @click="openEditModal(line)">Modifier</button>
-                  <button class="btn-delete" @click="removeLine(line._id)">✕</button>
+                  <button class="btn-delete" @click="askDeleteLine(line)">✕</button>
                 </div>
               </div>
             </template>
@@ -465,7 +480,7 @@ async function deleteFromModal() {
                   <div v-else class="table-row">
                     <span class="line-drag-handle drag-handle">⠿</span>
                     <span class="col-label row-label">{{ line.label }}</span>
-                    <span class="col-amount row-amount">{{ line.plannedAmount > 0 ? line.plannedAmount + ' €' : '—' }}</span>
+                    <span class="col-amount row-amount">{{ line.plannedAmount > 0 ? line.plannedAmount + ' ' + currencySymbol : '—' }}</span>
                     <span class="col-day row-text">{{ line.recurringDay || '—' }}</span>
                     <span class="col-account row-text">{{ line.fromAccount?.name || '—' }}</span>
                     <span class="col-account row-text">{{ line.toAccount?.name || '—' }}</span>
@@ -477,7 +492,7 @@ async function deleteFromModal() {
                     <span class="col-check"><span v-if="line.isShared" class="check-on">✓</span></span>
                     <div class="row-actions">
                       <button class="btn-edit" @click="openEditModal(line)">Modifier</button>
-                      <button class="btn-delete" @click="removeLine(line._id)">✕</button>
+                      <button class="btn-delete" @click="askDeleteLine(line)">✕</button>
                     </div>
                   </div>
                 </template>
@@ -548,14 +563,14 @@ async function deleteFromModal() {
             <div v-else class="table-row">
               <span></span>
               <span class="col-label row-label">{{ line.label }}</span>
-              <span class="col-amount row-amount">{{ line.plannedAmount > 0 ? line.plannedAmount + ' €' : '—' }}</span>
+              <span class="col-amount row-amount">{{ line.plannedAmount > 0 ? line.plannedAmount + ' ' + currencySymbol : '—' }}</span>
               <span class="col-day row-text">{{ line.recurringDay || '—' }}</span>
               <span class="col-account row-text">{{ line.fromAccount?.name || '—' }}</span>
               <span class="col-account row-text">{{ line.toAccount?.name || '—' }}</span>
               <span class="col-payment row-text">{{ line.paymentMethod || '—' }}</span>
               <span class="col-theme"><span v-if="line.theme" class="theme-badge" :style="{ background: line.theme.color + '22', color: line.theme.color }">{{ line.theme.name }}</span><span v-else class="row-text">—</span></span>
               <span class="col-check"><span v-if="line.isShared" class="check-on">✓</span></span>
-              <div class="row-actions"><button class="btn-edit" @click="openEditModal(line)">Modifier</button><button class="btn-delete" @click="removeLine(line._id)">✕</button></div>
+              <div class="row-actions"><button class="btn-edit" @click="openEditModal(line)">Modifier</button><button class="btn-delete" @click="askDeleteLine(line)">✕</button></div>
             </div>
           </template>
           <div v-if="addingSectionId === 'none'" class="table-row table-row--adding">
@@ -593,7 +608,7 @@ async function deleteFromModal() {
         </div>
 
         <div class="form-field">
-          <label class="form-label">Montant prévu (€)</label>
+          <label class="form-label">Montant prévu ({{ currencySymbol }})</label>
           <input
             v-model.number="form.plannedAmount"
             type="number"
@@ -672,6 +687,16 @@ async function deleteFromModal() {
         </button>
       </template>
     </AppModal>
+
+    <!-- ─── Modale confirmation suppression ligne ────────── -->
+    <ConfirmDeleteModal
+      v-if="lineToDelete"
+      title="Supprimer cette ligne du template ?"
+      :label="lineToDelete.label"
+      warning="Elle ne sera plus copiée dans les prochains sheets créés depuis le template. Les sheets existants ne sont pas modifiés."
+      @confirm="doConfirmedDeleteLine"
+      @cancel="lineToDelete = null"
+    />
   </div>
 </template>
 

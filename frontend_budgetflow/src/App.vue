@@ -1,9 +1,21 @@
 <script setup>
+import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDarkMode } from '@/composables/useDarkMode.js'
+import { setCurrency } from '@/composables/useCurrency.js'
+import { getSettings } from '@/api/settings.js'
 
 const route = useRoute()
 const { isDark, toggleDark } = useDarkMode()
+
+// Charge la devise configurée au démarrage
+onMounted(async () => {
+  try {
+    setCurrency((await getSettings()).data?.currency)
+  } catch {
+    // backend indisponible : on garde EUR par défaut
+  }
+})
 
 const navLinks = [
   { name: 'Accueil', icon: 'house', to: '/' },

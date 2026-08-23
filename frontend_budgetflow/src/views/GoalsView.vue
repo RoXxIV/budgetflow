@@ -9,6 +9,10 @@ import { getSheets, getSheetSnapshots, getSheetLines, getSheetContributions, get
 import { getSettings } from '@/api/settings.js'
 import { getInvestments } from '@/api/investments.js'
 import { fmt, fmtDate } from '@/utils/formatters.js'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal.vue'
+import { useCurrency } from '@/composables/useCurrency.js'
+
+const { currencySymbol } = useCurrency()
 import { buildSnapshotMap, computeAccountDeltaMap, resolveBalance } from '@/utils/liveBalances.js'
 
 const goals = ref([])
@@ -113,9 +117,14 @@ async function toggleComplete(goal) {
   await load()
 }
 
-async function remove(id) {
+const goalToDelete = ref(null)
+
+async function doConfirmedRemove() {
+  if (!goalToDelete.value) return
+  const id = goalToDelete.value._id
   await deleteSavingGoal(id)
   if (openContribId.value === id) openContribId.value = null
+  goalToDelete.value = null
   await load()
 }
 
@@ -189,11 +198,11 @@ function monthlyInstallment(goal) {
           </select>
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Objectif (€)</label>
+          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Objectif ({{ currencySymbol }})</label>
           <input v-model.number="newGoal.targetAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Déjà disponible (€)</label>
+          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Déjà disponible ({{ currencySymbol }})</label>
           <input v-model.number="newGoal.initialAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
         </div>
         <div class="flex flex-col gap-1">
@@ -231,11 +240,11 @@ function monthlyInstallment(goal) {
               </select>
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Objectif (€)</label>
+              <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Objectif ({{ currencySymbol }})</label>
               <input v-model.number="editBuffer.targetAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Déjà disponible (€)</label>
+              <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Déjà disponible ({{ currencySymbol }})</label>
               <input v-model.number="editBuffer.initialAmount" type="number" class="px-2.5 py-[7px] border border-gray-200 dark:border-gray-700 rounded-[6px] text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
             </div>
             <div class="flex flex-col gap-1">
@@ -261,7 +270,7 @@ function monthlyInstallment(goal) {
                 <template v-if="monthlyInstallment(goal) === 0">Objectif atteint</template>
                 <template v-else-if="monthsUntil(goal.deadline) === 0">Délai dépassé</template>
                 <template v-else>
-                  {{ fmt(monthlyInstallment(goal)) }} €/mois
+                  {{ fmt(monthlyInstallment(goal)) }} {{ currencySymbol }}/mois
                   <span class="font-normal text-gray-500 dark:text-gray-400">({{ monthsUntil(goal.deadline) }} mois restants)</span>
                 </template>
               </span>
@@ -282,7 +291,7 @@ function monthlyInstallment(goal) {
               </button>
               <button
                 class="w-7 h-7 flex items-center justify-center border-none rounded-[6px] bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-pointer text-[12px] hover:bg-red-100 dark:hover:bg-red-900/30 hover:text-red-500"
-                @click="remove(goal._id)" title="Supprimer"
+                @click="goalToDelete = goal" title="Supprimer"
               >
                 <font-awesome-icon icon="trash" />
               </button>
@@ -298,9 +307,9 @@ function monthlyInstallment(goal) {
               ></div>
             </div>
             <div class="flex justify-between text-[12px] text-gray-500 dark:text-gray-400">
-              <span>{{ fmt(goalCurrentAmount(goal)) }} €</span>
+              <span>{{ fmt(goalCurrentAmount(goal)) }} {{ currencySymbol }}</span>
               <span class="font-semibold" :style="{ color: progressColor(progressPct(goal)) }">{{ progressPct(goal) }}%</span>
-              <span>{{ fmt(goal.targetAmount) }} €</span>
+              <span>{{ fmt(goal.targetAmount) }} {{ currencySymbol }}</span>
             </div>
           </div>
 
@@ -310,7 +319,7 @@ function monthlyInstallment(goal) {
             @click="openContribs(goal._id)"
           >
             {{ openContribId === goal._id ? '▲ Masquer' : '▼ Contributions' }}
-            <span class="text-[11.5px] text-gray-400">{{ fmt(goal.totalContributed) }} € versés</span>
+            <span class="text-[11.5px] text-gray-400">{{ fmt(goal.totalContributed) }} {{ currencySymbol }} versés</span>
           </button>
 
           <!-- Panneau contributions (lecture seule) -->
@@ -319,7 +328,7 @@ function monthlyInstallment(goal) {
             <div v-if="contributions.length" class="flex flex-col gap-1">
               <div v-for="c in contributions" :key="c._id" class="flex items-center gap-3 px-2 py-[5px] bg-gray-50 dark:bg-gray-700/50 rounded-[6px] text-[12.5px]">
                 <span class="text-gray-400 min-w-[80px]">{{ fmtDate(c.date) }}</span>
-                <span class="font-semibold text-green-600 dark:text-green-400 min-w-[80px]">+{{ fmt(c.amount) }} €</span>
+                <span class="font-semibold text-green-600 dark:text-green-400 min-w-[80px]">+{{ fmt(c.amount) }} {{ currencySymbol }}</span>
                 <span class="flex-1 text-gray-500 dark:text-gray-400">{{ c.notes }}</span>
               </div>
             </div>
@@ -330,5 +339,15 @@ function monthlyInstallment(goal) {
       </div>
       <p v-if="goals.length === 0" class="text-center text-gray-300 dark:text-gray-600 text-[13px] py-8">Aucun objectif — clique sur Ajouter pour commencer</p>
     </div>
+
+    <!-- ─── Modale confirmation suppression objectif ─────── -->
+    <ConfirmDeleteModal
+      v-if="goalToDelete"
+      title="Supprimer cet objectif ?"
+      :label="goalToDelete.name"
+      warning="Les versements déjà enregistrés dans les sheets ne seront pas supprimés, mais ne seront plus rattachés à aucun objectif."
+      @confirm="doConfirmedRemove"
+      @cancel="goalToDelete = null"
+    />
   </div>
 </template>

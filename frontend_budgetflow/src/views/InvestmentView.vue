@@ -2,9 +2,15 @@
 import { ref, computed, onMounted } from 'vue'
 import { getInvestments, createInvestment, updateInvestment, deleteInvestment } from '@/api/investments.js'
 import { getAccounts } from '@/api/accounts.js'
+import { getSettings } from '@/api/settings.js'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal.vue'
+import { useCurrency } from '@/composables/useCurrency.js'
+
+const { currencySymbol } = useCurrency()
 
 const investments = ref([])
 const accounts = ref([])
+const settings = ref(null)
 const editingId = ref(null)
 const editBuffer = ref({})
 const showAddForm = ref(false)
@@ -14,11 +20,11 @@ const currentValueEdits = ref({})
 
 const newInvestment = ref(defaultInv())
 function defaultInv() {
-  return { name: '', type: 'ETF', account: '', monthlyInvestment: 0 }
+  return { name: '', type: settings.value?.investmentTypes?.[0] || 'ETF', account: '', monthlyInvestment: 0 }
 }
 
 onMounted(async () => {
-  await Promise.all([load(), loadAccounts()])
+  await Promise.all([load(), loadAccounts(), loadSettings()])
 })
 
 async function load() {
@@ -29,6 +35,7 @@ async function load() {
   })
 }
 async function loadAccounts() { accounts.value = (await getAccounts()).data }
+async function loadSettings() { settings.value = (await getSettings()).data }
 
 async function add() {
   if (!newInvestment.value.name.trim() || !newInvestment.value.account) return
@@ -54,8 +61,12 @@ async function saveEdit(id) {
   await load()
 }
 
-async function remove(id) {
-  await deleteInvestment(id)
+const invToDelete = ref(null)
+
+async function doConfirmedRemove() {
+  if (!invToDelete.value) return
+  await deleteInvestment(invToDelete.value._id)
+  invToDelete.value = null
   await load()
 }
 
@@ -82,8 +93,13 @@ const totalGainPct = computed(() => {
   return ((totalCurrentValue.value - totalInvested.value) / totalInvested.value) * 100
 })
 
+// Types configurables (Paramètres) ; les 4 historiques gardent leur libellé/couleur dédiés
+const investmentTypes = computed(() =>
+  settings.value?.investmentTypes?.length ? settings.value.investmentTypes : ['ETF', 'CRYPTO', 'STOCK', 'OTHER']
+)
 const typeLabel = { ETF: 'ETF', CRYPTO: 'Crypto', STOCK: 'Action', OTHER: 'Autre' }
 const typeColor = { ETF: '#7c3aed', CRYPTO: '#f59e0b', STOCK: '#16a34a', OTHER: '#6b7280' }
+const colorOfType = (t) => typeColor[t] || '#6b7280'
 
 function fmt(n) { return (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
@@ -109,16 +125,16 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
     <div class="flex gap-3 mb-5">
       <div class="flex-1 glass-card px-4.5 py-3.5 flex flex-col gap-1">
         <span class="text-[12px] text-gray-400 font-medium">Total investi</span>
-        <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalInvested) }} €</span>
+        <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalInvested) }} {{ currencySymbol }}</span>
       </div>
       <div class="flex-1 glass-card px-4.5 py-3.5 flex flex-col gap-1">
         <span class="text-[12px] text-gray-400 font-medium">DCA mensuel</span>
-        <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalMonthly) }} €/mois</span>
+        <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalMonthly) }} {{ currencySymbol }}/mois</span>
       </div>
       <div class="flex-1 glass-card px-4.5 py-3.5 flex flex-col gap-1">
         <span class="text-[12px] text-gray-400 font-medium">Valeur actuelle totale</span>
         <div class="flex items-baseline gap-2.5">
-          <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalCurrentValue) }} €</span>
+          <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalCurrentValue) }} {{ currencySymbol }}</span>
           <span v-if="totalGainPct !== null" class="text-[15px] font-bold" :class="totalGainPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'">
             {{ fmtPct(totalGainPct) }}
           </span>
@@ -137,7 +153,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Type</label>
           <select v-model="newInvestment.type" class="px-2 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:outline-none cursor-pointer">
-            <option v-for="(label, val) in typeLabel" :key="val" :value="val">{{ label }}</option>
+            <option v-for="val in investmentTypes" :key="val" :value="val">{{ typeLabel[val] || val }}</option>
           </select>
         </div>
         <div class="flex flex-col gap-1">
@@ -148,7 +164,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
           </select>
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">DCA mensuel (€)</label>
+          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">DCA mensuel ({{ currencySymbol }})</label>
           <input v-model.number="newInvestment.monthlyInvestment" type="number" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
         </div>
       </div>
@@ -172,7 +188,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
             <div class="flex flex-col gap-1">
               <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Type</label>
               <select v-model="editBuffer.type" class="px-2 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:outline-none cursor-pointer">
-                <option v-for="(label, val) in typeLabel" :key="val" :value="val">{{ label }}</option>
+                <option v-for="val in investmentTypes" :key="val" :value="val">{{ typeLabel[val] || val }}</option>
               </select>
             </div>
             <div class="flex flex-col gap-1">
@@ -183,7 +199,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
               </select>
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">DCA mensuel (€)</label>
+              <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">DCA mensuel ({{ currencySymbol }})</label>
               <input v-model.number="editBuffer.monthlyInvestment" type="number" class="px-2.5 py-1.75 border border-gray-200 dark:border-gray-700 rounded-md text-[13px] text-gray-950 dark:text-gray-50 bg-gray-50 dark:bg-gray-700/50 focus:border-violet-500 dark:focus:border-violet-400 focus:outline-none" />
             </div>
           </div>
@@ -201,7 +217,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
             <div class="flex items-center gap-2.5">
               <span
                 class="text-[11px] font-semibold px-2 py-0.5 rounded-full"
-                :style="{ background: typeColor[inv.type] + '22', color: typeColor[inv.type] }"
+                :style="{ background: colorOfType(inv.type) + '22', color: colorOfType(inv.type) }"
               >
                 {{ typeLabel[inv.type] || inv.type }}
               </span>
@@ -217,7 +233,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
               </button>
               <button
                 class="w-7 h-7 flex items-center justify-center border-none rounded-md bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-pointer text-[12px] hover:bg-red-100 dark:hover:bg-red-900/30 hover:text-red-500"
-                @click="remove(inv._id)" title="Supprimer"
+                @click="invToDelete = inv" title="Supprimer"
               >
                 <font-awesome-icon icon="trash" />
               </button>
@@ -228,12 +244,12 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
             <!-- DCA mensuel -->
             <div class="flex flex-col gap-[3px]">
               <span class="text-[11.5px] text-gray-400">DCA mensuel</span>
-              <span class="text-[15px] font-semibold text-gray-700 dark:text-gray-300">{{ fmt(inv.monthlyInvestment) }} €/mois</span>
+              <span class="text-[15px] font-semibold text-gray-700 dark:text-gray-300">{{ fmt(inv.monthlyInvestment) }} {{ currencySymbol }}/mois</span>
             </div>
             <!-- Total investi -->
             <div class="flex flex-col gap-[3px]">
               <span class="text-[11.5px] text-gray-400">Total investi</span>
-              <span class="text-[15px] font-semibold text-violet-600 dark:text-violet-400">{{ fmt(inv.totalInvested) }} €</span>
+              <span class="text-[15px] font-semibold text-violet-600 dark:text-violet-400">{{ fmt(inv.totalInvested) }} {{ currencySymbol }}</span>
             </div>
             <!-- % gain/perte -->
             <div v-if="gainPct(inv) !== null" class="flex flex-col gap-[3px]">
@@ -255,7 +271,7 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
                   @blur="saveCurrentValue(inv)"
                   @keyup.enter="saveCurrentValue(inv)"
                 />
-                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[12px] text-gray-400 pointer-events-none">€</span>
+                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[12px] text-gray-400 pointer-events-none">{{ currencySymbol }}</span>
               </div>
             </div>
           </div>
@@ -263,5 +279,15 @@ function fmtPct(n) { return (n >= 0 ? '+' : '') + n.toFixed(2) + '%' }
       </div>
       <p v-if="investments.length === 0" class="text-center text-gray-300 dark:text-gray-600 text-[13px] py-8">Aucun investissement — clique sur Ajouter pour commencer</p>
     </div>
+
+    <!-- ─── Modale confirmation suppression investissement ── -->
+    <ConfirmDeleteModal
+      v-if="invToDelete"
+      title="Supprimer cet investissement ?"
+      :label="invToDelete.name"
+      warning="Les transactions d'investissement déjà enregistrées dans les sheets ne seront pas supprimées, mais ne seront plus rattachées à aucun investissement."
+      @confirm="doConfirmedRemove"
+      @cancel="invToDelete = null"
+    />
   </div>
 </template>

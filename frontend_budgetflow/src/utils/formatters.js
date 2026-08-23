@@ -16,10 +16,13 @@ export function fmtDate(d) {
 }
 
 /**
- * Formate un montant avec le symbole € via l'API Intl.
+ * Formate un montant avec le symbole de la devise configurée via l'API Intl.
  * Utilisé dans HomeView pour le patrimoine total.
  * Ex: 1234.5 → "1 234,50 €"
  */
+import { useCurrency } from '@/composables/useCurrency.js'
+
 export function formatCurrency(amount) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount)
+  const { currencyCode } = useCurrency()
+  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: currencyCode.value }).format(amount)
 }

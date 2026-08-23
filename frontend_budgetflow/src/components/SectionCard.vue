@@ -1,10 +1,14 @@
 <script setup>
 // Carte d'une catégorie de dépense (repliable). Toute la logique vit dans le parent
 // (SheetView) et est passée via `ctx` pour éviter une multitude de props.
+import { useCurrency } from '@/composables/useCurrency.js'
+
 defineProps({
   group: { type: Object, required: true },
   ctx: { type: Object, required: true },
 })
+
+const { currencySymbol } = useCurrency()
 </script>
 
 <template>
@@ -59,7 +63,7 @@ defineProps({
                 <span v-if="ctx.lineEntries(line).length >= 2" class="entry-count">{{ ctx.lineEntries(line).length }} entrées</span>
               </span>
               <span class="col-date line-date">{{ ctx.lineDate(line) ? ctx.fmtDate(ctx.lineDate(line)) : '—' }}</span>
-              <span v-if="group.hasPlanned" class="col-r line-planned">{{ ctx.fmt(line.plannedAmount) }} €</span>
+              <span v-if="group.hasPlanned" class="col-r line-planned">{{ ctx.fmt(line.plannedAmount) }} {{ currencySymbol }}</span>
               <span class="col-r">
                 <button
                   type="button"
@@ -68,7 +72,7 @@ defineProps({
                   @click.stop="ctx.onReelClick(line)"
                   :title="ctx.lineEntries(line).length === 0 ? 'Ajouter le montant' : 'Voir / ajouter les entrées'"
                 >
-                  {{ ctx.fmt(line.actualAmount || 0) }} €
+                  {{ ctx.fmt(line.actualAmount || 0) }} {{ currencySymbol }}
                   <span class="line-chevron">{{ ctx.lineEntries(line).length === 0 ? '+' : (ctx.isTxOpen(line) ? '▼' : '▶') }}</span>
                 </button>
               </span>
@@ -99,7 +103,7 @@ defineProps({
                       >{{ ctx.entryTheme(line, t).name }}</span>
                       <span v-if="t.isShared" class="flag-on" style="margin-left: 6px">½</span>
                     </span>
-                    <span class="tx-amount tx-expense">{{ ctx.fmt(t.amount) }} €</span>
+                    <span class="tx-amount tx-expense">{{ ctx.fmt(t.amount) }} {{ currencySymbol }}</span>
                     <button class="btn-tx-edit" @click.stop="ctx.openEditTxModal(line, t)" title="Modifier"><font-awesome-icon icon="pen" /></button>
                     <button class="btn-tx-del" @click.stop="ctx.deleteLineTx(line, t._id)" title="Supprimer">✕</button>
                   </div>
@@ -125,11 +129,11 @@ defineProps({
         <span class="col-date"></span>
         <span v-if="group.hasPlanned" class="col-r totals-val">
           <span v-if="!ctx.isSectionOpen(group.section._id)" class="totals-cap">Prévu</span>
-          {{ ctx.fmt(group.lines.reduce((s, l) => s + (l.plannedAmount || 0), 0)) }} €
+          {{ ctx.fmt(group.lines.reduce((s, l) => s + (l.plannedAmount || 0), 0)) }} {{ currencySymbol }}
         </span>
         <span class="col-r totals-val">
           <span v-if="!ctx.isSectionOpen(group.section._id)" class="totals-cap">Réel</span>
-          {{ ctx.fmt(group.lines.reduce((s, l) => s + (l.actualAmount || 0), 0)) }} €
+          {{ ctx.fmt(group.lines.reduce((s, l) => s + (l.actualAmount || 0), 0)) }} {{ currencySymbol }}
         </span>
         <span class="col-flags"></span>
       </div>

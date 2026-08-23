@@ -11,6 +11,8 @@ import {
   updateUtilityMeter,
   deleteUtilityMeter,
 } from '@/api/utilityMeters.js'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal.vue'
+import { setCurrency } from '@/composables/useCurrency.js'
 
 // ─── State ───────────────────────────────────────────────
 const accounts = ref([])
@@ -52,6 +54,24 @@ async function loadSettings() {
   settings.value = (await getSettings()).data
   rentBudgetLineId.value = settings.value.rentBudgetLine?._id || settings.value.rentBudgetLine || null
   mainAccountId.value = settings.value.mainAccount?._id || settings.value.mainAccount || null
+  if (!settings.value.paymentMethods?.length) settings.value.paymentMethods = ['CB', 'virement', 'especes', 'autre']
+  if (!settings.value.investmentTypes?.length) settings.value.investmentTypes = ['ETF', 'CRYPTO', 'STOCK', 'OTHER']
+}
+
+// ─── Listes configurables (paiements / types d'investissement) ─
+const newPaymentMethod = ref('')
+function addPaymentMethod() {
+  const v = newPaymentMethod.value.trim()
+  if (!v || settings.value.paymentMethods.includes(v)) return
+  settings.value.paymentMethods.push(v)
+  newPaymentMethod.value = ''
+}
+const newInvestmentType = ref('')
+function addInvestmentType() {
+  const v = newInvestmentType.value.trim()
+  if (!v || settings.value.investmentTypes.includes(v)) return
+  settings.value.investmentTypes.push(v)
+  newInvestmentType.value = ''
 }
 async function loadMeters() { meters.value = (await getUtilityMeters()).data }
 
@@ -87,6 +107,44 @@ async function saveSection(id) {
 async function removeSection(id) {
   await deleteSection(id)
   await loadSections()
+}
+
+// ─── Confirmation de suppression ─────────────────────────
+const confirmDelete = ref(null) // { kind: 'account' | 'section' | 'theme' | 'meter', item }
+
+const DELETE_COPY = {
+  account: {
+    title: 'Supprimer ce compte ?',
+    warning: "Les entrées et snapshots qui référencent ce compte ne seront pas supprimés, mais n'auront plus de compte associé.",
+  },
+  section: {
+    title: 'Supprimer cette catégorie ?',
+    warning: 'Les lignes rattachées à cette catégorie ne seront pas supprimées, mais ne seront plus regroupées dans son bloc.',
+  },
+  theme: {
+    title: 'Supprimer ce thème ?',
+    warning: 'Les lignes et entrées qui utilisent ce thème ne seront pas supprimées, mais deviendront « sans thème » dans tous les sheets et le template.',
+  },
+  meter: {
+    title: 'Supprimer ce compteur ?',
+    warning: 'Ses relevés mensuels ne seront plus affichés dans les sheets.',
+  },
+}
+
+function askDelete(kind, item) {
+  confirmDelete.value = { kind, item }
+}
+function cancelDelete() {
+  confirmDelete.value = null
+}
+async function doConfirmedDelete() {
+  if (!confirmDelete.value) return
+  const { kind, item } = confirmDelete.value
+  if (kind === 'account') await removeAccount(item._id)
+  else if (kind === 'section') await removeSection(item._id)
+  else if (kind === 'theme') await removeTheme(item._id)
+  else if (kind === 'meter') await removeMeter(item._id)
+  confirmDelete.value = null
 }
 
 // ─── Thèmes ──────────────────────────────────────────────
@@ -143,7 +201,10 @@ async function saveSettings() {
     partnerRentAmount: settings.value.partnerRentAmount,
     rentBudgetLine: rentBudgetLineId.value || null,
     mainAccount: mainAccountId.value || null,
+    paymentMethods: settings.value.paymentMethods,
+    investmentTypes: settings.value.investmentTypes,
   })
+  setCurrency(settings.value.currency)
   showToast()
 }
 
@@ -195,6 +256,9 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
               <label class="flex items-center gap-1.5 text-[12.5px] text-gray-500 dark:text-gray-400 cursor-pointer whitespace-nowrap">
                 <input type="checkbox" v-model="editBuffer.includeInNetWorth" /> Patrimoine
               </label>
+              <label v-if="editBuffer.type === 'savings'" class="flex items-center gap-1.5 text-[12.5px] text-gray-500 dark:text-gray-400 cursor-pointer whitespace-nowrap" title="Afficher ce compte dans le graphe Épargne & Investissements">
+                <input type="checkbox" v-model="editBuffer.trackInSavingsChart" /> Graphe épargne
+              </label>
               <div class="row-actions">
                 <button class="btn-inline-save" @click="saveAccount(account._id)">Sauver</button>
                 <button class="btn-inline-cancel" @click="cancelEdit">Annuler</button>
@@ -205,10 +269,11 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
                 <span class="text-[13.5px] font-medium text-gray-700 dark:text-gray-200 truncate">{{ account.name }}</span>
                 <span class="badge">{{ accountTypeLabel[account.type] }}</span>
                 <span v-if="account.includeInNetWorth" class="badge badge-blue">Patrimoine</span>
+                <span v-if="account.type === 'savings' && account.trackInSavingsChart" class="badge badge-green" title="Affiché dans le graphe Épargne & Investissements">Graphe</span>
               </div>
               <div class="row-actions">
                 <button class="btn-inline-edit" @click="startEdit(account)">Modifier</button>
-                <button class="btn-inline-delete" @click="removeAccount(account._id)">Supprimer</button>
+                <button class="btn-inline-delete" @click="askDelete('account', account)">Supprimer</button>
               </div>
             </template>
           </div>
@@ -243,7 +308,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
               </div>
               <div class="row-actions">
                 <button class="btn-inline-edit" @click="startEdit(section)">Modifier</button>
-                <button class="btn-inline-delete" @click="removeSection(section._id)">Supprimer</button>
+                <button class="btn-inline-delete" @click="askDelete('section', section)">Supprimer</button>
               </div>
             </template>
           </div>
@@ -287,7 +352,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
               </div>
               <div class="row-actions">
                 <button class="btn-inline-edit" @click="startEdit(theme)">Modifier</button>
-                <button class="btn-inline-delete" @click="removeTheme(theme._id)">Supprimer</button>
+                <button class="btn-inline-delete" @click="askDelete('theme', theme)">Supprimer</button>
               </div>
             </template>
           </div>
@@ -355,7 +420,7 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
                 </div>
                 <div class="row-actions">
                   <button class="btn-inline-edit" @click="startEdit(meter)">Modifier</button>
-                  <button class="btn-inline-delete" @click="removeMeter(meter._id)">Supprimer</button>
+                  <button class="btn-inline-delete" @click="askDelete('meter', meter)">Supprimer</button>
                 </div>
               </div>
             </template>
@@ -382,6 +447,45 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
           <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Objectif d'épargne (%)</label>
             <input type="number" v-model="settings.savingRate" min="0" max="100" class="input-field max-w-40" />
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Moyens de paiement</label>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span
+                v-for="(m, i) in settings.paymentMethods"
+                :key="m"
+                class="badge flex items-center gap-1"
+              >
+                {{ m }}
+                <button class="border-none bg-transparent cursor-pointer text-gray-400 hover:text-red-500 text-[11px] p-0" title="Retirer" @click="settings.paymentMethods.splice(i, 1)">✕</button>
+              </span>
+              <input
+                v-model="newPaymentMethod"
+                placeholder="Ajouter…"
+                class="input-field max-w-28"
+                @keyup.enter="addPaymentMethod"
+              />
+            </div>
+            <span class="text-[11.5px] text-gray-300 dark:text-gray-600">Le premier de la liste est proposé par défaut sur les nouvelles entrées</span>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Types d'investissement</label>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span
+                v-for="(t, i) in settings.investmentTypes"
+                :key="t"
+                class="badge flex items-center gap-1"
+              >
+                {{ t }}
+                <button class="border-none bg-transparent cursor-pointer text-gray-400 hover:text-red-500 text-[11px] p-0" title="Retirer" @click="settings.investmentTypes.splice(i, 1)">✕</button>
+              </span>
+              <input
+                v-model="newInvestmentType"
+                placeholder="Ajouter…"
+                class="input-field max-w-28"
+                @keyup.enter="addInvestmentType"
+              />
+            </div>
           </div>
           <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Loyer total copine (€/mois)</label>
@@ -424,6 +528,17 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
       </div>
 
     </div>
+
+    <!-- ─── Modale confirmation suppression ──────────────── -->
+    <ConfirmDeleteModal
+      v-if="confirmDelete"
+      :title="DELETE_COPY[confirmDelete.kind].title"
+      :label="confirmDelete.item.name"
+      :color="['section', 'theme'].includes(confirmDelete.kind) ? confirmDelete.item.color || '#6b7280' : ''"
+      :warning="DELETE_COPY[confirmDelete.kind].warning"
+      @confirm="doConfirmedDelete"
+      @cancel="cancelDelete"
+    />
   </div>
 </template>
 
@@ -517,6 +632,8 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
 :global(.dark) .badge-blue { background: rgba(124,58,237,0.2); color: #c4b5fd; }
 .badge-orange { background: #fff7ed; color: #ea580c; }
 :global(.dark) .badge-orange { background: rgba(234,88,12,0.2); color: #fdba74; }
+.badge-green { background: #f0fdf4; color: #16a34a; }
+:global(.dark) .badge-green { background: rgba(22,163,74,0.2); color: #86efac; }
 
 .btn-inline-edit { font-size: 12px; color: #7c3aed; background: none; border: none; cursor: pointer; padding: 2px 4px; }
 .btn-inline-edit:hover { text-decoration: underline; }
