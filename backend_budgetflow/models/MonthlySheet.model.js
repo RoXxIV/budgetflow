@@ -27,6 +27,10 @@ const MonthlySheetSchema = new Schema({
   }, // date création
 });
 
-MonthlySheetSchema.index({ periodMonth: 1 });
+// Un seul sheet par mois calendaire (le template est hors périmètre)
+MonthlySheetSchema.index(
+  { periodMonth: 1 },
+  { unique: true, partialFilterExpression: { isTemplate: false }, name: "periodMonth_unique_nontemplate" }
+);
 
 export default mongoose.model("MonthlySheet", MonthlySheetSchema);

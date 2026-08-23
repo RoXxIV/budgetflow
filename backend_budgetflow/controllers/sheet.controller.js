@@ -12,8 +12,12 @@ export const getById = async (req, res) => {
 };
 
 export const create = async (req, res) => {
-  const sheet = await sheetService.createFromTemplate(req.body);
-  res.status(201).json(sheet);
+  try {
+    const sheet = await sheetService.createFromTemplate(req.body);
+    res.status(201).json(sheet);
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message });
+  }
 };
 
 export const update = async (req, res) => {

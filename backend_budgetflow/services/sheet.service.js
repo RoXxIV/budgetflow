@@ -49,11 +49,52 @@ export const deleteLine = async (lineId) => {
 };
 
 // ─── Création depuis le template ─────────────────────────
-export const createFromTemplate = async ({ periodMonth, name, snapshots = [] }) => {
+const MONTH_NAMES = [
+  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+];
+
+// 1er du mois à minuit UTC — forme canonique de periodMonth
+const toMonthStart = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+
+export const formatMonthName = (d) => `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+
+export const createFromTemplate = async ({ periodMonth, snapshots = [] }) => {
   const template = await MonthlySheet.findOne({ isTemplate: true });
   if (!template) throw new Error("Template introuvable");
 
-  const sheet = await MonthlySheet.create({ periodMonth, name, status: "active" });
+  const parsed = new Date(periodMonth);
+  if (isNaN(parsed)) {
+    const err = new Error("periodMonth invalide");
+    err.status = 400;
+    throw err;
+  }
+  const month = toMonthStart(parsed);
+
+  const existing = await MonthlySheet.findOne({ isTemplate: false, periodMonth: month });
+  if (existing) {
+    const err = new Error(`Un sheet existe déjà pour ${formatMonthName(month)}`);
+    err.status = 409;
+    throw err;
+  }
+
+  // Statut selon la position calendaire : mois courant = actif, futur = brouillon, passé = archivé
+  const now = new Date();
+  const currentMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+  let status = "archived";
+  if (month.getTime() === currentMonth.getTime()) status = "active";
+  else if (month > currentMonth) status = "draft";
+
+  // Un seul sheet actif à la fois
+  if (status === "active") {
+    await MonthlySheet.updateMany({ isTemplate: false, status: "active" }, { status: "archived" });
+  }
+
+  const sheet = await MonthlySheet.create({
+    periodMonth: month,
+    name: formatMonthName(month),
+    status,
+  });
 
   const templateLines = await BudgetLine.find({ sheet: template._id });
   await Promise.all(
@@ -66,7 +107,8 @@ export const createFromTemplate = async ({ periodMonth, name, snapshots = [] }) 
   const lastSheet = await MonthlySheet.findOne({
     isTemplate: false,
     _id: { $ne: sheet._id },
-  }).sort({ createdAt: -1 });
+    periodMonth: { $lt: month },
+  }).sort({ periodMonth: -1 });
 
   const meters = await UtilityMeter.find();
   await Promise.all(
