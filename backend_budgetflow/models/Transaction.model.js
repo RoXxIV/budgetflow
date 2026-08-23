@@ -41,8 +41,7 @@ const TransactionSchema = new Schema({
 
   paymentMethod: {
     type: String,
-    enum: ["CB", "virement", "especes", "autre"],
-  }, // moyen de paiement de cette entrée
+  }, // moyen de paiement de cette entrée (liste configurable dans AppSettings)
 
   isShared: {
     type: Boolean,

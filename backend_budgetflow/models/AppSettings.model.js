@@ -13,6 +13,16 @@ const AppSettingsSchema = new Schema({
     default: "EUR",
   }, // devise principale
 
+  paymentMethods: {
+    type: [String],
+    default: () => ["CB", "virement", "especes", "autre"],
+  }, // moyens de paiement proposés sur les entrées
+
+  investmentTypes: {
+    type: [String],
+    default: () => ["ETF", "CRYPTO", "STOCK", "OTHER"],
+  }, // types d'actifs proposés pour les investissements
+
   createdAt: {
     type: Date,
     default: Date.now,

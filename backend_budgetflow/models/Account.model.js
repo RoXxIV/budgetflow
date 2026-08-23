@@ -18,6 +18,11 @@ const AccountSchema = new Schema({
     type: Boolean,
     default: true,
   }, // inclure dans le total patrimoine
+
+  trackInSavingsChart: {
+    type: Boolean,
+    default: true,
+  }, // afficher ce compte dans le graphe Épargne & Investissements (comptes épargne)
 });
 
 export default mongoose.model("Account", AccountSchema);

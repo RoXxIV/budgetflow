@@ -53,8 +53,7 @@ const BudgetLineSchema = new Schema({
 
   paymentMethod: {
     type: String,
-    enum: ["CB", "virement", "especes", "autre"],
-  }, // moyen de paiement
+  }, // moyen de paiement (liste configurable dans AppSettings)
 
   isShared: {
     type: Boolean,

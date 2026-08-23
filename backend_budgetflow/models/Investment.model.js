@@ -10,8 +10,7 @@ const InvestmentSchema = new Schema({
 
   type: {
     type: String,
-    enum: ["ETF", "CRYPTO", "STOCK", "OTHER"],
-  }, // type d'actif
+  }, // type d'actif (liste configurable dans AppSettings)
 
   account: {
     type: Types.ObjectId,
