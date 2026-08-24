@@ -23,6 +23,7 @@ const navLinks = [
   { name: 'Template', icon: 'table-list', to: '/template' },
   { name: 'Objectifs', icon: 'bullseye', to: '/objectifs' },
   { name: 'Investissements', icon: 'chart-line', to: '/investissements' },
+  { name: 'Abonnements', icon: 'repeat', to: '/abonnements' },
   { name: 'Statistiques', icon: 'chart-bar', to: '/statistiques' },
   { name: 'Archives', icon: 'box-archive', to: '/archives' },
 ]

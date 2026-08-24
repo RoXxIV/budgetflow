@@ -14,6 +14,7 @@ import investmentRoutes from "./routes/investment.routes.js";
 import savingGoalRoutes from "./routes/savingGoal.routes.js";
 import sheetRoutes from "./routes/sheet.routes.js";
 import transactionRoutes from "./routes/transaction.routes.js";
+import subscriptionRoutes from "./routes/subscription.routes.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use("/api/investments", investmentRoutes);
 app.use("/api/saving-goals", savingGoalRoutes);
 app.use("/api/sheets", sheetRoutes);
 app.use("/api/transactions", transactionRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
 
 connectDB().then(async () => {
   await seed();

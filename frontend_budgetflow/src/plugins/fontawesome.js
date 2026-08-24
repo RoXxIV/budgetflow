@@ -28,6 +28,7 @@ import {
   faArrowRight,
   faEye,
   faTriangleExclamation,
+  faRepeat,
 } from '@fortawesome/free-solid-svg-icons'
 
 library.add(
@@ -58,6 +59,7 @@ library.add(
   faArrowRight,
   faEye,
   faTriangleExclamation,
+  faRepeat,
 )
 
 export { FontAwesomeIcon }

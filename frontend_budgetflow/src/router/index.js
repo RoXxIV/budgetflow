@@ -7,6 +7,7 @@ import GoalsView from '@/views/GoalsView.vue'
 import SheetView from '@/views/SheetView.vue'
 import ArchivesView from '@/views/ArchivesView.vue'
 import StatisticsView from '@/views/StatisticsView.vue'
+import SubscriptionsView from '@/views/SubscriptionsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -19,6 +20,7 @@ const router = createRouter({
     { path: '/objectifs', name: 'goals', component: GoalsView },
     { path: '/archives', name: 'archives', component: ArchivesView },
     { path: '/statistiques', name: 'statistics', component: StatisticsView },
+    { path: '/abonnements', name: 'subscriptions', component: SubscriptionsView },
   ],
 })
 
