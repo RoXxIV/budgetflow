@@ -83,12 +83,13 @@ function yearlyCost(sub) {
   return toMonthly(sub.period, sub.price) * 12
 }
 
-// Prix retenu pour le scénario "effort" : le prix effort s'il est saisi, sinon le prix actuel
+// Prix retenu pour le scénario "effort" : le prix effort s'il est saisi
+// (0 compris = résiliation envisagée), sinon le prix actuel
 function effortAmount(sub) {
-  return sub.effortPrice > 0 ? sub.effortPrice : sub.price
+  return sub.effortPrice != null ? sub.effortPrice : sub.price
 }
 
-const hasEffort = computed(() => subscriptions.value.some((s) => s.effortPrice > 0))
+const hasEffort = computed(() => subscriptions.value.some((s) => s.effortPrice != null))
 
 // ─── Totaux ──────────────────────────────────────────────
 const totalMonthly = computed(() => subscriptions.value.reduce((s, sub) => s + monthlyCost(sub), 0))
@@ -172,7 +173,7 @@ async function add() {
   if (!newSub.value.name.trim() || !validDay(newSub.value.period, newSub.value.renewalDay) || !(newSub.value.price > 0)) return
   const data = { ...newSub.value }
   if (!data.theme) delete data.theme
-  if (!(data.effortPrice > 0)) data.effortPrice = null
+  data.effortPrice = data.effortPrice >= 0 && data.effortPrice !== '' ? data.effortPrice : null
   await createSubscription(data)
   newSub.value = defaultSub()
   showAddForm.value = false
@@ -204,7 +205,7 @@ async function saveEdit(id) {
   if (!validDay(editBuffer.value.period, editBuffer.value.renewalDay)) return
   const data = { ...editBuffer.value }
   if (!data.theme) data.theme = null
-  if (!(data.effortPrice > 0)) data.effortPrice = null
+  data.effortPrice = data.effortPrice >= 0 && data.effortPrice !== '' ? data.effortPrice : null
   await updateSubscription(id, data)
   cancelEdit()
   await load()
@@ -365,8 +366,8 @@ async function doConfirmedRemove() {
             <div class="flex flex-col items-end shrink-0 w-32">
               <span class="text-[15px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(sub.price) }} {{ currencySymbol }}</span>
               <span v-if="sub.period !== 'monthly'" class="text-[11.5px] text-gray-400">≈ {{ fmt(monthlyCost(sub)) }} {{ currencySymbol }}/mois</span>
-              <span v-if="sub.effortPrice > 0" class="text-[11.5px] font-semibold text-green-600 dark:text-green-400" title="Prix effort envisagé">
-                → {{ fmt(sub.effortPrice) }} {{ currencySymbol }}
+              <span v-if="sub.effortPrice != null" class="text-[11.5px] font-semibold text-green-600 dark:text-green-400" :title="sub.effortPrice === 0 ? 'Résiliation envisagée' : 'Prix effort envisagé'">
+                {{ sub.effortPrice === 0 ? '→ arrêt envisagé' : '→ ' + fmt(sub.effortPrice) + ' ' + currencySymbol }}
               </span>
             </div>
 
