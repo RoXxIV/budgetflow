@@ -73,6 +73,14 @@ function monthlyCost(sub) {
   return p
 }
 
+// Coût sur une année pleine
+function yearlyCost(sub) {
+  const p = sub.price || 0
+  if (sub.period === 'weekly') return p * 52
+  if (sub.period === 'monthly') return p * 12
+  return p
+}
+
 // ─── Totaux ──────────────────────────────────────────────
 const totalMonthly = computed(() => subscriptions.value.reduce((s, sub) => s + monthlyCost(sub), 0))
 const totalYearly = computed(() => totalMonthly.value * 12)
@@ -326,6 +334,11 @@ async function doConfirmedRemove() {
             <div class="flex flex-col items-end shrink-0 w-32">
               <span class="text-[15px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(sub.price) }} {{ currencySymbol }}</span>
               <span v-if="sub.period !== 'monthly'" class="text-[11.5px] text-gray-400">≈ {{ fmt(monthlyCost(sub)) }} {{ currencySymbol }}/mois</span>
+            </div>
+
+            <div class="flex flex-col items-end shrink-0 w-28">
+              <span class="text-[12px] text-gray-400">Par an</span>
+              <span class="text-[13.5px] font-semibold text-gray-700 dark:text-gray-200">{{ fmt(yearlyCost(sub)) }} {{ currencySymbol }}</span>
             </div>
 
             <div class="flex items-center gap-1.5 shrink-0">
