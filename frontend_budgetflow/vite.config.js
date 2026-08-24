@@ -20,5 +20,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true, // Tauri attend exactement ce port en mode dev
+    watch: {
+      // Ne pas surveiller les artefacts Rust : évite un crash du watcher
+      // quand un `tauri build` supprime ses dossiers temporaires en parallèle
+      ignored: ['**/src-tauri/target/**'],
+    },
   },
 })
