@@ -13,16 +13,17 @@ const SubscriptionSchema = new Schema({
     ref: "Theme",
   }, // catégorie (ex: Streaming)
 
-  renewalDate: {
-    type: Date,
-    required: true,
-  }, // date de prélèvement (ancre — les échéances suivantes se déduisent de la périodicité)
-
   period: {
     type: String,
     enum: ["weekly", "monthly", "yearly"],
     default: "monthly",
   }, // périodicité du prélèvement
+
+  renewalDay: {
+    type: Number,
+    required: true,
+  }, // jour de prélèvement, selon la périodicité :
+  // hebdo = jour de semaine (0=dimanche … 6=samedi), mensuel = 1-31, annuel = mois (0=janvier … 11=décembre)
 
   price: {
     type: Number,

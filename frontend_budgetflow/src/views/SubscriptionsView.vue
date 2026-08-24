@@ -30,6 +30,41 @@ const PERIODS = [
 ]
 const periodLabel = { weekly: 'Hebdo', monthly: 'Mensuel', yearly: 'Annuel' }
 
+// Valeurs possibles du "jour de prélèvement" selon la périodicité
+// (renewalDay : hebdo = jour de semaine JS 0-6, mensuel = 1-31, annuel = mois 0-11)
+const WEEKDAYS = [
+  { value: 1, label: 'Lundi' },
+  { value: 2, label: 'Mardi' },
+  { value: 3, label: 'Mercredi' },
+  { value: 4, label: 'Jeudi' },
+  { value: 5, label: 'Vendredi' },
+  { value: 6, label: 'Samedi' },
+  { value: 0, label: 'Dimanche' },
+]
+const MONTHS = [
+  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+].map((label, value) => ({ value, label }))
+
+function dayOptions(period) {
+  if (period === 'weekly') return WEEKDAYS
+  if (period === 'yearly') return MONTHS
+  return Array.from({ length: 31 }, (_, i) => ({ value: i + 1, label: `Le ${i + 1}` }))
+}
+
+function dayFieldLabel(period) {
+  if (period === 'weekly') return 'Jour de la semaine'
+  if (period === 'yearly') return 'Mois de prélèvement'
+  return 'Jour du mois'
+}
+
+function validDay(period, day) {
+  if (day == null || day === '') return false
+  if (period === 'weekly') return day >= 0 && day <= 6
+  if (period === 'yearly') return day >= 0 && day <= 11
+  return day >= 1 && day <= 31
+}
+
 // Équivalent mensuel d'un abonnement selon sa périodicité
 function monthlyCost(sub) {
   const p = sub.price || 0
@@ -42,19 +77,31 @@ function monthlyCost(sub) {
 const totalMonthly = computed(() => subscriptions.value.reduce((s, sub) => s + monthlyCost(sub), 0))
 const totalYearly = computed(() => totalMonthly.value * 12)
 
-// ─── Prochaine échéance (roulée depuis la date ancre) ────
+// ─── Prochaine échéance (déduite du jour de prélèvement) ─
 function nextRenewal(sub) {
-  const d = new Date(sub.renewalDate)
-  if (isNaN(d)) return null
+  const day = sub.renewalDay
+  if (day == null) return null
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  let guard = 0
-  while (d < today && guard++ < 2000) {
-    if (sub.period === 'weekly') d.setDate(d.getDate() + 7)
-    else if (sub.period === 'yearly') d.setFullYear(d.getFullYear() + 1)
-    else d.setMonth(d.getMonth() + 1)
+
+  if (sub.period === 'weekly') {
+    const diff = (day - today.getDay() + 7) % 7
+    const r = new Date(today)
+    r.setDate(r.getDate() + diff)
+    return r
   }
-  return d
+
+  if (sub.period === 'yearly') {
+    // Précision au mois : on pointe le 1er du mois de prélèvement
+    const y = today.getFullYear() + (day < today.getMonth() ? 1 : 0)
+    return new Date(y, day, 1)
+  }
+
+  // Mensuel : jour demandé, borné au dernier jour du mois (ex: le 31 en février)
+  const clamped = (y, m) => new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()))
+  let r = clamped(today.getFullYear(), today.getMonth())
+  if (r < today) r = clamped(today.getFullYear(), today.getMonth() + 1)
+  return r
 }
 
 function daysUntil(date) {
@@ -62,6 +109,25 @@ function daysUntil(date) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return Math.round((date - today) / 86400000)
+}
+
+// Affichage de l'échéance : date précise (hebdo/mensuel) ou mois (annuel)
+function renewalDisplay(sub) {
+  const d = nextRenewal(sub)
+  if (!d) return '—'
+  if (sub.period === 'yearly') {
+    const isCurrentMonth = d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear()
+    const label = d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+    return isCurrentMonth ? `${label} (ce mois-ci)` : label
+  }
+  const days = daysUntil(d)
+  return `${fmtDate(d)} (${days === 0 ? "aujourd'hui" : 'J-' + days})`
+}
+
+function renewalIsSoon(sub) {
+  if (sub.period === 'yearly') return false
+  const days = daysUntil(nextRenewal(sub))
+  return days != null && days <= 3
 }
 
 // Liste triée par échéance la plus proche
@@ -73,11 +139,16 @@ const sortedSubscriptions = computed(() =>
 const showAddForm = ref(false)
 const newSub = ref(defaultSub())
 function defaultSub() {
-  return { name: '', theme: '', renewalDate: '', period: 'monthly', price: null }
+  return { name: '', theme: '', period: 'monthly', renewalDay: null, price: null }
+}
+
+// Changer de périodicité invalide le jour choisi (échelles différentes)
+function onPeriodChange(form) {
+  form.renewalDay = null
 }
 
 async function add() {
-  if (!newSub.value.name.trim() || !newSub.value.renewalDate || !(newSub.value.price > 0)) return
+  if (!newSub.value.name.trim() || !validDay(newSub.value.period, newSub.value.renewalDay) || !(newSub.value.price > 0)) return
   const data = { ...newSub.value }
   if (!data.theme) delete data.theme
   await createSubscription(data)
@@ -95,8 +166,8 @@ function startEdit(sub) {
   editBuffer.value = {
     name: sub.name,
     theme: sub.theme?._id || sub.theme || '',
-    renewalDate: sub.renewalDate ? sub.renewalDate.slice(0, 10) : '',
     period: sub.period,
+    renewalDay: sub.renewalDay ?? null,
     price: sub.price,
   }
 }
@@ -107,6 +178,7 @@ function cancelEdit() {
 }
 
 async function saveEdit(id) {
+  if (!validDay(editBuffer.value.period, editBuffer.value.renewalDay)) return
   const data = { ...editBuffer.value }
   if (!data.theme) data.theme = null
   await updateSubscription(id, data)
@@ -173,13 +245,16 @@ async function doConfirmedRemove() {
           </select>
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Date de prélèvement</label>
-          <input v-model="newSub.renewalDate" type="date" class="input-sub" />
+          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Temporalité</label>
+          <select v-model="newSub.period" class="input-sub cursor-pointer" @change="onPeriodChange(newSub)">
+            <option v-for="p in PERIODS" :key="p.value" :value="p.value">{{ p.label }}</option>
+          </select>
         </div>
         <div class="flex flex-col gap-1">
-          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Temporalité</label>
-          <select v-model="newSub.period" class="input-sub cursor-pointer">
-            <option v-for="p in PERIODS" :key="p.value" :value="p.value">{{ p.label }}</option>
+          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">{{ dayFieldLabel(newSub.period) }}</label>
+          <select v-model.number="newSub.renewalDay" class="input-sub cursor-pointer">
+            <option :value="null" disabled>— Choisir —</option>
+            <option v-for="o in dayOptions(newSub.period)" :key="o.value" :value="o.value">{{ o.label }}</option>
           </select>
         </div>
         <div class="flex flex-col gap-1">
@@ -190,7 +265,7 @@ async function doConfirmedRemove() {
       <div class="flex gap-2">
         <button
           class="px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-[7px] text-[13px] font-medium cursor-pointer border-none disabled:opacity-50 disabled:cursor-not-allowed"
-          :disabled="!newSub.name.trim() || !newSub.renewalDate || !(newSub.price > 0)"
+          :disabled="!newSub.name.trim() || !validDay(newSub.period, newSub.renewalDay) || !(newSub.price > 0)"
           @click="add"
         >Ajouter</button>
         <button class="px-3 py-2 bg-transparent text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-[7px] text-[13px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700" @click="showAddForm = false">Annuler</button>
@@ -212,9 +287,12 @@ async function doConfirmedRemove() {
               <option value="">— Aucun —</option>
               <option v-for="t in themes" :key="t._id" :value="t._id">{{ t.name }}</option>
             </select>
-            <input v-model="editBuffer.renewalDate" type="date" class="input-sub" />
-            <select v-model="editBuffer.period" class="input-sub cursor-pointer">
+            <select v-model="editBuffer.period" class="input-sub cursor-pointer" @change="onPeriodChange(editBuffer)">
               <option v-for="p in PERIODS" :key="p.value" :value="p.value">{{ p.label }}</option>
+            </select>
+            <select v-model.number="editBuffer.renewalDay" class="input-sub cursor-pointer">
+              <option :value="null" disabled>— {{ dayFieldLabel(editBuffer.period) }} —</option>
+              <option v-for="o in dayOptions(editBuffer.period)" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
             <input v-model.number="editBuffer.price" type="number" step="0.01" min="0" class="input-sub" />
           </div>
@@ -237,17 +315,12 @@ async function doConfirmedRemove() {
               <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">{{ periodLabel[sub.period] }}</span>
             </div>
 
-            <div class="flex flex-col items-end shrink-0 w-40">
+            <div class="flex flex-col items-end shrink-0 w-44">
               <span class="text-[12px] text-gray-400">Prochain prélèvement</span>
-              <span class="text-[13px] font-medium text-gray-700 dark:text-gray-200">
-                {{ fmtDate(nextRenewal(sub)) }}
-                <span
-                  class="text-[11.5px] font-semibold"
-                  :class="daysUntil(nextRenewal(sub)) <= 3 ? 'text-orange-500' : 'text-gray-400'"
-                >
-                  ({{ daysUntil(nextRenewal(sub)) === 0 ? "aujourd'hui" : 'J-' + daysUntil(nextRenewal(sub)) }})
-                </span>
-              </span>
+              <span
+                class="text-[13px] font-medium"
+                :class="renewalIsSoon(sub) ? 'text-orange-500' : 'text-gray-700 dark:text-gray-200'"
+              >{{ renewalDisplay(sub) }}</span>
             </div>
 
             <div class="flex flex-col items-end shrink-0 w-32">
