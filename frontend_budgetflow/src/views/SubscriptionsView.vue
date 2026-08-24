@@ -65,25 +65,38 @@ function validDay(period, day) {
   return day >= 1 && day <= 31
 }
 
-// Équivalent mensuel d'un abonnement selon sa périodicité
-function monthlyCost(sub) {
-  const p = sub.price || 0
-  if (sub.period === 'weekly') return (p * 52) / 12
-  if (sub.period === 'yearly') return p / 12
+// Ramène un montant au mois selon la périodicité
+function toMonthly(period, amount) {
+  const p = amount || 0
+  if (period === 'weekly') return (p * 52) / 12
+  if (period === 'yearly') return p / 12
   return p
+}
+
+// Équivalent mensuel d'un abonnement
+function monthlyCost(sub) {
+  return toMonthly(sub.period, sub.price)
 }
 
 // Coût sur une année pleine
 function yearlyCost(sub) {
-  const p = sub.price || 0
-  if (sub.period === 'weekly') return p * 52
-  if (sub.period === 'monthly') return p * 12
-  return p
+  return toMonthly(sub.period, sub.price) * 12
 }
+
+// Prix retenu pour le scénario "effort" : le prix effort s'il est saisi, sinon le prix actuel
+function effortAmount(sub) {
+  return sub.effortPrice > 0 ? sub.effortPrice : sub.price
+}
+
+const hasEffort = computed(() => subscriptions.value.some((s) => s.effortPrice > 0))
 
 // ─── Totaux ──────────────────────────────────────────────
 const totalMonthly = computed(() => subscriptions.value.reduce((s, sub) => s + monthlyCost(sub), 0))
 const totalYearly = computed(() => totalMonthly.value * 12)
+const totalMonthlyEffort = computed(() =>
+  subscriptions.value.reduce((s, sub) => s + toMonthly(sub.period, effortAmount(sub)), 0)
+)
+const monthlySavings = computed(() => totalMonthly.value - totalMonthlyEffort.value)
 
 // ─── Prochaine échéance (déduite du jour de prélèvement) ─
 function nextRenewal(sub) {
@@ -147,7 +160,7 @@ const sortedSubscriptions = computed(() =>
 const showAddForm = ref(false)
 const newSub = ref(defaultSub())
 function defaultSub() {
-  return { name: '', theme: '', period: 'monthly', renewalDay: null, price: null }
+  return { name: '', theme: '', period: 'monthly', renewalDay: null, price: null, effortPrice: null }
 }
 
 // Changer de périodicité invalide le jour choisi (échelles différentes)
@@ -159,6 +172,7 @@ async function add() {
   if (!newSub.value.name.trim() || !validDay(newSub.value.period, newSub.value.renewalDay) || !(newSub.value.price > 0)) return
   const data = { ...newSub.value }
   if (!data.theme) delete data.theme
+  if (!(data.effortPrice > 0)) data.effortPrice = null
   await createSubscription(data)
   newSub.value = defaultSub()
   showAddForm.value = false
@@ -177,6 +191,7 @@ function startEdit(sub) {
     period: sub.period,
     renewalDay: sub.renewalDay ?? null,
     price: sub.price,
+    effortPrice: sub.effortPrice ?? null,
   }
 }
 
@@ -189,6 +204,7 @@ async function saveEdit(id) {
   if (!validDay(editBuffer.value.period, editBuffer.value.renewalDay)) return
   const data = { ...editBuffer.value }
   if (!data.theme) data.theme = null
+  if (!(data.effortPrice > 0)) data.effortPrice = null
   await updateSubscription(id, data)
   cancelEdit()
   await load()
@@ -231,6 +247,16 @@ async function doConfirmedRemove() {
         <span class="text-[12px] text-gray-400 font-medium">Total annuel</span>
         <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalYearly) }} {{ currencySymbol }}/an</span>
       </div>
+      <div v-if="hasEffort" class="flex-1 glass-card px-4.5 py-3.5 flex flex-col gap-1">
+        <span class="text-[12px] text-gray-400 font-medium">Avec efforts appliqués</span>
+        <div class="flex items-baseline gap-2 flex-wrap">
+          <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(totalMonthlyEffort) }} {{ currencySymbol }}/mois</span>
+          <span class="text-[12.5px] text-gray-400">{{ fmt(totalMonthlyEffort * 12) }} {{ currencySymbol }}/an</span>
+        </div>
+        <span v-if="monthlySavings > 0.005" class="text-[12px] font-semibold text-green-600 dark:text-green-400">
+          −{{ fmt(monthlySavings) }} {{ currencySymbol }}/mois ({{ fmt(monthlySavings * 12) }} {{ currencySymbol }}/an d'économie)
+        </span>
+      </div>
       <div class="flex-1 glass-card px-4.5 py-3.5 flex flex-col gap-1">
         <span class="text-[12px] text-gray-400 font-medium">Abonnements actifs</span>
         <span class="text-[20px] font-bold text-gray-950 dark:text-gray-50">{{ subscriptions.length }}</span>
@@ -240,7 +266,7 @@ async function doConfirmedRemove() {
     <!-- Formulaire ajout -->
     <div v-if="showAddForm" class="glass-card px-5 py-4.5 mb-5">
       <h3 class="text-[14px] font-semibold text-gray-950 dark:text-gray-50 mb-3.5">Nouvel abonnement</h3>
-      <div class="grid gap-2.5 mb-3.5" style="grid-template-columns: 1fr 160px 150px 140px 110px">
+      <div class="grid gap-2.5 mb-3.5" style="grid-template-columns: 1fr 150px 140px 135px 100px 100px">
         <div class="flex flex-col gap-1">
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Nom</label>
           <input v-model="newSub.name" class="input-sub" placeholder="Ex: Netflix" @keyup.enter="add" />
@@ -269,6 +295,10 @@ async function doConfirmedRemove() {
           <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400">Prix ({{ currencySymbol }})</label>
           <input v-model.number="newSub.price" type="number" step="0.01" min="0" class="input-sub" @keyup.enter="add" />
         </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[12px] font-medium text-gray-500 dark:text-gray-400" title="Prix d'une offre moins chère envisagée — utilisé pour le total « avec effort »">Prix effort ({{ currencySymbol }})</label>
+          <input v-model.number="newSub.effortPrice" type="number" step="0.01" min="0" class="input-sub" placeholder="optionnel" @keyup.enter="add" />
+        </div>
       </div>
       <div class="flex gap-2">
         <button
@@ -289,7 +319,7 @@ async function doConfirmedRemove() {
       >
         <!-- Mode édition -->
         <template v-if="editingId === sub._id">
-          <div class="grid gap-2.5 mb-3" style="grid-template-columns: 1fr 160px 150px 140px 110px">
+          <div class="grid gap-2.5 mb-3" style="grid-template-columns: 1fr 150px 140px 135px 100px 100px">
             <input v-model="editBuffer.name" class="input-sub" />
             <select v-model="editBuffer.theme" class="input-sub cursor-pointer">
               <option value="">— Aucun —</option>
@@ -303,6 +333,7 @@ async function doConfirmedRemove() {
               <option v-for="o in dayOptions(editBuffer.period)" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
             <input v-model.number="editBuffer.price" type="number" step="0.01" min="0" class="input-sub" />
+            <input v-model.number="editBuffer.effortPrice" type="number" step="0.01" min="0" class="input-sub" placeholder="effort (opt.)" title="Prix d'une offre moins chère envisagée" />
           </div>
           <div class="flex gap-2">
             <button class="px-3.5 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-[7px] text-[12.5px] font-medium cursor-pointer border-none" @click="saveEdit(sub._id)">Sauver</button>
@@ -334,6 +365,9 @@ async function doConfirmedRemove() {
             <div class="flex flex-col items-end shrink-0 w-32">
               <span class="text-[15px] font-bold text-gray-950 dark:text-gray-50">{{ fmt(sub.price) }} {{ currencySymbol }}</span>
               <span v-if="sub.period !== 'monthly'" class="text-[11.5px] text-gray-400">≈ {{ fmt(monthlyCost(sub)) }} {{ currencySymbol }}/mois</span>
+              <span v-if="sub.effortPrice > 0" class="text-[11.5px] font-semibold text-green-600 dark:text-green-400" title="Prix effort envisagé">
+                → {{ fmt(sub.effortPrice) }} {{ currencySymbol }}
+              </span>
             </div>
 
             <div class="flex flex-col items-end shrink-0 w-28">

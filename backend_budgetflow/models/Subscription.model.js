@@ -31,6 +31,11 @@ const SubscriptionSchema = new Schema({
     default: 0,
   }, // prix par échéance
 
+  effortPrice: {
+    type: Number,
+    default: null,
+  }, // prix de comparaison "si effort" (ex: offre moins chère envisagée) — optionnel
+
   createdAt: {
     type: Date,
     default: Date.now,
