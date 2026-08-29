@@ -1142,14 +1142,17 @@ function toggleInvestment(id) {
               v-for="item in liveAccountBalances"
               :key="item.account._id"
               class="balance-block"
-              :title="item.snapshot !== null ? 'Début de mois : ' + fmt(item.snapshot) + ' ' + currencySymbol : 'Pas de solde de début de mois'"
+              title="Solde de début de mois → solde actuel"
             >
               <span class="balance-block__name">{{ item.account.name }}</span>
-              <span
-                class="balance-block__value"
-                :class="item.current !== null && item.current >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'"
-              >{{ item.current !== null ? fmt(item.current) + ' ' + currencySymbol : '—' }}</span>
-              <span class="balance-block__type">{{ item.account.type === 'savings' ? 'Épargne' : item.account.type === 'cash' ? 'Espèces' : 'Courant' }}</span>
+              <span class="balance-block__value">
+                <span class="balance-block__start">{{ item.snapshot !== null ? fmt(item.snapshot) : '—' }}</span>
+                <span class="balance-block__arrow">→</span>
+                <span
+                  :class="item.current !== null && item.current >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'"
+                >{{ item.current !== null ? fmt(item.current) : '—' }}</span>
+              </span>
+              <span class="balance-block__type">{{ item.account.type === 'savings' ? 'Épargne' : item.account.type === 'cash' ? 'Espèces' : 'Courant' }} · {{ currencySymbol }}</span>
             </div>
           </div>
         </div>
@@ -1585,21 +1588,6 @@ function toggleInvestment(id) {
         </div>
       </div>
       <!-- fin colonnes -->
-
-      <!-- ─── Snapshots comptes (lecture seule) ────────── -->
-      <div v-if="snapshots.length" class="glass-card overflow-hidden opacity-85">
-        <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100 px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-          <font-awesome-icon icon="building-columns" /> Solde début de mois
-        </h3>
-        <div class="flex flex-wrap gap-3 px-4 py-3.5">
-          <div v-for="account in accounts" :key="account._id" class="flex items-center gap-2">
-            <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 min-w-25">{{ account.name }}</span>
-            <span class="font-semibold text-gray-700 dark:text-gray-200">
-              {{ snapshotMap[account._id] != null ? fmt(snapshotMap[account._id]) + ' ' + currencySymbol : '—' }}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- ─── Modal ligne de dépense (ajout / édition) ─────────── -->
@@ -1795,11 +1783,18 @@ function toggleInvestment(id) {
 }
 .dark .balance-block__name { color: #e5e7eb; }
 .balance-block__value {
-  font-size: 13px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: -0.01em;
   white-space: nowrap;
+  min-width: 0;
 }
+.balance-block__start { font-weight: 500; color: #9ca3af; }
+.balance-block__arrow { font-weight: 400; color: #d1d5db; }
+.dark .balance-block__arrow { color: #4b5563; }
 .balance-block__type { font-size: 10px; color: #9ca3af; }
 
 .ring-block {
