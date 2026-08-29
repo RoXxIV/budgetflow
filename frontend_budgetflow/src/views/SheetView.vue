@@ -394,6 +394,7 @@ const bilan = computed(() => {
 
 // ─── Soldes temps réel par compte ─────────────────────────
 // Snapshot initial + tous les mouvements réels du mois (lignes, épargne, investissements)
+const showBreakdown = ref(false) // replie/déplie soldes des comptes + anneaux de répartition
 const liveAccountBalances = computed(() => {
   const mainAccountId = settings.value?.mainAccount?._id || settings.value?.mainAccount || null
   const deltaMap = computeAccountDeltaMap({
@@ -1089,10 +1090,12 @@ function toggleInvestment(id) {
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100">
             <font-awesome-icon icon="chart-bar" /> Bilan du mois
           </h3>
-          <span class="text-[11.5px] text-gray-400">
-            Revenu de référence : <strong class="text-gray-600 dark:text-gray-300">{{ fmt(incomeReference) }} {{ currencySymbol }}</strong>
-            <span v-if="incomeReference > 0"> · {{ Math.round(incomeUsedPct) }} % réparti</span>
-          </span>
+          <button
+            class="text-[11.5px] py-0.75 px-2.5 border border-[#e8e8e5] dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
+            @click="showBreakdown = !showBreakdown"
+          >
+            {{ showBreakdown ? '▲ Répartition' : '▼ Répartition' }}
+          </button>
         </div>
         <div class="grid grid-cols-4">
           <div class="kpi-tile flex items-start gap-3">
@@ -1132,7 +1135,7 @@ function toggleInvestment(id) {
         </div>
 
         <!-- Soldes temps réel par compte (10 blocs par ligne) -->
-        <div class="border-t border-gray-100 dark:border-gray-700 px-4 py-3">
+        <div v-show="showBreakdown" class="border-t border-gray-100 dark:border-gray-700 px-4 py-3">
           <p class="bilan-subtitle">Soldes des comptes</p>
           <div class="grid grid-cols-10 gap-2">
             <div
@@ -1152,8 +1155,11 @@ function toggleInvestment(id) {
         </div>
 
         <!-- Répartition du revenu par catégorie (anneaux) -->
-        <div class="border-t border-gray-100 dark:border-gray-700 px-4 py-3">
-          <p class="bilan-subtitle">Répartition du revenu</p>
+        <div v-show="showBreakdown" class="border-t border-gray-100 dark:border-gray-700 px-4 py-3">
+          <p class="bilan-subtitle">
+            Répartition du revenu
+            <span class="normal-case tracking-normal font-medium">— référence {{ fmt(incomeReference) }} {{ currencySymbol }}<template v-if="incomeReference > 0"> · {{ Math.round(incomeUsedPct) }} % réparti</template></span>
+          </p>
           <div class="grid grid-cols-6 gap-3">
             <div v-for="b in categoryBlocks" :key="b.key" class="ring-block">
               <span class="ring-block__title">{{ b.name }}</span>
