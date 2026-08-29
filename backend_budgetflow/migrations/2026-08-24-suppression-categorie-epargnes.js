@@ -14,11 +14,12 @@ print(`Base : ${dbName}`);
 
 const section = target.sections.findOne({ name: /^épargnes$/i });
 const theme = target.themes.findOne({ name: /^epargnes\s*$/i });
+const template = target.monthlysheets.findOne({ isTemplate: true });
 const goalJapon = target.savinggoals.findOne({ name: /japon/i });
 const goalMatelas = target.savinggoals.findOne({ name: /matelas/i });
 
-if (!goalJapon || !goalMatelas) {
-  print("ERREUR : objectifs Japon / Matelas introuvables — abandon.");
+if (!goalJapon || !goalMatelas || !template) {
+  print("ERREUR : objectifs Japon / Matelas ou sheet template introuvables — abandon.");
   quit(1);
 }
 
@@ -32,7 +33,15 @@ for (const c of CONVERSIONS) {
     print(`  versement déjà créé : ${c.note}`);
     continue;
   }
-  const line = section && target.budgetlines.findOne({ section: section._id, label: c.label });
+  // Uniquement une ligne de sheet réel (jamais le template) avec un montant réellement versé
+  const line =
+    section &&
+    target.budgetlines.findOne({
+      section: section._id,
+      label: c.label,
+      sheet: { $ne: template._id },
+      actualAmount: { $gt: 0 },
+    });
   if (!line) {
     print(`  ligne ${c.label} absente (déjà migrée ?)`);
     continue;

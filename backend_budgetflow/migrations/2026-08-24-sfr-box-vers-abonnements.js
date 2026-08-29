@@ -11,22 +11,30 @@ print(`Base : ${dbName}`);
 const section = target.sections.findOne({ name: "Abonnements" });
 const theme = target.themes.findOne({ name: "Internet" });
 const template = target.monthlysheets.findOne({ isTemplate: true });
-const templateLine = target.budgetlines.findOne({ sheet: template._id, label: /^sfr box$/i });
+const templateLine = template && target.budgetlines.findOne({ sheet: template._id, label: /^sfr box$/i });
 const oldTheme = target.themes.findOne({ name: "Tel" });
 
-if (!section || !theme || !templateLine) {
-  print("ERREUR : section Abonnements, thème Internet ou ligne template 'SFR Box' introuvable — abandon.");
+if (!section || !theme || !template || !templateLine) {
+  print("ERREUR : section Abonnements, thème Internet, sheet template ou ligne template 'SFR Box' introuvable — abandon.");
   quit(1);
 }
 
 // Lignes des sheets (hors template) encore libellées "SRF BOX" ou déjà "SFR Box" mais mal rangées
 const lines = target.budgetlines
-  .find({ sheet: { $ne: template._id }, label: /^s(r|f)(f|r) box$/i })
+  .find({ sheet: { $ne: template._id }, label: /^s(r|f)(f|r) box$/i, templateLine: { $ne: templateLine._id } })
   .toArray();
 
 let movedLines = 0;
 let movedTx = 0;
+let skipped = 0;
 for (const l of lines) {
+  // Un sheet créé après l'ajout de "SFR Box" au template possède déjà sa copie : on ne crée pas de doublon
+  const alreadyHas = target.budgetlines.findOne({ sheet: l.sheet, templateLine: templateLine._id, _id: { $ne: l._id } });
+  if (alreadyHas) {
+    print(`  ATTENTION : le sheet ${String(l.sheet)} a déjà une ligne SFR Box du template — ancienne ligne "${l.label}" laissée telle quelle, à traiter à la main`);
+    skipped++;
+    continue;
+  }
   const res = target.budgetlines.updateOne(
     { _id: l._id },
     {
@@ -50,4 +58,4 @@ for (const l of lines) {
   }
 }
 
-print(`Lignes trouvées : ${lines.length} | modifiées : ${movedLines} | entrées re-thématisées : ${movedTx}`);
+print(`Lignes trouvées : ${lines.length} | modifiées : ${movedLines} | ignorées (doublon) : ${skipped} | entrées re-thématisées : ${movedTx}`);

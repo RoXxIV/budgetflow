@@ -59,7 +59,7 @@ const navLinks = [
         <router-link
           to="/parametres"
           class="icon-btn"
-          :class="{ 'icon-btn--active': route.path === '/parametres' }"
+          :class="{ 'icon-btn--active': ['/parametres', '/template', '/archives'].includes(route.path) }"
           title="Paramètres"
         >
           <font-awesome-icon icon="gear" />

@@ -19,7 +19,7 @@ import { getInvestments } from '@/api/investments.js'
 import { getThemes } from '@/api/themes.js'
 
 // ─── Utils ───────────────────────────────────────────────────
-import { fmt, fmtDate } from '@/utils/formatters.js'
+import { fmt, fmtDate, ACCOUNT_TYPE_LABELS } from '@/utils/formatters.js'
 import { useCurrency } from '@/composables/useCurrency.js'
 import { computeEDF, computeEDFDetail } from '@/utils/edf.js'
 import { buildSnapshotMap, computeAccountDeltaMap, resolveBalance } from '@/utils/liveBalances.js'
@@ -412,11 +412,13 @@ const liveAccountBalances = computed(() => {
 })
 
 // ─── Répartition du revenu par catégorie (anneaux du bilan) ──
-// Référence = revenus réels du mois, ou les revenus prévus tant que rien n'est encaissé
+// Référence = le plus grand des revenus réels et prévus : tant que le salaire n'est pas
+// encaissé on raisonne sur le prévu (un petit remboursement ne fausse pas les anneaux),
+// et un mois meilleur que prévu compte pour son réel
 const incomeReference = computed(() => {
   const actual = incomeLines.value.reduce((s, l) => s + (l.actualAmount || 0), 0)
-  if (actual > 0) return actual
-  return incomeLines.value.reduce((s, l) => s + (l.plannedAmount || 0), 0)
+  const planned = incomeLines.value.reduce((s, l) => s + (l.plannedAmount || 0), 0)
+  return Math.max(actual, planned)
 })
 
 const RING_CIRC = 2 * Math.PI * 32 // périmètre de l'anneau SVG (r = 32)
@@ -1137,7 +1139,7 @@ function toggleInvestment(id) {
         <!-- Soldes temps réel par compte (10 blocs par ligne) -->
         <div v-show="showBreakdown" class="border-t border-gray-100 dark:border-gray-700 px-4 py-3">
           <p class="bilan-subtitle">Soldes des comptes</p>
-          <div class="grid grid-cols-10 gap-2">
+          <div class="balance-grid">
             <div
               v-for="item in liveAccountBalances"
               :key="item.account._id"
@@ -1152,7 +1154,7 @@ function toggleInvestment(id) {
                   :class="item.current !== null && item.current >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'"
                 >{{ item.current !== null ? fmt(item.current) : '—' }}</span>
               </span>
-              <span class="balance-block__type">{{ item.account.type === 'savings' ? 'Épargne' : item.account.type === 'cash' ? 'Espèces' : 'Courant' }} · {{ currencySymbol }}</span>
+              <span class="balance-block__type">{{ ACCOUNT_TYPE_LABELS[item.account.type] || item.account.type }} · {{ currencySymbol }}</span>
             </div>
           </div>
         </div>
@@ -1762,6 +1764,15 @@ function toggleInvestment(id) {
   color: #9ca3af;
   margin: 0 0 8px;
 }
+/* 10 blocs par ligne dès que la largeur le permet, sinon autant que possible sans déborder */
+.balance-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+}
+@media (min-width: 1500px) {
+  .balance-grid { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+}
 .balance-block {
   display: flex;
   flex-direction: column;
@@ -1784,12 +1795,12 @@ function toggleInvestment(id) {
 .dark .balance-block__name { color: #e5e7eb; }
 .balance-block__value {
   display: flex;
+  flex-wrap: wrap; /* « début → actuel » passe sur deux lignes si le bloc est étroit */
   align-items: baseline;
-  gap: 4px;
+  gap: 0 4px;
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  white-space: nowrap;
   min-width: 0;
 }
 .balance-block__start { font-weight: 500; color: #9ca3af; }

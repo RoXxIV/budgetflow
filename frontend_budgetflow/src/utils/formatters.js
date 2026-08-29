@@ -7,6 +7,9 @@ export function fmt(n) {
   return (n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** Libellés des types de compte (enum Account.type) */
+export const ACCOUNT_TYPE_LABELS = { bank: 'Courant', savings: 'Épargne', cash: 'Espèces' }
+
 /**
  * Formate une date ISO en date courte française.
  * Ex: "2026-04-01" → "01/04/2026"
