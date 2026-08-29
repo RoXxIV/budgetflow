@@ -394,7 +394,6 @@ const bilan = computed(() => {
 
 // ─── Soldes temps réel par compte ─────────────────────────
 // Snapshot initial + tous les mouvements réels du mois (lignes, épargne, investissements)
-const showAccountBalances = ref(false)
 const liveAccountBalances = computed(() => {
   const mainAccountId = settings.value?.mainAccount?._id || settings.value?.mainAccount || null
   const deltaMap = computeAccountDeltaMap({
@@ -410,6 +409,51 @@ const liveAccountBalances = computed(() => {
     current: resolveBalance(snapshotMap.value, deltaMap, account._id),
   }))
 })
+
+// ─── Répartition du revenu par catégorie (anneaux du bilan) ──
+// Référence = revenus réels du mois, ou les revenus prévus tant que rien n'est encaissé
+const incomeReference = computed(() => {
+  const actual = incomeLines.value.reduce((s, l) => s + (l.actualAmount || 0), 0)
+  if (actual > 0) return actual
+  return incomeLines.value.reduce((s, l) => s + (l.plannedAmount || 0), 0)
+})
+
+const RING_CIRC = 2 * Math.PI * 32 // périmètre de l'anneau SVG (r = 32)
+
+const categoryBlocks = computed(() => {
+  const ref = incomeReference.value
+  const blocks = linesBySection.value.map((g) => ({
+    key: g.section._id,
+    name: g.section.name,
+    color: g.section.color || '#9ca3af',
+    actual: g.lines.reduce((s, l) => s + (l.actualAmount || 0), 0),
+    planned: g.lines.reduce((s, l) => s + (l.plannedAmount || 0), 0),
+  }))
+  blocks.push({
+    key: 'goals',
+    name: "Objectifs d'épargne",
+    color: '#7c3aed',
+    actual: contributions.value.reduce((s, c) => s + (c.amount || 0), 0),
+    planned: goals.value.reduce((s, g) => s + (goalMonthly(g) || 0), 0),
+  })
+  blocks.push({
+    key: 'invest',
+    name: 'Investissements',
+    color: '#0d9488',
+    actual: investmentTxs.value.reduce((s, t) => s + (t.amount || 0), 0),
+    planned: investments.value.reduce((s, i) => s + (i.monthlyInvestment || 0), 0),
+  })
+  return blocks.map((b) => {
+    const pct = ref > 0 ? (b.actual / ref) * 100 : 0
+    return { ...b, pct, dashOffset: RING_CIRC * (1 - Math.min(pct, 100) / 100) }
+  })
+})
+
+const incomeUsedPct = computed(() =>
+  incomeReference.value > 0
+    ? categoryBlocks.value.reduce((s, b) => s + b.pct, 0)
+    : 0
+)
 
 // ─── Calcul 50/50 ─────────────────────────────────────────
 const sharing = computed(() => {
@@ -1045,12 +1089,10 @@ function toggleInvestment(id) {
           <h3 class="flex items-center gap-2 text-[13px] font-semibold text-gray-950 dark:text-gray-100">
             <font-awesome-icon icon="chart-bar" /> Bilan du mois
           </h3>
-          <button
-            class="text-[11.5px] py-0.75 px-2.5 border border-[#e8e8e5] dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
-            @click="showAccountBalances = !showAccountBalances"
-          >
-            {{ showAccountBalances ? '▲ Masquer comptes' : '▼ Soldes des comptes' }}
-          </button>
+          <span class="text-[11.5px] text-gray-400">
+            Revenu de référence : <strong class="text-gray-600 dark:text-gray-300">{{ fmt(incomeReference) }} {{ currencySymbol }}</strong>
+            <span v-if="incomeReference > 0"> · {{ Math.round(incomeUsedPct) }} % réparti</span>
+          </span>
         </div>
         <div class="grid grid-cols-4">
           <div class="kpi-tile flex items-start gap-3">
@@ -1089,27 +1131,52 @@ function toggleInvestment(id) {
           </div>
         </div>
 
-        <!-- Soldes temps réel par compte -->
-        <div v-show="showAccountBalances" class="border-t border-gray-100 dark:border-gray-700 px-4 py-2.5 flex flex-col gap-1.5">
-          <div
-            v-for="item in liveAccountBalances"
-            :key="item.account._id"
-            class="grid grid-cols-[1fr_90px_24px_90px] items-center text-[13px] py-1 border-b border-gray-50 dark:border-gray-700 last:border-b-0"
-          >
-            <span class="font-medium flex items-center gap-1.5 text-gray-700 dark:text-gray-200">
-              {{ item.account.name }}
-              <span class="text-[10px] font-normal text-gray-400 bg-gray-100 dark:bg-gray-700 rounded px-1 py-px">{{ item.account.type }}</span>
-            </span>
-            <span class="text-right text-gray-400 text-xs">
-              {{ item.snapshot !== null ? fmt(item.snapshot) + ' ' + currencySymbol : '—' }}
-            </span>
-            <span class="text-center text-gray-300">→</span>
-            <span
-              class="text-right font-semibold"
-              :class="item.current !== null && item.current >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'"
+        <!-- Soldes temps réel par compte (10 blocs par ligne) -->
+        <div class="border-t border-gray-100 dark:border-gray-700 px-4 py-3">
+          <p class="bilan-subtitle">Soldes des comptes</p>
+          <div class="grid grid-cols-10 gap-2">
+            <div
+              v-for="item in liveAccountBalances"
+              :key="item.account._id"
+              class="balance-block"
+              :title="item.snapshot !== null ? 'Début de mois : ' + fmt(item.snapshot) + ' ' + currencySymbol : 'Pas de solde de début de mois'"
             >
-              {{ item.current !== null ? fmt(item.current) + ' ' + currencySymbol : '—' }}
-            </span>
+              <span class="balance-block__name">{{ item.account.name }}</span>
+              <span
+                class="balance-block__value"
+                :class="item.current !== null && item.current >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'"
+              >{{ item.current !== null ? fmt(item.current) + ' ' + currencySymbol : '—' }}</span>
+              <span class="balance-block__type">{{ item.account.type === 'savings' ? 'Épargne' : item.account.type === 'cash' ? 'Espèces' : 'Courant' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Répartition du revenu par catégorie (anneaux) -->
+        <div class="border-t border-gray-100 dark:border-gray-700 px-4 py-3">
+          <p class="bilan-subtitle">Répartition du revenu</p>
+          <div class="grid grid-cols-6 gap-3">
+            <div v-for="b in categoryBlocks" :key="b.key" class="ring-block">
+              <span class="ring-block__title">{{ b.name }}</span>
+              <div class="ring-block__chart">
+                <svg viewBox="0 0 80 80" class="ring-block__svg">
+                  <circle cx="40" cy="40" r="32" fill="none" class="ring-block__track" stroke-width="7" />
+                  <circle
+                    cx="40" cy="40" r="32" fill="none"
+                    :stroke="b.color"
+                    stroke-width="7"
+                    stroke-linecap="round"
+                    :stroke-dasharray="RING_CIRC"
+                    :stroke-dashoffset="b.dashOffset"
+                    transform="rotate(-90 40 40)"
+                  />
+                </svg>
+                <div class="ring-block__center">
+                  <span class="ring-block__actual" :class="{ 'text-red-500': b.planned > 0 && b.actual > b.planned }">{{ fmt(b.actual) }} {{ currencySymbol }}</span>
+                  <span class="ring-block__planned">/ {{ fmt(b.planned) }} {{ currencySymbol }}</span>
+                </div>
+              </div>
+              <span class="ring-block__pct" :style="{ color: b.color }">{{ b.pct.toFixed(1) }} % du revenu</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1692,6 +1759,85 @@ function toggleInvestment(id) {
 </template>
 
 <style>
+/* ─── Bilan : soldes en blocs + anneaux de répartition ─── */
+.bilan-subtitle {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9ca3af;
+  margin: 0 0 8px;
+}
+.balance-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+.dark .balance-block { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.08); }
+.balance-block__name {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dark .balance-block__name { color: #e5e7eb; }
+.balance-block__value {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.balance-block__type { font-size: 10px; color: #9ca3af; }
+
+.ring-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+.dark .ring-block { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.08); }
+.ring-block__title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7280;
+  text-align: center;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dark .ring-block__title { color: #9ca3af; }
+.ring-block__chart { position: relative; width: 104px; height: 104px; }
+.ring-block__svg { width: 100%; height: 100%; }
+.ring-block__track { stroke: #e5e7eb; }
+.dark .ring-block__track { stroke: #374151; }
+.ring-block__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+.ring-block__actual { font-size: 13px; font-weight: 700; color: #111827; letter-spacing: -0.01em; }
+.dark .ring-block__actual { color: #f9fafb; }
+.ring-block__planned { font-size: 10px; color: #9ca3af; }
+.ring-block__pct { font-size: 11px; font-weight: 600; }
+
 /* ─── Income actual form ──────────────────────────────── */
 .income-actual-form {
   display: flex;
