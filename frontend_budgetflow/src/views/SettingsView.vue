@@ -222,7 +222,37 @@ const accountTypeLabel = { bank: 'Banque', cash: 'Espèces', savings: 'Épargne'
     <!-- ─── En-tête ────────────────────────────────────────── -->
     <div class="mb-7">
       <h1 class="text-[22px] font-semibold text-gray-950 dark:text-gray-50">Paramètres</h1>
-      <p class="text-[13px] text-gray-400 mt-0.75">Comptes, catégories, thèmes et préférences</p>
+      <p class="text-[13px] text-gray-400 mt-0.75">Comptes, catégories, thèmes, template, archives et préférences</p>
+    </div>
+
+    <!-- ─── Gestion (template & archives) ─────────────────── -->
+    <div class="grid grid-cols-2 gap-4 mb-4">
+      <router-link
+        to="/template"
+        class="glass-card px-5.5 py-4.5 flex items-center gap-4 no-underline hover:bg-white/70 dark:hover:bg-white/10 transition-colors"
+      >
+        <span class="w-10 h-10 rounded-lg flex items-center justify-center text-[16px] shrink-0" style="background: #f5f3ff; color: #7c3aed">
+          <font-awesome-icon icon="table-list" />
+        </span>
+        <span class="flex flex-col gap-0.5 min-w-0">
+          <span class="text-[14px] font-semibold text-gray-950 dark:text-gray-50">Template du mois</span>
+          <span class="text-[12.5px] text-gray-400">Lignes budgétaires par défaut copiées dans chaque nouveau sheet</span>
+        </span>
+        <font-awesome-icon icon="chevron-right" class="ml-auto text-gray-300 dark:text-gray-600" />
+      </router-link>
+      <router-link
+        to="/archives"
+        class="glass-card px-5.5 py-4.5 flex items-center gap-4 no-underline hover:bg-white/70 dark:hover:bg-white/10 transition-colors"
+      >
+        <span class="w-10 h-10 rounded-lg flex items-center justify-center text-[16px] shrink-0" style="background: #f9fafb; color: #6b7280">
+          <font-awesome-icon icon="box-archive" />
+        </span>
+        <span class="flex flex-col gap-0.5 min-w-0">
+          <span class="text-[14px] font-semibold text-gray-950 dark:text-gray-50">Archives</span>
+          <span class="text-[12.5px] text-gray-400">Historique de tous les sheets mensuels, consultation et suppression</span>
+        </span>
+        <font-awesome-icon icon="chevron-right" class="ml-auto text-gray-300 dark:text-gray-600" />
+      </router-link>
     </div>
 
     <div class="grid grid-cols-2 gap-4">

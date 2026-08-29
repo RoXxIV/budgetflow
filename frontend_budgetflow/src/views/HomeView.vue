@@ -72,11 +72,9 @@ const totalPatrimoine = computed(() =>
 
 // ─── Navigation rapide ───────────────────────────────────────
 const quickLinks = [
-  { label: 'Éditer le template', description: 'Gérer les lignes budgétaires par défaut', icon: 'table-list', to: '/template', color: '#7c3aed', bg: '#f5f3ff', darkBg: 'rgba(124,58,237,0.15)' },
   { label: 'Objectifs', description: "Suivre vos objectifs d'épargne", icon: 'bullseye', to: '/objectifs', color: '#16a34a', bg: '#f0fdf4', darkBg: 'rgba(22,163,74,0.15)' },
   { label: 'Investissements', description: 'ETF, crypto, actions — suivi DCA', icon: 'arrow-trend-up', to: '/investissements', color: '#7c3aed', bg: '#f5f3ff', darkBg: 'rgba(124,58,237,0.15)' },
   { label: 'Statistiques', description: 'Analyse de vos dépenses et revenus', icon: 'chart-bar', to: '/statistiques', color: '#ea580c', bg: '#fff7ed', darkBg: 'rgba(234,88,12,0.15)' },
-  { label: 'Archives', description: 'Consulter les mois précédents', icon: 'box-archive', to: '/archives', color: '#6b7280', bg: '#f9fafb', darkBg: 'rgba(107,114,128,0.15)' },
   { label: 'Paramètres', description: 'Comptes, arrondi, devise...', icon: 'gear', to: '/parametres', color: '#0891b2', bg: '#ecfeff', darkBg: 'rgba(8,145,178,0.15)' },
 ]
 // formatCurrency() vient de @/utils/formatters.js
