@@ -43,3 +43,7 @@ pnpm-debug.log*
 *.tsbuildinfo
 .eslintcache
 *.timestamp-*-*.mjs
+
+# ─── Nouvelle app budgetflow ─────────────────
+# Base SQLite locale (données réelles, jamais versionnées)
+budgetflow/backend/data/

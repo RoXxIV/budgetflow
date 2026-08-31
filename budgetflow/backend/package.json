@@ -1,0 +1,16 @@
+{
+  "name": "budgetflow-backend",
+  "version": "0.1.0",
+  "description": "BudgetFlow — backend Express + SQLite (node:sqlite)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=22.13.0" },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
+  }
+}

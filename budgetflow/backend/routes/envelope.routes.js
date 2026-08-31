@@ -1,0 +1,17 @@
+import { Router } from "express";
+import * as service from "../services/envelope.service.js";
+
+const router = Router();
+const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
+
+router.get("/", wrap((req, res) => res.json(service.list())));
+router.get("/:id", wrap((req, res) => res.json(service.getById(Number(req.params.id)))));
+router.post("/", wrap((req, res) => res.status(201).json(service.create(req.body))));
+router.put("/:id", wrap((req, res) => res.json(service.update(Number(req.params.id), req.body))));
+router.delete("/:id", wrap((req, res) => res.json(service.remove(Number(req.params.id)))));
+
+router.get("/:id/contributions", wrap((req, res) => res.json(service.listContributions(Number(req.params.id)))));
+router.post("/:id/contributions", wrap((req, res) => res.status(201).json(service.addContribution(Number(req.params.id), req.body))));
+router.delete("/:id/contributions/:contribId", wrap((req, res) => res.json(service.removeContribution(Number(req.params.id), Number(req.params.contribId)))));
+
+export default router;
