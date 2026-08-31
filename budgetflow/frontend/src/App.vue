@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 const route = useRoute()
 
 const navLinks = [
+  { name: 'Mois', to: '/mois' },
   { name: 'Comptes', to: '/comptes' },
   { name: 'Template', to: '/template' },
   { name: 'Paramètres', to: '/parametres' },

@@ -8,6 +8,7 @@ import settingsRoutes from "./routes/settings.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import themeRoutes from "./routes/theme.routes.js";
 import templateRoutes from "./routes/template.routes.js";
+import monthRoutes from "./routes/month.routes.js";
 
 const PORT = process.env.PORT || 3003;
 
@@ -23,6 +24,7 @@ app.use("/api/settings", settingsRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/themes", themeRoutes);
 app.use("/api/template", templateRoutes);
+app.use("/api/months", monthRoutes);
 
 // Gestion d'erreur centralisée : les services lèvent des Error avec .status
 app.use((err, req, res, next) => {
