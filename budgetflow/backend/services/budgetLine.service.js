@@ -101,10 +101,33 @@ export function reorder(orders) {
   });
 }
 
-export function remove(id) {
+export function remove(id, { force = false } = {}) {
   const existing = get("SELECT * FROM budget_lines WHERE id = ?", id);
   if (!existing) throw httpError(404, "Ligne introuvable");
-  // Garde-fou à venir : compter les entrées quand elles existeront
-  run("DELETE FROM budget_lines WHERE id = ?", id);
+  const entryCount = get("SELECT COUNT(*) AS n FROM entries WHERE line_id = ?", id).n;
+  if (entryCount > 0 && !force) {
+    throw httpError(409, `Cette ligne a ${entryCount} entrée(s) qui seront supprimées avec elle.`);
+  }
+  run("DELETE FROM budget_lines WHERE id = ?", id); // les entrées suivent (CASCADE)
   return { message: "Ligne supprimée" };
+}
+
+// « Reporter dans le template » : la ligne du mois devient le nouveau standard
+export function applyToTemplate(id) {
+  const line = get("SELECT * FROM budget_lines WHERE id = ?", id);
+  if (!line) throw httpError(404, "Ligne introuvable");
+  if (!line.month_id) throw httpError(400, "Cette ligne est déjà dans le template");
+  if (!line.template_line_id) throw httpError(400, "Ligne propre à ce mois : ajoutez-la au template depuis l'écran Template");
+  const template = get("SELECT * FROM budget_lines WHERE id = ? AND month_id IS NULL", line.template_line_id);
+  if (!template) throw httpError(404, "La ligne d'origine n'existe plus dans le template");
+
+  run(
+    `UPDATE budget_lines SET label = ?, category_id = ?, theme_id = ?, kind = ?,
+       planned_amount_cents = ?, from_account_id = ?, to_account_id = ?, payment_method = ?,
+       is_shared = ?, recurring_day = ? WHERE id = ?`,
+    line.label, line.category_id, line.theme_id, line.kind,
+    line.planned_amount_cents, line.from_account_id, line.to_account_id, line.payment_method,
+    line.is_shared, line.recurring_day, template.id
+  );
+  return getById(template.id);
 }

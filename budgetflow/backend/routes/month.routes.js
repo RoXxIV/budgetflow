@@ -21,7 +21,8 @@ router.delete("/:id", wrap((req, res) => res.json(months.remove(id(req)))));
 router.get("/:id/lines", wrap((req, res) => res.json(months.getLines(id(req)))));
 router.post("/:id/lines", wrap((req, res) => { months.assertOpen(id(req)); res.status(201).json(budgetLines.create(id(req), req.body)); }));
 router.put("/:id/lines/:lineId", wrap((req, res) => { months.assertOpen(id(req)); res.json(budgetLines.update(id(req, "lineId"), req.body)); }));
-router.delete("/:id/lines/:lineId", wrap((req, res) => { months.assertOpen(id(req)); res.json(budgetLines.remove(id(req, "lineId"))); }));
+router.delete("/:id/lines/:lineId", wrap((req, res) => { months.assertOpen(id(req)); res.json(budgetLines.remove(id(req, "lineId"), { force: req.query.force === "1" })); }));
+router.post("/:id/lines/:lineId/apply-to-template", wrap((req, res) => res.json(budgetLines.applyToTemplate(id(req, "lineId")))));
 
 // ☐ payé
 router.post("/:id/lines/:lineId/pay", wrap((req, res) => res.status(201).json(entries.pay(id(req), id(req, "lineId")))));

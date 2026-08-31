@@ -6,6 +6,7 @@ import {
   getMonthSnapshots, upsertMonthSnapshots,
   getMonthEntries, createEntry, deleteEntry,
   getMonthSummary,
+  createMonthLine, updateMonthLine, deleteMonthLine, applyLineToTemplate,
 } from '@/api/months.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
@@ -87,7 +88,6 @@ const groups = computed(() => {
   const orphans = lines.value.filter((l) => !l.categoryId || !categories.value.some((c) => c.id === l.categoryId))
   if (orphans.length) result.push({ category: NO_CATEGORY, lines: orphans })
   return result
-    .filter((g) => g.lines.length)
     .map((g) => ({
       ...g,
       planned: g.lines.reduce((s, l) => s + (l.plannedAmount || 0), 0),
@@ -202,6 +202,95 @@ async function submitEntry(line) {
 
 async function removeEntry(entry) {
   try { await deleteEntry(current.value.id, entry.id); await reload() } catch (e) { apiError(e) }
+}
+
+// ─── Lignes du mois (ajout / édition / suppression) ──────
+const lineFormId = ref(null) // id de ligne, ou 'new-<categoryId>'
+const lineForm = ref({})
+
+const lineFormCategoryType = computed(() => {
+  const c = categories.value.find((x) => x.id === lineForm.value.categoryId)
+  return c?.type || 'depense'
+})
+
+function openAddLine(category) {
+  lineFormId.value = `new-${category.id}`
+  lineForm.value = {
+    label: '',
+    plannedAmount: '',
+    kind: category.type === 'depense' ? 'variable' : 'fixe',
+    categoryId: category.id,
+    themeId: '',
+    fromAccountId: category.type === 'revenu' ? '' : (accounts.value.find((a) => a.isMain)?.id || ''),
+    toAccountId: '',
+    isShared: false,
+    recurringDay: '',
+  }
+}
+
+function openEditLine(line) {
+  lineFormId.value = line.id
+  lineForm.value = {
+    label: line.label,
+    plannedAmount: line.plannedAmount ?? '',
+    kind: line.kind,
+    categoryId: line.categoryId,
+    themeId: line.themeId || '',
+    fromAccountId: line.fromAccountId || '',
+    toAccountId: line.toAccountId || '',
+    isShared: line.isShared,
+    recurringDay: line.recurringDay || '',
+  }
+}
+
+function closeLineForm() {
+  lineFormId.value = null
+}
+
+function lineFormData() {
+  const f = lineForm.value
+  return {
+    label: f.label,
+    plannedAmount: f.plannedAmount === '' ? 0 : parseFloat(f.plannedAmount),
+    kind: f.kind,
+    categoryId: f.categoryId || null,
+    themeId: f.themeId || null,
+    fromAccountId: f.fromAccountId || null,
+    toAccountId: f.toAccountId || null,
+    isShared: f.isShared,
+    recurringDay: f.recurringDay === '' ? null : Number(f.recurringDay),
+  }
+}
+
+async function submitLineForm() {
+  if (!lineForm.value.label.trim()) return
+  try {
+    if (typeof lineFormId.value === 'string') await createMonthLine(current.value.id, lineFormData())
+    else await updateMonthLine(current.value.id, lineFormId.value, lineFormData())
+    closeLineForm()
+    await reload()
+  } catch (e) { apiError(e) }
+}
+
+async function removeLineConfirm(line) {
+  const n = entriesForLine(line).length
+  const msg = n
+    ? `Supprimer « ${line.label} » et ses ${n} entrée(s) ?`
+    : `Supprimer la ligne « ${line.label} » de ce mois ?`
+  if (!confirm(msg)) return
+  try {
+    await deleteMonthLine(current.value.id, line.id, n > 0)
+    closeLineForm()
+    await reload()
+  } catch (e) { apiError(e) }
+}
+
+async function pushToTemplate(line) {
+  if (!confirm(`Reporter « ${line.label} » dans le template ? Les prochains mois utiliseront ces valeurs.`)) return
+  try {
+    await applyLineToTemplate(current.value.id, line.id)
+    closeLineForm()
+  } catch (e) { apiError(e) }
 }
 
 // ─── Affichage réel / restant ────────────────────────────
@@ -411,6 +500,60 @@ const mainEnvelopesTotal = computed(() => {
                     <span v-if="line.plannedAmount" class="text-[11px] text-gray-400"> / {{ fmt(line.plannedAmount) }}</span>
                   </template>
                 </span>
+                <button
+                  v-if="!current.isClosed"
+                  class="icon-btn shrink-0 text-gray-300 hover:text-gray-600"
+                  title="Modifier la ligne"
+                  @click.stop="lineFormId === line.id ? closeLineForm() : openEditLine(line)"
+                >✎</button>
+              </div>
+
+              <!-- Panneau d'édition de la ligne -->
+              <div v-if="lineFormId === line.id" class="edit-panel">
+                <div class="flex flex-wrap gap-3">
+                  <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-40" /></label>
+                  <label class="field"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" /></label>
+                  <label class="field"><span>Type</span>
+                    <select v-model="lineForm.kind" class="input w-26">
+                      <option value="fixe">Fixe</option>
+                      <option value="variable">Variable</option>
+                    </select>
+                  </label>
+                  <label v-if="lineForm.kind === 'fixe'" class="field"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" /></label>
+                  <label class="field"><span>Catégorie</span>
+                    <select v-model="lineForm.categoryId" class="input w-34">
+                      <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+                    </select>
+                  </label>
+                  <label v-if="themes.length" class="field"><span>Thème</span>
+                    <select v-model="lineForm.themeId" class="input w-28">
+                      <option value="">—</option>
+                      <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
+                    </select>
+                  </label>
+                  <label v-if="lineFormCategoryType !== 'revenu'" class="field"><span>Depuis</span>
+                    <select v-model="lineForm.fromAccountId" class="input w-28">
+                      <option value="">—</option>
+                      <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                    </select>
+                  </label>
+                  <label v-if="lineFormCategoryType !== 'depense'" class="field"><span>Vers</span>
+                    <select v-model="lineForm.toAccountId" class="input w-28">
+                      <option value="">—</option>
+                      <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                    </select>
+                  </label>
+                  <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end"><input v-model="lineForm.isShared" type="checkbox" /><span>½</span></label>
+                </div>
+                <div class="flex gap-2 mt-3 items-center">
+                  <button class="btn-primary" @click="submitLineForm">Sauver</button>
+                  <button class="btn-secondary" @click="closeLineForm">Annuler</button>
+                  <button v-if="line.templateLineId" class="link text-xs" title="Les prochains mois utiliseront ces valeurs" @click="pushToTemplate(line)">
+                    Reporter dans le template
+                  </button>
+                  <span v-else class="text-[11px] text-gray-400">ligne propre à ce mois</span>
+                  <button class="btn-danger ml-auto" @click="removeLineConfirm(line)">Supprimer</button>
+                </div>
               </div>
 
               <!-- Barre de progression (variables avec plafond) -->
@@ -461,6 +604,47 @@ const mainEnvelopesTotal = computed(() => {
                 </div>
               </div>
             </div>
+
+            <p v-if="!group.lines.length && lineFormId !== `new-${group.category.id}`" class="text-xs text-gray-400 px-4 py-2.5">Aucune ligne.</p>
+
+            <!-- Ajout d'une ligne au mois (sans toucher au template) -->
+            <div v-if="lineFormId === `new-${group.category.id}`" class="edit-panel">
+              <div class="flex flex-wrap gap-3">
+                <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-40" placeholder="Canva, Cadeau…" @keyup.enter="submitLineForm" /></label>
+                <label class="field"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submitLineForm" /></label>
+                <label class="field"><span>Type</span>
+                  <select v-model="lineForm.kind" class="input w-26">
+                    <option value="fixe">Fixe</option>
+                    <option value="variable">Variable</option>
+                  </select>
+                </label>
+                <label v-if="lineForm.kind === 'fixe'" class="field"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" /></label>
+                <label v-if="themes.length" class="field"><span>Thème</span>
+                  <select v-model="lineForm.themeId" class="input w-28">
+                    <option value="">—</option>
+                    <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
+                  </select>
+                </label>
+                <label v-if="lineFormCategoryType !== 'revenu'" class="field"><span>Depuis</span>
+                  <select v-model="lineForm.fromAccountId" class="input w-28">
+                    <option value="">—</option>
+                    <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                  </select>
+                </label>
+                <label v-if="lineFormCategoryType !== 'depense'" class="field"><span>Vers</span>
+                  <select v-model="lineForm.toAccountId" class="input w-28">
+                    <option value="">—</option>
+                    <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                  </select>
+                </label>
+                <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end"><input v-model="lineForm.isShared" type="checkbox" /><span>½</span></label>
+              </div>
+              <div class="flex gap-2 mt-3">
+                <button class="btn-primary" @click="submitLineForm">Ajouter</button>
+                <button class="btn-secondary" @click="closeLineForm">Annuler</button>
+              </div>
+            </div>
+            <button v-else-if="!current.isClosed" class="link text-xs px-4 py-2 block" @click="openAddLine(group.category)">+ ligne</button>
           </div>
         </div>
       </div>
