@@ -62,6 +62,9 @@ const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, 
 const themeById = (id) => themes.value.find((t) => t.id === id) || null
 const accountById = (id) => accounts.value.find((a) => a.id === id) || null
 const entriesForLine = (line) => entriesAll.value.filter((e) => e.lineId === line.id)
+const lineCategoryType = (line) => categories.value.find((c) => c.id === line.categoryId)?.type || 'depense'
+// La ligne est un mouvement entre comptes (transfert, épargne, ou Vers configuré dans le template)
+const lineHasDestination = (line) => ['epargne', 'transfert'].includes(lineCategoryType(line)) || !!line.toAccountId
 const isPaid = (line) => entriesForLine(line).length > 0
 const hasPayEntry = (line) => entriesForLine(line).some((e) => e.source === 'paye')
 
@@ -161,7 +164,11 @@ function toggleEntries(line) {
     date: defaultEntryDate(line),
     label: '',
     themeId: line.themeId || '',
-    accountId: line.fromAccountId || line.toAccountId || accounts.value.find((a) => a.isMain)?.id || '',
+    // Mouvement entre comptes : Depuis + Vers pré-remplis depuis la ligne (template)
+    accountId: lineHasDestination(line)
+      ? (line.fromAccountId || accounts.value.find((a) => a.isMain)?.id || '')
+      : (line.fromAccountId || line.toAccountId || accounts.value.find((a) => a.isMain)?.id || ''),
+    toAccountId: lineHasDestination(line) ? (line.toAccountId || '') : '',
     isShared: line.isShared,
   }
 }
@@ -177,6 +184,7 @@ async function submitEntry(line) {
       label: f.label || null,
       themeId: f.themeId || null,
       accountId: f.accountId || null,
+      toAccountId: f.toAccountId || null,
       isShared: f.isShared,
     })
     entryForm.value = { ...f, amount: '', label: '' }
@@ -354,8 +362,10 @@ async function saveSnapshots() {
                   <span v-if="themeById(e.themeId)" class="badge" :style="{ background: themeById(e.themeId).color + '22', color: themeById(e.themeId).color }">{{ themeById(e.themeId).name }}</span>
                   <span v-if="e.isShared" class="badge bg-amber-50 text-amber-600">½</span>
                   <span class="text-gray-400 truncate">{{ e.label }}</span>
-                  <span v-if="accountById(e.accountId)" class="text-gray-300 text-[11px] ml-auto shrink-0">{{ accountById(e.accountId).name }}</span>
-                  <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" :class="{ 'ml-auto': !accountById(e.accountId) }" @click="removeEntry(e)">×</button>
+                  <span v-if="accountById(e.accountId) || accountById(e.toAccountId)" class="text-gray-300 text-[11px] ml-auto shrink-0">
+                    {{ accountById(e.accountId)?.name || '?' }}<template v-if="accountById(e.toAccountId)"> → {{ accountById(e.toAccountId).name }}</template>
+                  </span>
+                  <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" :class="{ 'ml-auto': !accountById(e.accountId) && !accountById(e.toAccountId) }" @click="removeEntry(e)">×</button>
                 </div>
                 <p v-if="!entriesForLine(line).length" class="text-xs text-gray-400 py-1">Aucune entrée.</p>
 
@@ -368,10 +378,17 @@ async function saveSnapshots() {
                     <option value="">— thème</option>
                     <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
                   </select>
-                  <select v-model="entryForm.accountId" class="input w-28">
-                    <option value="">— compte</option>
+                  <select v-model="entryForm.accountId" class="input w-28" :title="lineHasDestination(line) ? 'Depuis' : 'Compte'">
+                    <option value="">{{ lineHasDestination(line) ? '— depuis' : '— compte' }}</option>
                     <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                   </select>
+                  <template v-if="lineHasDestination(line)">
+                    <span class="text-gray-300 text-[12px]">→</span>
+                    <select v-model="entryForm.toAccountId" class="input w-28" title="Vers">
+                      <option value="">— vers</option>
+                      <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                    </select>
+                  </template>
                   <label class="checkbox"><input v-model="entryForm.isShared" type="checkbox" /><span>½</span></label>
                   <button class="btn-secondary" @click="submitEntry(line)">Ajouter</button>
                 </div>

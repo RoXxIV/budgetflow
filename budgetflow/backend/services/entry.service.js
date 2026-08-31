@@ -10,6 +10,7 @@ function serialize(row) {
     amount: fromCents(row.amount_cents),
     date: row.date,
     accountId: row.account_id,
+    toAccountId: row.to_account_id,
     paymentMethod: row.payment_method,
     themeId: row.theme_id,
     isShared: !!row.is_shared,
@@ -31,10 +32,10 @@ export function create(monthId, data) {
     if (!line) throw httpError(400, "Ligne inconnue sur ce mois");
   }
   const { lastInsertRowid: id } = run(
-    `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, payment_method, theme_id, is_shared, source, notes)
-     VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, source, notes)
+     VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?)`,
     monthId, data.lineId ?? null, data.label ?? null, cents, data.date ?? null,
-    data.accountId ?? null, data.paymentMethod ?? null, data.themeId ?? null,
+    data.accountId ?? null, data.toAccountId ?? null, data.paymentMethod ?? null, data.themeId ?? null,
     data.isShared ? 1 : 0, data.source ?? "manuelle", data.notes ?? null
   );
   return serialize(get("SELECT * FROM entries WHERE id = ?", id));
@@ -51,10 +52,11 @@ export function update(id, data) {
   if (!cents) throw httpError(400, "Montant requis");
 
   run(
-    `UPDATE entries SET label = ?, amount_cents = ?, date = ?, account_id = ?,
+    `UPDATE entries SET label = ?, amount_cents = ?, date = ?, account_id = ?, to_account_id = ?,
        payment_method = ?, theme_id = ?, is_shared = ?, notes = ? WHERE id = ?`,
     val("label", "label"), cents, val("date", "date"),
-    val("accountId", "account_id"), val("paymentMethod", "payment_method"),
+    val("accountId", "account_id"), val("toAccountId", "to_account_id"),
+    val("paymentMethod", "payment_method"),
     val("themeId", "theme_id"), val("isShared", "is_shared", (v) => (v ? 1 : 0)),
     val("notes", "notes"), id
   );
@@ -89,6 +91,7 @@ export function pay(monthId, lineId) {
     amount: fromCents(line.planned_amount_cents),
     date: day,
     accountId: line.from_account_id ?? line.to_account_id ?? null,
+    toAccountId: line.from_account_id ? line.to_account_id : null, // les deux si la ligne est un mouvement entre comptes
     paymentMethod: line.payment_method,
     themeId: line.theme_id,
     isShared: !!line.is_shared,
