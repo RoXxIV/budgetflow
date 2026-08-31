@@ -225,6 +225,9 @@ function openAddLine(category) {
     toAccountId: '',
     isShared: false,
     recurringDay: '',
+    // Dépense ponctuelle : créer aussi l'entrée au même montant (pas de double saisie)
+    alreadySpent: category.type === 'depense',
+    entryDate: new Date().toISOString().substring(0, 10),
   }
 }
 
@@ -264,9 +267,26 @@ function lineFormData() {
 
 async function submitLineForm() {
   if (!lineForm.value.label.trim()) return
+  const f = lineForm.value
   try {
-    if (typeof lineFormId.value === 'string') await createMonthLine(current.value.id, lineFormData())
-    else await updateMonthLine(current.value.id, lineFormId.value, lineFormData())
+    if (typeof lineFormId.value === 'string') {
+      const { data: line } = await createMonthLine(current.value.id, lineFormData())
+      // « Déjà dépensé » : l'entrée est créée au même montant, en une seule saisie
+      const amount = parseFloat(f.plannedAmount)
+      if (f.alreadySpent && amount > 0) {
+        await createEntry(current.value.id, {
+          lineId: line.id,
+          amount,
+          date: f.entryDate,
+          themeId: f.themeId || null,
+          accountId: f.fromAccountId || null,
+          toAccountId: lineHasDestination(line) ? (f.toAccountId || null) : null,
+          isShared: f.isShared,
+        })
+      }
+    } else {
+      await updateMonthLine(current.value.id, lineFormId.value, lineFormData())
+    }
     closeLineForm()
     await reload()
   } catch (e) { apiError(e) }
@@ -638,6 +658,13 @@ const mainEnvelopesTotal = computed(() => {
                   </select>
                 </label>
                 <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end"><input v-model="lineForm.isShared" type="checkbox" /><span>½</span></label>
+              </div>
+              <div class="flex gap-3 mt-2.5 items-center">
+                <label class="checkbox" title="Crée aussi l'entrée au même montant — pas de double saisie">
+                  <input v-model="lineForm.alreadySpent" type="checkbox" />
+                  <span>Déjà dépensé</span>
+                </label>
+                <input v-if="lineForm.alreadySpent" v-model="lineForm.entryDate" type="date" class="input w-34" />
               </div>
               <div class="flex gap-2 mt-3">
                 <button class="btn-primary" @click="submitLineForm">Ajouter</button>
