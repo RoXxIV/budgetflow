@@ -5,6 +5,7 @@ const route = useRoute()
 
 const navLinks = [
   { name: 'Comptes', to: '/comptes' },
+  { name: 'Template', to: '/template' },
   { name: 'Paramètres', to: '/parametres' },
 ]
 </script>
