@@ -2,6 +2,7 @@ import { Router } from "express";
 import * as months from "../services/month.service.js";
 import * as budgetLines from "../services/budgetLine.service.js";
 import * as entries from "../services/entry.service.js";
+import * as summary from "../services/summary.service.js";
 
 const router = Router();
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
@@ -12,6 +13,7 @@ router.get("/", wrap((req, res) => res.json(months.list())));
 router.get("/prefill", wrap((req, res) => res.json(months.prefill())));
 router.post("/", wrap((req, res) => res.status(201).json(months.create(req.body))));
 router.get("/:id", wrap((req, res) => res.json(months.getById(id(req)))));
+router.get("/:id/summary", wrap((req, res) => res.json(summary.getSummary(id(req)))));
 router.put("/:id", wrap((req, res) => res.json(months.setClosed(id(req), !!req.body.isClosed))));
 router.delete("/:id", wrap((req, res) => res.json(months.remove(id(req)))));
 

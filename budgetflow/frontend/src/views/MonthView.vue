@@ -5,6 +5,7 @@ import {
   getMonthLines, payLine, unpayLine,
   getMonthSnapshots, upsertMonthSnapshots,
   getMonthEntries, createEntry, deleteEntry,
+  getMonthSummary,
 } from '@/api/months.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
@@ -37,20 +38,27 @@ onMounted(async () => {
   if (target) await openMonth(target)
 })
 
+const summaryData = ref(null)
+const showAccounts = ref(false)
+
 async function openMonth(month) {
   current.value = month
-  const [lRes, eRes, sRes] = await Promise.all([
-    getMonthLines(month.id), getMonthEntries(month.id), getMonthSnapshots(month.id),
+  const [lRes, eRes, sRes, sumRes] = await Promise.all([
+    getMonthLines(month.id), getMonthEntries(month.id), getMonthSnapshots(month.id), getMonthSummary(month.id),
   ])
   lines.value = lRes.data
   entriesAll.value = eRes.data
   snapshots.value = sRes.data
+  summaryData.value = sumRes.data
 }
 
 async function reload() {
-  const [lRes, eRes] = await Promise.all([getMonthLines(current.value.id), getMonthEntries(current.value.id)])
+  const [lRes, eRes, sumRes] = await Promise.all([
+    getMonthLines(current.value.id), getMonthEntries(current.value.id), getMonthSummary(current.value.id),
+  ])
   lines.value = lRes.data
   entriesAll.value = eRes.data
+  summaryData.value = sumRes.data
 }
 
 function apiError(e) {
@@ -224,9 +232,13 @@ async function saveSnapshots() {
     .map(([accountId, balance]) => ({ accountId: Number(accountId), balance: parseFloat(balance) }))
   try {
     snapshots.value = (await upsertMonthSnapshots(current.value.id, list)).data
+    summaryData.value = (await getMonthSummary(current.value.id)).data
     snapshotsOpen.value = false
   } catch (e) { apiError(e) }
 }
+
+const amountClass = (n) => (n === null ? 'text-gray-300' : n >= 0 ? 'text-emerald-600' : 'text-red-500')
+const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 </script>
 
 <template>
@@ -286,6 +298,56 @@ async function saveSnapshots() {
         </span>
         <button class="link text-xs" @click="toggleClosed">{{ current.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
         <button class="link text-xs ml-auto" @click="openSnapshots">Soldes de début de mois</button>
+      </div>
+
+      <!-- ─── Bilan ────────────────────────────────── -->
+      <div v-if="summaryData" class="card px-5 py-4 mb-4">
+        <div class="grid grid-cols-3 gap-6">
+          <div class="flex flex-col gap-0.5">
+            <span class="text-[20px] font-bold tracking-tight" :class="amountClass(summaryData.tiles.disponible)">
+              {{ fmtOrDash(summaryData.tiles.disponible) }}
+            </span>
+            <span class="text-[11.5px] text-gray-400 font-medium">
+              Disponible{{ summaryData.mainAccount ? ' — ' + summaryData.mainAccount.name : '' }}
+            </span>
+            <span v-if="!summaryData.mainAccount" class="text-[11px] text-amber-500">Définir un compte principal (Comptes)</span>
+            <span v-else-if="summaryData.tiles.disponible === null" class="text-[11px] text-amber-500">Saisir le solde de début de mois</span>
+          </div>
+          <div
+            class="flex flex-col gap-0.5"
+            :title="`+ ${fmt(summaryData.tiles.detail.revenusRestants)} revenus à venir · − ${fmt(summaryData.tiles.detail.fixesRestants)} fixes non payés · − ${fmt(summaryData.tiles.detail.variablesRestants)} restants sur plafonds`"
+          >
+            <span class="text-[20px] font-bold tracking-tight" :class="amountClass(summaryData.tiles.projete)">
+              {{ fmtOrDash(summaryData.tiles.projete) }}
+            </span>
+            <span class="text-[11.5px] text-gray-400 font-medium">Projeté fin de mois</span>
+            <span class="text-[11px] text-gray-400">si fixes payés et plafonds atteints</span>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <span class="text-[20px] font-bold tracking-tight text-violet-600">{{ fmt(summaryData.tiles.misDeCote) }}</span>
+            <span class="text-[11.5px] text-gray-400 font-medium">Mis de côté ce mois</span>
+            <span v-if="summaryData.tiles.savingRate" class="text-[11px] text-gray-400">
+              objectif {{ fmt(summaryData.tiles.objectifEpargne) }} ({{ summaryData.tiles.savingRate }} % du revenu)
+            </span>
+          </div>
+        </div>
+
+        <button class="link text-xs mt-3" @click="showAccounts = !showAccounts">
+          {{ showAccounts ? '▲' : '▼' }} Soldes des comptes
+        </button>
+        <div v-if="showAccounts" class="grid grid-cols-4 gap-2 mt-2">
+          <div v-for="a in summaryData.accounts" :key="a.accountId" class="bg-stone-50 rounded-lg px-3 py-2">
+            <p class="text-[11.5px] font-semibold truncate">{{ a.name }}<span v-if="a.isMain" class="text-violet-500"> ★</span></p>
+            <p class="text-[12.5px]">
+              <span class="text-gray-400">{{ fmtOrDash(a.start) }}</span>
+              <span class="text-gray-300"> → </span>
+              <span class="font-semibold" :class="amountClass(a.current)">{{ fmtOrDash(a.current) }}</span>
+            </p>
+            <p v-if="a.envelopesTotal" class="text-[10.5px] text-gray-400">
+              enveloppes {{ fmt(a.envelopesTotal) }} · dispo {{ fmtOrDash(a.unallocated) }}
+            </p>
+          </div>
+        </div>
       </div>
 
       <!-- Snapshots -->

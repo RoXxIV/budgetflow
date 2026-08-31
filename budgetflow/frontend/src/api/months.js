@@ -4,6 +4,7 @@ export const getMonths = () => api.get('/months')
 export const getMonthPrefill = () => api.get('/months/prefill')
 export const createMonth = (data) => api.post('/months', data)
 export const getMonth = (id) => api.get(`/months/${id}`)
+export const getMonthSummary = (id) => api.get(`/months/${id}/summary`)
 export const setMonthClosed = (id, isClosed) => api.put(`/months/${id}`, { isClosed })
 export const deleteMonth = (id) => api.delete(`/months/${id}`)
 

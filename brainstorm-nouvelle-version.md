@@ -80,7 +80,7 @@ Dernière mise à jour : 31/08/2026.
 
 - **Trois chiffres en tête** :
   - **Disponible aujourd'hui** = solde live du compte principal − enveloppes hébergées dessus.
-  - **Projeté fin de mois** = disponible − fixes non encore payés − (plafonds variables − déjà dépensé). Répond à « est-ce que je peux me le permettre ? ».
+  - **Projeté fin de mois** = disponible **+ revenus fixes non encaissés** − fixes non encore payés − (plafonds variables − déjà dépensé). Répond à « est-ce que je peux me le permettre ? ». (Extension décidée à l'implémentation : un revenu fixe non encaissé est « présumé reçu au prévu », symétrique des fixes présumés payés — sinon la projection est fausse tant que le salaire n'est pas tombé.)
   - **Mis de côté ce mois** = contributions + investissements + lignes de catégorie épargne, comparé à l'objectif en % du revenu.
 - **Objectif d'épargne en % du revenu du mois uniquement.** La formule BudgetFlow `(revenu + solde initial) × taux` est un bug confirmé : le solde de début de mois ne doit pas entrer dans la base.
 - Répartition du revenu (anneaux) conservée : catégories + enveloppes + investissements, référence = max(revenu réel, revenu prévu).
