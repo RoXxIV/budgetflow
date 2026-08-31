@@ -69,18 +69,20 @@ Dernière mise à jour : 31/08/2026.
 
 - Conservé : ligne = enveloppe budgétaire du mois (prévu / réel), entrées multiples par ligne (date, montant, détails, compte, moyen de paiement, thème, ½), clic sur « Réel » d'une ligne vide = ajout direct.
 - **Réel calculé** (somme des entrées à la lecture, côté backend), plus de compteur `$inc`.
-- **Fixe / variable devient significatif** — les deux champs prévu/réel sont conservés :
-  - **Fixe** (loyer, abonnement) : le prévu est le montant attendu. Case **☐ payé** → crée une entrée au prévu à la date du jour récurrent ; correction possible si le montant diffère. Non coché = *présumé payé au prévu* dans la projection, affiché « à venir ». Affichage d'un seul montant quand réel = prévu.
-  - **Variable** (courses, restos) : le prévu est un **plafond**, le réel la somme des entrées, barre « 240 / 300 € » et alerte de dépassement. Pas de case payé.
-- Le prévu des fixes reste la référence pour le mois suivant, la projection (« 3 fixes à venir = 340 € ») et la détection de dérive (« EDF 4 fois au-dessus du prévu, ajuster le template ? »).
-- Jour récurrent conservé (pré-remplit la date, alimente une vue « échéances du mois » à venir / passées).
+- **Plus de fixe / variable** (révisé le 01/09/2026 après test en conditions réelles : la distinction induisait en erreur — une ligne d'épargne ressemblait à une facture sans que l'utilisateur sache pourquoi). Règle unique :
+  - une ligne a un **prévu** et un **réel** (somme des entrées) ; **le réel remplace le prévu dès qu'il existe**, à l'affichage comme dans le projeté ;
+  - **☐ payé** sur toute ligne qui a un prévu et aucune entrée (héritée du template ou ajoutée au mois avec un prévu) : cocher crée l'entrée au prévu, datée du *jour du mois* de la ligne sinon d'aujourd'hui ; décocher ne retire que cette entrée-là ;
+  - **ajout d'une ligne au mois : Prévu + Montant**. Montant rempli → entrée créée immédiatement (ligne « déjà passée »). Prévu seul → ligne à cocher plus tard (« la semaine prochaine on me rend 100 € », « je vais au ciné »). Une seule saisie dans les deux cas ;
+  - conséquence assumée : plus de notion de plafond pour les lignes à entrées multiples (Courses 300 € compte 40 € dès la première course). Un « plafond » optionnel par ligne pourra être ajouté si le besoin se confirme.
+- Jour du mois conservé (date par défaut du « payé », future vue « échéances »). Affiché « le 3 » tant que la ligne n'est pas payée.
 - **Ajout rapide global** : bouton « + dépense » toujours accessible (raccourci clavier), montant + ligne, défauts de la ligne appliqués.
 
 ### 6. Bilan et soldes live
 
 - **Trois chiffres en tête** :
   - **Disponible aujourd'hui** = solde live du compte principal − enveloppes hébergées dessus.
-  - **Projeté fin de mois** = disponible **+ revenus fixes non encaissés** − fixes non encore payés − (plafonds variables − déjà dépensé). Répond à « est-ce que je peux me le permettre ? ». (Extension décidée à l'implémentation : un revenu fixe non encaissé est « présumé reçu au prévu », symétrique des fixes présumés payés — sinon la projection est fausse tant que le salaire n'est pas tombé.)
+  - **Projeté fin de mois** = solde actuel + revenus prévus non encaissés − sorties prévues non réalisées (règle « le réel remplace le prévu » : seules les lignes sans entrée comptent pour leur prévu, le réel est déjà dans le solde). Répond à « est-ce que je peux me le permettre ? ».
+  - La tuile 1 s'appelle **« Solde actuel — <compte principal> »** (« Disponible » induisait en erreur), avec « enveloppes déduites » quand il y en a.
   - **Mis de côté ce mois** = contributions + investissements + lignes de catégorie épargne, comparé à l'objectif en % du revenu.
 - **Objectif d'épargne en % du revenu du mois uniquement.** La formule BudgetFlow `(revenu + solde initial) × taux` est un bug confirmé : le solde de début de mois ne doit pas entrer dans la base.
 - Répartition du revenu (anneaux) conservée : catégories + enveloppes + investissements, référence = max(revenu réel, revenu prévu).

@@ -217,17 +217,15 @@ function openAddLine(category) {
   lineFormId.value = `new-${category.id}`
   lineForm.value = {
     label: '',
-    plannedAmount: '',
-    kind: category.type === 'depense' ? 'variable' : 'fixe',
+    plannedAmount: '',   // prévu seul → ligne à cocher plus tard
+    actualAmount: '',    // montant rempli → entrée créée tout de suite (le réel remplace le prévu)
+    entryDate: new Date().toISOString().substring(0, 10),
     categoryId: category.id,
     themeId: '',
     fromAccountId: category.type === 'revenu' ? '' : (accounts.value.find((a) => a.isMain)?.id || ''),
     toAccountId: '',
     isShared: false,
     recurringDay: '',
-    // Dépense ponctuelle : créer aussi l'entrée au même montant (pas de double saisie)
-    alreadySpent: category.type === 'depense',
-    entryDate: new Date().toISOString().substring(0, 10),
   }
 }
 
@@ -236,7 +234,6 @@ function openEditLine(line) {
   lineForm.value = {
     label: line.label,
     plannedAmount: line.plannedAmount ?? '',
-    kind: line.kind,
     categoryId: line.categoryId,
     themeId: line.themeId || '',
     fromAccountId: line.fromAccountId || '',
@@ -255,7 +252,6 @@ function lineFormData() {
   return {
     label: f.label,
     plannedAmount: f.plannedAmount === '' ? 0 : parseFloat(f.plannedAmount),
-    kind: f.kind,
     categoryId: f.categoryId || null,
     themeId: f.themeId || null,
     fromAccountId: f.fromAccountId || null,
@@ -271,9 +267,9 @@ async function submitLineForm() {
   try {
     if (typeof lineFormId.value === 'string') {
       const { data: line } = await createMonthLine(current.value.id, lineFormData())
-      // « Déjà dépensé » : l'entrée est créée au même montant, en une seule saisie
-      const amount = parseFloat(f.plannedAmount)
-      if (f.alreadySpent && amount > 0) {
+      // Montant rempli : l'entrée est créée tout de suite (une seule saisie)
+      const amount = parseFloat(f.actualAmount)
+      if (amount > 0) {
         await createEntry(current.value.id, {
           lineId: line.id,
           amount,
@@ -313,13 +309,16 @@ async function pushToTemplate(line) {
   } catch (e) { apiError(e) }
 }
 
-// ─── Affichage réel / restant ────────────────────────────
+// ─── Affichage réel / prévu ──────────────────────────────
+// Le réel remplace le prévu dès qu'il existe ; la case ☐ n'apparaît que sur une ligne
+// avec un prévu et aucune entrée (ou la seule entrée « payé », pour pouvoir décocher).
 function overBudget(line) {
-  return line.kind === 'variable' && line.plannedAmount > 0 && line.actualAmount > line.plannedAmount
+  return line.plannedAmount > 0 && line.actualAmount > line.plannedAmount
 }
-function progressPct(line) {
-  if (!line.plannedAmount) return 0
-  return Math.min(100, Math.round((line.actualAmount / line.plannedAmount) * 100))
+function showCheckbox(line) {
+  if (!(line.plannedAmount > 0)) return false
+  const entries = entriesForLine(line)
+  return entries.length === 0 || (entries.length === 1 && entries[0].source === 'paye')
 }
 
 // ─── Snapshots (édition) ─────────────────────────────────
@@ -429,13 +428,13 @@ const mainEnvelopesTotal = computed(() => {
           </div>
           <div
             class="flex flex-col gap-0.5"
-            :title="`+ ${fmt(summaryData.tiles.detail.revenusRestants)} revenus à venir · − ${fmt(summaryData.tiles.detail.fixesRestants)} fixes non payés · − ${fmt(summaryData.tiles.detail.variablesRestants)} restants sur plafonds`"
+            :title="`+ ${fmt(summaryData.tiles.detail.revenusRestants)} revenus prévus non encaissés · − ${fmt(summaryData.tiles.detail.prevusRestants)} sorties prévues non réalisées`"
           >
             <span class="text-[20px] font-bold tracking-tight" :class="amountClass(summaryData.tiles.projete)">
               {{ fmtOrDash(summaryData.tiles.projete) }}
             </span>
             <span class="text-[11.5px] text-gray-400 font-medium">Projeté fin de mois</span>
-            <span class="text-[11px] text-gray-400">si fixes payés et plafonds atteints</span>
+            <span class="text-[11px] text-gray-400">si tout le prévu se réalise</span>
           </div>
           <div class="flex flex-col gap-0.5">
             <span class="text-[20px] font-bold tracking-tight text-violet-600">{{ fmt(summaryData.tiles.misDeCote) }}</span>
@@ -491,34 +490,28 @@ const mainEnvelopesTotal = computed(() => {
             <!-- Lignes -->
             <div v-for="line in group.lines" :key="line.id">
               <div class="line-row" @click="toggleEntries(line)">
-                <!-- ☐ payé (fixes uniquement) -->
+                <!-- ☐ payé : prévu sans entrée → cocher crée l'entrée au prévu -->
                 <input
-                  v-if="line.kind === 'fixe'"
+                  v-if="showCheckbox(line)"
                   type="checkbox"
                   class="shrink-0 accent-violet-600 cursor-pointer"
                   :checked="isPaid(line)"
                   :disabled="current.isClosed"
-                  :title="isPaid(line) ? 'Payé' : 'Marquer payé au montant prévu'"
+                  :title="isPaid(line) ? 'Payé — décocher retire l\'entrée' : 'Marquer payé au montant prévu'"
                   @click.stop="togglePaid(line)"
                 />
-                <span class="text-[13px] font-medium truncate" :class="{ 'text-gray-400': line.kind === 'fixe' && !isPaid(line) }">
+                <span class="text-[13px] font-medium truncate" :class="{ 'text-gray-400': !isPaid(line) }">
                   {{ line.label }}
                 </span>
-                <span v-if="line.kind === 'fixe' && line.recurringDay" class="badge bg-blue-50 text-blue-600">le {{ line.recurringDay }}</span>
+                <span v-if="line.recurringDay && !isPaid(line)" class="badge bg-blue-50 text-blue-600">le {{ line.recurringDay }}</span>
                 <span v-if="line.isShared" class="badge bg-amber-50 text-amber-600">½</span>
 
-                <!-- Montants -->
+                <!-- Montant : le réel remplace le prévu -->
                 <span class="ml-auto shrink-0 text-right">
-                  <template v-if="line.kind === 'fixe'">
-                    <span class="text-[13px] font-semibold" :class="isPaid(line) ? '' : 'text-gray-400'">
-                      {{ fmt(isPaid(line) ? line.actualAmount : line.plannedAmount) }}
-                    </span>
-                    <span v-if="isPaid(line) && line.actualAmount !== line.plannedAmount" class="text-[11px] text-gray-400"> / {{ fmt(line.plannedAmount) }}</span>
-                  </template>
-                  <template v-else>
-                    <span class="text-[13px] font-semibold" :class="overBudget(line) ? 'text-red-500' : ''">{{ fmt(line.actualAmount) }}</span>
-                    <span v-if="line.plannedAmount" class="text-[11px] text-gray-400"> / {{ fmt(line.plannedAmount) }}</span>
-                  </template>
+                  <span class="text-[13px] font-semibold" :class="!isPaid(line) ? 'text-gray-400' : overBudget(line) ? 'text-red-500' : ''">
+                    {{ fmt(isPaid(line) ? line.actualAmount : line.plannedAmount) }}
+                  </span>
+                  <span v-if="isPaid(line) && line.plannedAmount > 0 && line.actualAmount !== line.plannedAmount" class="text-[11px] text-gray-400"> / {{ fmt(line.plannedAmount) }} prévu</span>
                 </span>
                 <button
                   v-if="!current.isClosed"
@@ -533,13 +526,7 @@ const mainEnvelopesTotal = computed(() => {
                 <div class="flex flex-wrap gap-3">
                   <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-40" /></label>
                   <label class="field"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" /></label>
-                  <label class="field"><span>Type</span>
-                    <select v-model="lineForm.kind" class="input w-26">
-                      <option value="fixe">Fixe</option>
-                      <option value="variable">Variable</option>
-                    </select>
-                  </label>
-                  <label v-if="lineForm.kind === 'fixe'" class="field"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" /></label>
+                  <label class="field" title="Date par défaut du « payé »"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" placeholder="—" /></label>
                   <label class="field"><span>Catégorie</span>
                     <select v-model="lineForm.categoryId" class="input w-34">
                       <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
@@ -573,13 +560,6 @@ const mainEnvelopesTotal = computed(() => {
                   </button>
                   <span v-else class="text-[11px] text-gray-400">ligne propre à ce mois</span>
                   <button class="btn-danger ml-auto" @click="removeLineConfirm(line)">Supprimer</button>
-                </div>
-              </div>
-
-              <!-- Barre de progression (variables avec plafond) -->
-              <div v-if="line.kind === 'variable' && line.plannedAmount > 0" class="px-4 pb-1.5 -mt-1">
-                <div class="progress">
-                  <div class="progress-bar" :class="overBudget(line) ? 'bg-red-500' : 'bg-violet-500'" :style="{ width: progressPct(line) + '%' }" />
                 </div>
               </div>
 
@@ -631,14 +611,10 @@ const mainEnvelopesTotal = computed(() => {
             <div v-if="lineFormId === `new-${group.category.id}`" class="edit-panel">
               <div class="flex flex-wrap gap-3">
                 <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-40" placeholder="Canva, Cadeau…" @keyup.enter="submitLineForm" /></label>
-                <label class="field"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submitLineForm" /></label>
-                <label class="field"><span>Type</span>
-                  <select v-model="lineForm.kind" class="input w-26">
-                    <option value="fixe">Fixe</option>
-                    <option value="variable">Variable</option>
-                  </select>
-                </label>
-                <label v-if="lineForm.kind === 'fixe'" class="field"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" /></label>
+                <label class="field" title="À venir : la ligne se cochera quand ce sera passé"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
+                <label class="field" title="Déjà passé : l'entrée est créée tout de suite"><span>Montant (€)</span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
+                <label v-if="lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
+                <label v-else class="field" title="Date par défaut du « payé »"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" placeholder="—" /></label>
                 <label v-if="themes.length" class="field"><span>Thème</span>
                   <select v-model="lineForm.themeId" class="input w-28">
                     <option value="">—</option>
@@ -658,13 +634,6 @@ const mainEnvelopesTotal = computed(() => {
                   </select>
                 </label>
                 <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end"><input v-model="lineForm.isShared" type="checkbox" /><span>½</span></label>
-              </div>
-              <div class="flex gap-3 mt-2.5 items-center">
-                <label class="checkbox" title="Crée aussi l'entrée au même montant — pas de double saisie">
-                  <input v-model="lineForm.alreadySpent" type="checkbox" />
-                  <span>Déjà dépensé</span>
-                </label>
-                <input v-if="lineForm.alreadySpent" v-model="lineForm.entryDate" type="date" class="input w-34" />
               </div>
               <div class="flex gap-2 mt-3">
                 <button class="btn-primary" @click="submitLineForm">Ajouter</button>

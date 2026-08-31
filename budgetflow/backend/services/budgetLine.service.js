@@ -9,7 +9,6 @@ export function serialize(row) {
     label: row.label,
     categoryId: row.category_id,
     themeId: row.theme_id,
-    kind: row.kind,
     plannedAmount: fromCents(row.planned_amount_cents),
     fromAccountId: row.from_account_id,
     toAccountId: row.to_account_id,
@@ -38,7 +37,6 @@ export function getById(id) {
 export function create(monthId, data) {
   const label = (data.label || "").trim();
   if (!label) throw httpError(400, "Le libellé de la ligne est requis");
-  if (data.kind && !["fixe", "variable"].includes(data.kind)) throw httpError(400, "Type de ligne invalide");
 
   const scope = monthId === null ? "month_id IS NULL" : "month_id = ?";
   const max = monthId === null
@@ -47,12 +45,12 @@ export function create(monthId, data) {
 
   const { lastInsertRowid: id } = run(
     `INSERT INTO budget_lines
-      (month_id, template_line_id, label, category_id, theme_id, kind, planned_amount_cents,
+      (month_id, template_line_id, label, category_id, theme_id, planned_amount_cents,
        from_account_id, to_account_id, payment_method, is_shared, recurring_day, sort_order, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     monthId, data.templateLineId ?? null, label,
     data.categoryId ?? null, data.themeId ?? null,
-    data.kind || "variable", toCents(data.plannedAmount) ?? 0,
+    toCents(data.plannedAmount) ?? 0,
     data.fromAccountId ?? null, data.toAccountId ?? null,
     data.paymentMethod ?? null, data.isShared ? 1 : 0,
     data.recurringDay ?? null, max + 1, data.notes ?? null
@@ -66,20 +64,17 @@ export function update(id, data) {
 
   const label = data.label !== undefined ? String(data.label).trim() : existing.label;
   if (!label) throw httpError(400, "Le libellé de la ligne est requis");
-  const kind = data.kind !== undefined ? data.kind : existing.kind;
-  if (!["fixe", "variable"].includes(kind)) throw httpError(400, "Type de ligne invalide");
 
   const val = (key, dbKey, transform = (v) => v) =>
     data[key] !== undefined ? transform(data[key]) : existing[dbKey];
 
   run(
-    `UPDATE budget_lines SET label = ?, category_id = ?, theme_id = ?, kind = ?,
+    `UPDATE budget_lines SET label = ?, category_id = ?, theme_id = ?,
        planned_amount_cents = ?, from_account_id = ?, to_account_id = ?, payment_method = ?,
        is_shared = ?, recurring_day = ?, notes = ? WHERE id = ?`,
     label,
     val("categoryId", "category_id"),
     val("themeId", "theme_id"),
-    kind,
     val("plannedAmount", "planned_amount_cents", toCents),
     val("fromAccountId", "from_account_id"),
     val("toAccountId", "to_account_id"),
@@ -122,10 +117,10 @@ export function applyToTemplate(id) {
   if (!template) throw httpError(404, "La ligne d'origine n'existe plus dans le template");
 
   run(
-    `UPDATE budget_lines SET label = ?, category_id = ?, theme_id = ?, kind = ?,
+    `UPDATE budget_lines SET label = ?, category_id = ?, theme_id = ?,
        planned_amount_cents = ?, from_account_id = ?, to_account_id = ?, payment_method = ?,
        is_shared = ?, recurring_day = ? WHERE id = ?`,
-    line.label, line.category_id, line.theme_id, line.kind,
+    line.label, line.category_id, line.theme_id,
     line.planned_amount_cents, line.from_account_id, line.to_account_id, line.payment_method,
     line.is_shared, line.recurring_day, template.id
   );

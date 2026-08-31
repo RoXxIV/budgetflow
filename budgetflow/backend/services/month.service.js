@@ -110,10 +110,10 @@ export function create({ period, snapshots = [] }) {
     for (const line of templateLines) {
       run(
         `INSERT INTO budget_lines
-          (month_id, template_line_id, label, category_id, theme_id, kind, planned_amount_cents,
+          (month_id, template_line_id, label, category_id, theme_id, planned_amount_cents,
            from_account_id, to_account_id, payment_method, is_shared, recurring_day, sort_order, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        monthId, line.id, line.label, line.category_id, line.theme_id, line.kind,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        monthId, line.id, line.label, line.category_id, line.theme_id,
         line.planned_amount_cents, line.from_account_id, line.to_account_id,
         line.payment_method, line.is_shared, line.recurring_day, line.sort_order, line.notes
       );

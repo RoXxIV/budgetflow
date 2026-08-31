@@ -10,8 +10,9 @@ import { getSnapshots } from "./month.service.js";
  *     revenu   → crédite account_id
  *     epargne/transfert → débite account_id, crédite to_account_id
  * - disponible = solde courant du compte principal − enveloppes ouvertes hébergées dessus
- * - projeté fin de mois = disponible + revenus fixes non encaissés − fixes non payés
- *                         − (plafonds variables − déjà dépensé)   [périmètre : compte principal]
+ * - le réel remplace le prévu : une ligne sans entrée compte pour son prévu, sinon pour son réel
+ * - projeté fin de mois = solde actuel + revenus prévus non encaissés − sorties prévues non réalisées
+ *                         [périmètre : compte principal ; le réel est déjà dans le solde]
  * - mis de côté = entrées des lignes épargne + contributions « normales » du mois
  * - objectif épargne = savingRate % × revenu de référence (max(réel, prévu) des lignes revenu)
  */
@@ -104,25 +105,19 @@ export function getSummary(monthId) {
 
   // Périmètre compte principal : from/to absent = compte principal par défaut
   const isMainOrNull = (id) => !main || !id || id === main.accountId;
-  let fixesRestants = 0;
-  let revenusRestants = 0;
-  let variablesRestants = 0;
+  // Le réel remplace le prévu : seules les lignes SANS entrée comptent pour leur prévu
+  let prevusRestants = 0;   // sorties prévues non encore réalisées
+  let revenusRestants = 0;  // revenus prévus non encore encaissés
   for (const l of lines) {
+    if (l.entry_count > 0) continue;
     if (l.category_type === "revenu") {
-      if (l.kind === "fixe" && l.entry_count === 0 && isMainOrNull(l.to_account_id)) {
-        revenusRestants += l.planned_amount_cents;
-      }
-      continue;
-    }
-    if (!isMainOrNull(l.from_account_id)) continue;
-    if (l.kind === "fixe") {
-      if (l.entry_count === 0) fixesRestants += l.planned_amount_cents;
-    } else {
-      variablesRestants += Math.max(0, l.planned_amount_cents - l.actual_cents);
+      if (isMainOrNull(l.to_account_id)) revenusRestants += l.planned_amount_cents;
+    } else if (isMainOrNull(l.from_account_id)) {
+      prevusRestants += l.planned_amount_cents;
     }
   }
   const projete = disponible !== null
-    ? disponible + fromCents(revenusRestants - fixesRestants - variablesRestants)
+    ? disponible + fromCents(revenusRestants - prevusRestants)
     : null;
 
   // ─── Mis de côté / objectif ─────────────────────────────
@@ -150,8 +145,7 @@ export function getSummary(monthId) {
       incomeReference,
       detail: {
         revenusRestants: fromCents(revenusRestants),
-        fixesRestants: fromCents(fixesRestants),
-        variablesRestants: fromCents(variablesRestants),
+        prevusRestants: fromCents(prevusRestants),
       },
     },
     mainAccount: main ? { id: main.accountId, name: main.name } : null,

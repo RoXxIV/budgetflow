@@ -67,7 +67,6 @@ function defaultForm(category) {
   return {
     label: '',
     plannedAmount: '',
-    kind: category.type === 'depense' ? 'variable' : 'fixe',
     categoryId: category.id,
     themeId: '',
     fromAccountId: category.type === 'revenu' ? '' : (accounts.value.find((a) => a.isMain)?.id || ''),
@@ -89,7 +88,6 @@ function openEdit(line) {
   form.value = {
     label: line.label,
     plannedAmount: line.plannedAmount ?? '',
-    kind: line.kind,
     categoryId: line.categoryId,
     themeId: line.themeId || '',
     fromAccountId: line.fromAccountId || '',
@@ -110,7 +108,6 @@ function formData() {
   return {
     label: f.label,
     plannedAmount: f.plannedAmount === '' ? 0 : parseFloat(f.plannedAmount),
-    kind: f.kind,
     categoryId: f.categoryId || null,
     themeId: f.themeId || null,
     fromAccountId: f.fromAccountId || null,
@@ -213,9 +210,7 @@ const formCategoryType = computed(() => {
           <div v-for="(line, i) in group.lines" :key="line.id">
             <div class="line-row" @click="openLineId === line.id ? closePanel() : openEdit(line)">
               <span class="text-[13px] font-medium truncate">{{ line.label }}</span>
-              <span v-if="line.kind === 'fixe'" class="badge bg-blue-50 text-blue-600" :title="line.recurringDay ? 'Prélevé le ' + line.recurringDay : 'Ligne fixe'">
-                fixe{{ line.recurringDay ? ' · le ' + line.recurringDay : '' }}
-              </span>
+              <span v-if="line.recurringDay" class="badge bg-blue-50 text-blue-600" title="Jour du mois (date par défaut du « payé »)">le {{ line.recurringDay }}</span>
               <span v-if="line.isShared" class="badge bg-amber-50 text-amber-600" title="Partagé">½</span>
               <span v-if="themeById(line.themeId)" class="badge" :style="{ background: themeById(line.themeId).color + '22', color: themeById(line.themeId).color }">
                 {{ themeById(line.themeId).name }}
@@ -232,13 +227,7 @@ const formCategoryType = computed(() => {
               <div class="flex flex-wrap gap-3">
                 <label class="field"><span>Libellé</span><input v-model="form.label" type="text" class="input w-44" /></label>
                 <label class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" /></label>
-                <label class="field"><span>Type</span>
-                  <select v-model="form.kind" class="input w-28">
-                    <option value="fixe">Fixe</option>
-                    <option value="variable">Variable</option>
-                  </select>
-                </label>
-                <label v-if="form.kind === 'fixe'" class="field"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" /></label>
+                <label class="field" title="Date par défaut quand vous cochez « payé » dans le mois"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
                 <label class="field"><span>Catégorie</span>
                   <select v-model="form.categoryId" class="input w-36">
                     <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
@@ -285,13 +274,7 @@ const formCategoryType = computed(() => {
             <div class="flex flex-wrap gap-3">
               <label class="field"><span>Libellé</span><input v-model="form.label" type="text" class="input w-44" placeholder="Loyer, Courses…" @keyup.enter="submit" /></label>
               <label class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submit" /></label>
-              <label class="field"><span>Type</span>
-                <select v-model="form.kind" class="input w-28">
-                  <option value="fixe">Fixe</option>
-                  <option value="variable">Variable</option>
-                </select>
-              </label>
-              <label v-if="form.kind === 'fixe'" class="field"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" /></label>
+              <label class="field" title="Date par défaut quand vous cochez « payé » dans le mois"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
               <label v-if="themes.length" class="field"><span>Thème</span>
                 <select v-model="form.themeId" class="input w-32">
                   <option value="">—</option>

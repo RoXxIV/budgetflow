@@ -76,11 +76,11 @@ export function pay(monthId, lineId) {
   const month = assertOpen(monthId);
   const line = get("SELECT * FROM budget_lines WHERE id = ? AND month_id = ?", lineId, monthId);
   if (!line) throw httpError(404, "Ligne introuvable sur ce mois");
-  if (line.kind !== "fixe") throw httpError(400, "Seule une ligne fixe se marque « payée »");
   if (!line.planned_amount_cents) throw httpError(400, "Le montant prévu de la ligne est vide");
 
-  const existing = get("SELECT id FROM entries WHERE line_id = ? AND source = 'paye'", lineId);
-  if (existing) throw httpError(409, "Déjà marquée payée");
+  // « ☐ payé » n'existe que sur une ligne sans entrée : le réel remplace le prévu ensuite
+  const count = get("SELECT COUNT(*) AS n FROM entries WHERE line_id = ?", lineId).n;
+  if (count > 0) throw httpError(409, "Cette ligne a déjà des entrées");
 
   const day = line.recurring_day
     ? `${month.period}-${String(line.recurring_day).padStart(2, "0")}`
