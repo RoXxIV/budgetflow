@@ -5,9 +5,10 @@ import {
   getMonthLines, payLine, unpayLine,
   getMonthSnapshots, upsertMonthSnapshots,
   getMonthEntries, createEntry, deleteEntry,
-  getMonthSummary,
+  getMonthSummary, getMonthEnvelopeContributions,
   createMonthLine, updateMonthLine, deleteMonthLine, applyLineToTemplate,
 } from '@/api/months.js'
+import { getEnvelopes, addContribution, removeContribution } from '@/api/envelopes.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
 import { getAccounts } from '@/api/accounts.js'
@@ -41,25 +42,72 @@ onMounted(async () => {
 
 const summaryData = ref(null)
 const showAccounts = ref(false)
+const envelopes = ref([])          // enveloppes ouvertes
+const monthContribs = ref([])      // contributions datées dans le mois
 
 async function openMonth(month) {
   current.value = month
-  const [lRes, eRes, sRes, sumRes] = await Promise.all([
+  const [lRes, eRes, sRes, sumRes, envRes, mcRes] = await Promise.all([
     getMonthLines(month.id), getMonthEntries(month.id), getMonthSnapshots(month.id), getMonthSummary(month.id),
+    getEnvelopes(), getMonthEnvelopeContributions(month.id),
   ])
   lines.value = lRes.data
   entriesAll.value = eRes.data
   snapshots.value = sRes.data
   summaryData.value = sumRes.data
+  envelopes.value = envRes.data.filter((e) => !e.isClosed)
+  monthContribs.value = mcRes.data
 }
 
 async function reload() {
-  const [lRes, eRes, sumRes] = await Promise.all([
+  const [lRes, eRes, sumRes, envRes, mcRes] = await Promise.all([
     getMonthLines(current.value.id), getMonthEntries(current.value.id), getMonthSummary(current.value.id),
+    getEnvelopes(), getMonthEnvelopeContributions(current.value.id),
   ])
   lines.value = lRes.data
   entriesAll.value = eRes.data
   summaryData.value = sumRes.data
+  envelopes.value = envRes.data.filter((e) => !e.isClosed)
+  monthContribs.value = mcRes.data
+}
+
+// ─── Enveloppes (contribution rapide depuis le mois) ─────
+const openEnvelopeId = ref(null)
+const contribForm = ref({})
+const contribsForEnvelope = (env) => monthContribs.value.filter((c) => c.envelopeId === env.id)
+const monthContribTotal = computed(() => monthContribs.value.filter((c) => c.kind === 'normale').reduce((s, c) => s + c.amount, 0))
+const envelopePct = (env) => (env.targetAmount ? Math.min(100, Math.round((env.total / env.targetAmount) * 100)) : null)
+
+function toggleEnvelope(env) {
+  if (openEnvelopeId.value === env.id) { openEnvelopeId.value = null; return }
+  openEnvelopeId.value = env.id
+  contribForm.value = {
+    amount: env.monthlySuggestion || '',
+    date: current.value.period === new Date().toISOString().substring(0, 7)
+      ? new Date().toISOString().substring(0, 10)
+      : `${current.value.period}-01`,
+    fromAccountId: accounts.value.find((a) => a.isMain)?.id || '',
+    notes: '',
+  }
+}
+
+async function submitContribution(env) {
+  const f = contribForm.value
+  if (!f.amount) return
+  try {
+    await addContribution(env.id, {
+      amount: parseFloat(f.amount),
+      date: f.date,
+      fromAccountId: f.fromAccountId || null,
+      notes: f.notes || null,
+    })
+    contribForm.value = { ...f, amount: '', notes: '' }
+    await reload()
+  } catch (e) { apiError(e) }
+}
+
+async function deleteContribution(c) {
+  try { await removeContribution(c.envelopeId, c.id); await reload() } catch (e) { apiError(e) }
 }
 
 function apiError(e) {
@@ -459,6 +507,62 @@ const mainEnvelopesTotal = computed(() => {
             <p v-if="a.envelopesTotal" class="text-[10.5px] text-gray-400">
               enveloppes {{ fmt(a.envelopesTotal) }} · hors enveloppes {{ fmtOrDash(a.unallocated) }}
             </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Enveloppes ───────────────────────────── -->
+      <div v-if="envelopes.length" class="card p-0 overflow-hidden mb-4">
+        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
+          <span class="font-semibold text-[13.5px]">Enveloppes</span>
+          <span class="badge bg-violet-50 text-violet-700">épargne</span>
+          <span class="ml-auto text-[12.5px] text-gray-400">ce mois : <span class="font-semibold text-violet-600">{{ fmt(monthContribTotal) }}</span></span>
+        </div>
+
+        <div v-for="env in envelopes" :key="env.id">
+          <div class="line-row" @click="toggleEnvelope(env)">
+            <span class="text-[13px] font-medium truncate">{{ env.name }}</span>
+            <span v-if="env.accountName" class="badge bg-stone-100 text-gray-500">{{ env.accountName }}</span>
+            <span v-if="contribsForEnvelope(env).length" class="badge bg-violet-50 text-violet-700">
+              +{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois
+            </span>
+            <span v-else-if="env.monthlySuggestion" class="text-[11px] text-gray-400" title="Mensualité suggérée pour atteindre la cible à l'échéance">
+              ≈ {{ fmt(env.monthlySuggestion) }} / mois
+            </span>
+            <span class="ml-auto shrink-0 text-right">
+              <span class="text-[13px] font-semibold">{{ fmt(env.total) }}</span>
+              <span v-if="env.targetAmount" class="text-[11px] text-gray-400"> / {{ fmt(env.targetAmount) }}</span>
+            </span>
+          </div>
+          <div v-if="env.targetAmount" class="px-4 pb-1.5 -mt-1">
+            <div class="progress"><div class="progress-bar bg-violet-500" :style="{ width: envelopePct(env) + '%' }" /></div>
+          </div>
+
+          <!-- Contributions du mois + ajout -->
+          <div v-if="openEnvelopeId === env.id" class="edit-panel">
+            <div v-for="c in contribsForEnvelope(env)" :key="c.id" class="flex items-center gap-2 text-[12.5px] py-1">
+              <span class="text-gray-400 w-20 shrink-0">{{ c.date }}</span>
+              <span class="font-medium w-20 shrink-0" :class="c.amount >= 0 ? 'text-emerald-600' : 'text-red-500'">{{ fmt(c.amount) }}</span>
+              <span v-if="c.kind !== 'normale'" class="badge bg-stone-100 text-gray-500">{{ c.kind }}</span>
+              <span class="text-gray-400 truncate">{{ c.notes }}</span>
+              <span v-if="c.fromAccountName" class="text-gray-300 text-[11px] ml-auto shrink-0">
+                {{ c.fromAccountName }}<template v-if="env.accountName && env.accountName !== c.fromAccountName"> → {{ env.accountName }}</template>
+              </span>
+              <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" :class="{ 'ml-auto': !c.fromAccountName }" @click="deleteContribution(c)">×</button>
+            </div>
+            <p v-if="!contribsForEnvelope(env).length" class="text-xs text-gray-400 py-1">Aucune contribution ce mois.</p>
+
+            <div v-if="!current.isClosed" class="flex flex-wrap gap-2 mt-2 items-center">
+              <input v-model="contribForm.amount" type="number" step="0.01" class="input w-24" :placeholder="env.monthlySuggestion ? String(env.monthlySuggestion) : 'Montant'" @keyup.enter="submitContribution(env)" />
+              <input v-model="contribForm.date" type="date" class="input w-34" />
+              <select v-model="contribForm.fromAccountId" class="input w-28" title="Compte source">
+                <option value="">— depuis</option>
+                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+              <span v-if="env.accountName" class="text-gray-300 text-[12px]">→ {{ env.accountName }}</span>
+              <input v-model="contribForm.notes" type="text" class="input w-36" placeholder="Note (optionnelle)" @keyup.enter="submitContribution(env)" />
+              <button class="btn-secondary" @click="submitContribution(env)">Ajouter</button>
+            </div>
           </div>
         </div>
       </div>

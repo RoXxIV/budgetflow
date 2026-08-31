@@ -1,5 +1,21 @@
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 
+// Mois calendaires restants jusqu'à l'échéance (0 si dépassée)
+function monthsUntil(deadline) {
+  const now = new Date();
+  const end = new Date(deadline);
+  return (end.getFullYear() - now.getFullYear()) * 12 + (end.getMonth() - now.getMonth());
+}
+
+// Mensualité suggérée = (cible − total) / mois restants ; null sans cible ou sans échéance
+function monthlySuggestion(targetCents, totalCents, deadline) {
+  if (!targetCents || !deadline) return null;
+  const remaining = targetCents - (totalCents || 0);
+  if (remaining <= 0) return 0;
+  const months = Math.max(1, monthsUntil(deadline));
+  return fromCents(Math.ceil(remaining / months));
+}
+
 function serialize(row) {
   return {
     id: row.id,
@@ -9,9 +25,16 @@ function serialize(row) {
     targetAmount: fromCents(row.target_amount_cents),
     deadline: row.deadline,
     total: fromCents(row.total_cents ?? 0),
+    monthlySuggestion: monthlySuggestion(row.target_amount_cents, row.total_cents, row.deadline),
     isClosed: !!row.closed_at,
     createdAt: row.created_at,
   };
+}
+
+// Une contribution datée dans un mois clôturé est refusée (les saisies y sont verrouillées)
+function assertPeriodOpen(date) {
+  const month = get("SELECT * FROM months WHERE period = ?", String(date).substring(0, 7));
+  if (month?.closed_at) throw httpError(409, `Le mois ${month.period} est clôturé`);
 }
 
 const LIST_SQL = `
@@ -92,6 +115,29 @@ export function remove(id) {
 }
 
 // ─── Contributions ────────────────────────────────────────
+// Contributions de toutes les enveloppes datées dans un mois ('YYYY-MM')
+export function listContributionsByPeriod(period) {
+  const start = `${period}-01`;
+  return all(
+    `SELECT c.*, e.name AS envelope_name, a.name AS from_account_name
+     FROM envelope_contributions c
+     JOIN envelopes e ON e.id = c.envelope_id
+     LEFT JOIN accounts a ON a.id = c.from_account_id
+     WHERE c.date >= ? AND c.date < date(?, '+1 month')
+     ORDER BY c.date DESC, c.id DESC`, start, start
+  ).map((c) => ({
+    id: c.id,
+    envelopeId: c.envelope_id,
+    envelopeName: c.envelope_name,
+    amount: fromCents(c.amount_cents),
+    date: c.date,
+    kind: c.kind,
+    fromAccountId: c.from_account_id,
+    fromAccountName: c.from_account_name ?? null,
+    notes: c.notes,
+  }));
+}
+
 export function listContributions(envelopeId) {
   return all(
     `SELECT c.*, a.name AS from_account_name FROM envelope_contributions c
@@ -115,6 +161,7 @@ export function addContribution(envelopeId, { amount, date = null, kind = "norma
   if (envelope.closed_at) throw httpError(409, "Enveloppe clôturée");
   const cents = toCents(amount);
   if (!cents) throw httpError(400, "Montant requis");
+  assertPeriodOpen(date || new Date().toISOString());
   run(
     "INSERT INTO envelope_contributions (envelope_id, amount_cents, date, kind, from_account_id, notes) VALUES (?, ?, COALESCE(?, date('now')), ?, ?, ?)",
     envelopeId, cents, date, kind, fromAccountId, notes
@@ -125,6 +172,7 @@ export function addContribution(envelopeId, { amount, date = null, kind = "norma
 export function removeContribution(envelopeId, contributionId) {
   const c = get("SELECT * FROM envelope_contributions WHERE id = ? AND envelope_id = ?", contributionId, envelopeId);
   if (!c) throw httpError(404, "Contribution introuvable");
+  assertPeriodOpen(c.date);
   run("DELETE FROM envelope_contributions WHERE id = ?", contributionId);
   return getById(envelopeId);
 }
