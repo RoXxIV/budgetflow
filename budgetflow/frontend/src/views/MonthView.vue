@@ -239,6 +239,10 @@ async function saveSnapshots() {
 
 const amountClass = (n) => (n === null ? 'text-gray-300' : n >= 0 ? 'text-emerald-600' : 'text-red-500')
 const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
+const mainEnvelopesTotal = computed(() => {
+  const main = summaryData.value?.accounts.find((a) => a.isMain)
+  return main?.envelopesTotal || 0
+})
 </script>
 
 <template>
@@ -308,10 +312,11 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
               {{ fmtOrDash(summaryData.tiles.disponible) }}
             </span>
             <span class="text-[11.5px] text-gray-400 font-medium">
-              Disponible{{ summaryData.mainAccount ? ' — ' + summaryData.mainAccount.name : '' }}
+              Solde actuel{{ summaryData.mainAccount ? ' — ' + summaryData.mainAccount.name : '' }}
             </span>
             <span v-if="!summaryData.mainAccount" class="text-[11px] text-amber-500">Définir un compte principal (Comptes)</span>
             <span v-else-if="summaryData.tiles.disponible === null" class="text-[11px] text-amber-500">Saisir le solde de début de mois</span>
+            <span v-else-if="mainEnvelopesTotal" class="text-[11px] text-gray-400">enveloppes déduites ({{ fmt(mainEnvelopesTotal) }})</span>
           </div>
           <div
             class="flex flex-col gap-0.5"
@@ -344,7 +349,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
               <span class="font-semibold" :class="amountClass(a.current)">{{ fmtOrDash(a.current) }}</span>
             </p>
             <p v-if="a.envelopesTotal" class="text-[10.5px] text-gray-400">
-              enveloppes {{ fmt(a.envelopesTotal) }} · dispo {{ fmtOrDash(a.unallocated) }}
+              enveloppes {{ fmt(a.envelopesTotal) }} · hors enveloppes {{ fmtOrDash(a.unallocated) }}
             </p>
           </div>
         </div>
