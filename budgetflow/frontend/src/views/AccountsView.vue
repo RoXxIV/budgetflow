@@ -413,7 +413,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <input v-model="accountForm.name" type="text" class="input w-48" placeholder="N26, Livret A…" @keyup.enter="submitAccount" />
         </label>
         <label class="field">
-          <span>Type</span>
+          <span class="flex items-center gap-1">Type <HelpTip wide text="Descriptif : n'affecte aucun calcul (ce sont les catégories et les enveloppes qui pilotent l'argent). Il sert au badge, servira aux regroupements des stats, et à la création un compte épargne propose un solde initial + une enveloppe automatique ; un compte investissement est proposé par défaut comme hôte des actifs." /></span>
           <select v-model="accountForm.type" class="input w-40">
             <option value="courant">Courant</option>
             <option value="epargne">Épargne</option>
