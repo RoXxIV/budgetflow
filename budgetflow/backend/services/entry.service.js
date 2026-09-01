@@ -22,6 +22,7 @@ function serialize(row) {
     notes: row.notes,
     envelopeId: row.envelope_id,           // « depuis l'enveloppe » : dépense liée
     envelopeInTarget: !!row.envelope_in_target,
+    relatedLineId: row.related_line_id,    // virement système rattaché à une ligne (sans ligne ni catégorie)
   };
 }
 
@@ -43,18 +44,18 @@ export function create(monthId, data) {
   if (!accountId) accountId = get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
   // ½ : cagnotte explicite, sinon celle de la ligne, sinon la cagnotte par défaut (NULL)
   const potLineId = data.potLineId !== undefined ? (data.potLineId || null) : (line?.pot_line_id ?? null);
-  // Ligne mensualisée : par défaut l'entrée sort de son enveloppe, sans entamer la cible (le cycle se renouvelle)
+  // Ligne mensualisée : une entrée manuelle sort par défaut de son enveloppe, sans entamer la cible (le cycle se renouvelle)
   const recurringEnvelope = line?.envelope_id && data.envelopeId === undefined;
   const envelopeId = recurringEnvelope ? line.envelope_id : (data.envelopeId || null);
   const inTarget = recurringEnvelope ? 0 : (data.envelopeInTarget === false ? 0 : 1);
 
   const { lastInsertRowid: id } = run(
-    `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, pot_line_id, source, notes, envelope_id, envelope_in_target)
-     VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, pot_line_id, source, notes, envelope_id, envelope_in_target, related_line_id)
+     VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     monthId, data.lineId ?? null, data.label ?? null, cents, data.date ?? null,
     accountId, data.toAccountId ?? null, data.paymentMethod ?? null, data.themeId ?? null,
     data.isShared ? 1 : 0, potLineId, data.source ?? "manuelle", data.notes ?? null,
-    envelopeId, inTarget
+    envelopeId, inTarget, data.relatedLineId ?? null
   );
   const row = get("SELECT * FROM entries WHERE id = ?", id);
   syncEntryExpense(row);
@@ -147,9 +148,11 @@ export function pay(monthId, lineId, { shortfallAccountId = null } = {}) {
     source: "paye",
   };
 
-  // Ligne mensualisée : le compte débité est celui où l'enveloppe a mis l'argent de côté (compte hôte).
-  // Dans la réalité : virement hôte → compte prélevé, puis prélèvement ; l'effet net est un débit du
-  // compte hôte, enregistré en une seule entrée (ne pas saisir le virement inverse en plus).
+  // Ligne mensualisée : on enregistre ce que la banque montre.
+  //   1. l'entrée réelle : le montant complet depuis le compte prélevé (« Depuis » de la ligne)
+  //   2. un virement système enveloppe → compte prélevé, de ce que l'enveloppe couvre (c'est lui qui vide l'enveloppe)
+  //   3. si le reste est pris sur un autre compte que le compte prélevé : un virement système de ce compte
+  // Les virements système n'ont ni ligne ni catégorie (jamais comptés en dépense), sont rattachés à la ligne.
   if (line.envelope_id) {
     const envelope = get("SELECT * FROM envelopes WHERE id = ?", line.envelope_id);
     const available = Math.max(0, get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ?", line.envelope_id).s);
@@ -159,19 +162,33 @@ export function pay(monthId, lineId, { shortfallAccountId = null } = {}) {
       err.payload = { code: "ENVELOPE_SHORT", envelopeId: envelope.id, envelopeName: envelope.name, available: fromCents(available), missing: fromCents(missing), amount: fromCents(amountCents) };
       throw err;
     }
+    const mainId = get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
+    const charged = line.from_account_id ?? mainId;           // compte réellement prélevé
+    const host = envelope.account_id ?? mainId;               // où l'enveloppe attend
     const covered = Math.min(amountCents, available);
-    let last = null;
+    const accName = (id) => get("SELECT name FROM accounts WHERE id = ?", id)?.name || "?";
+
+    const entry = create(monthId, { ...base, amount: fromCents(amountCents), accountId: charged, envelopeId: null });
     if (covered > 0) {
-      last = create(monthId, { ...base, amount: fromCents(covered), accountId: envelope.account_id ?? line.from_account_id ?? null, envelopeId: envelope.id, envelopeInTarget: false });
+      create(monthId, {
+        date: day, source: "paye", relatedLineId: lineId,
+        amount: fromCents(covered), accountId: host, toAccountId: charged,
+        envelopeId: envelope.id, envelopeInTarget: false,
+        label: host === charged ? `Pris dans l'enveloppe « ${envelope.name} »` : `Enveloppe « ${envelope.name} » : ${accName(host)} → ${accName(charged)}`,
+      });
     }
-    if (missing > 0) {
-      last = create(monthId, { ...base, amount: fromCents(missing), accountId: shortfallAccountId, envelopeId: null, label: covered > 0 ? "reste hors enveloppe" : null });
-      // L'échéance avance quand même d'un cycle (create ne le fait que pour la part sortie de l'enveloppe)
-      if ((line.interval_months || 1) > 1) {
-        run("UPDATE envelopes SET deadline = ? WHERE id = ?", nextDueDate(line, periodPlus(month.period, 1)), envelope.id);
-      }
+    if (missing > 0 && shortfallAccountId !== charged) {
+      create(monthId, {
+        date: day, source: "paye", relatedLineId: lineId,
+        amount: fromCents(missing), accountId: shortfallAccountId, toAccountId: charged, envelopeId: null,
+        label: `Reste pour « ${line.label} » : ${accName(shortfallAccountId)} → ${accName(charged)}`,
+      });
     }
-    return last;
+    // L'échéance avance d'un cycle (create ne le fait que pour une entrée liée à l'enveloppe, ici le virement)
+    if ((line.interval_months || 1) > 1) {
+      run("UPDATE envelopes SET deadline = ? WHERE id = ?", nextDueDate(line, periodPlus(month.period, 1)), envelope.id);
+    }
+    return entry;
   }
 
   return create(monthId, {
@@ -184,9 +201,9 @@ export function pay(monthId, lineId, { shortfallAccountId = null } = {}) {
 // Décocher : ne retire que les entrées créées par « payé » (jamais les saisies manuelles)
 export function unpay(monthId, lineId) {
   const month = assertOpen(monthId);
-  const entries = all("SELECT * FROM entries WHERE line_id = ? AND source = 'paye'", lineId);
+  const entries = all("SELECT * FROM entries WHERE (line_id = ? OR related_line_id = ?) AND source = 'paye'", lineId, lineId);
   if (!entries.length) throw httpError(404, "Aucune entrée « payé » sur cette ligne");
-  for (const e of entries) run("DELETE FROM entries WHERE id = ?", e.id); // les contributions « depense » liées suivent (CASCADE)
+  for (const e of entries) run("DELETE FROM entries WHERE id = ?", e.id); // virements système et contributions « depense » liées suivent
   // Ligne mensualisée : l'échéance revient au cycle courant
   const line = get("SELECT * FROM budget_lines WHERE id = ?", lineId);
   if (line?.envelope_id && (line.interval_months || 1) > 1) {

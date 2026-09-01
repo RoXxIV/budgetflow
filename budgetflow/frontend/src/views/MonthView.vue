@@ -215,6 +215,8 @@ const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, 
 const themeById = (id) => themes.value.find((t) => t.id === id) || null
 const accountById = (id) => accounts.value.find((a) => a.id === id) || null
 const entriesForLine = (line) => entriesAll.value.filter((e) => e.lineId === line.id)
+// Virements système rattachés à la ligne (sans ligne ni catégorie : enveloppe → compte prélevé, reste pris ailleurs)
+const transfersForLine = (line) => entriesAll.value.filter((e) => e.relatedLineId === line.id)
 const lineCategoryType = (line) => categories.value.find((c) => c.id === line.categoryId)?.type || 'depense'
 // La ligne est un mouvement entre comptes (transfert, épargne, ou Vers configuré dans le template)
 const lineHasDestination = (line) => ['epargne', 'transfert'].includes(lineCategoryType(line)) || !!line.toAccountId
@@ -918,15 +920,16 @@ const mainEnvelopesTotal = computed(() => {
           pour un paiement de <b>{{ fmt(shortfall.amount) }}</b> — il manque <b class="text-amber-600">{{ fmt(shortfall.missing) }}</b>.
         </p>
         <div class="flex flex-wrap gap-3 items-end">
-          <label class="field"><span>Prendre le reste sur</span>
+          <label class="field"><span>Le reste est pris sur</span>
             <select v-model="shortfall.accountId" class="input w-44">
               <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
           </label>
         </div>
         <p class="text-[11.5px] text-gray-400">
-          Deux entrées seront créées : {{ fmt(shortfall.available) }} depuis l'enveloppe (elle tombe à 0) et {{ fmt(shortfall.missing) }} depuis ce compte.
-          L'échéance avance d'un cycle et la mensualité repart. Décocher annule les deux.
+          Comme la banque le montre : le paiement de {{ fmt(shortfall.amount) }} depuis {{ accountById(shortfall.line.fromAccountId)?.name || 'le compte principal' }},
+          un virement de {{ fmt(shortfall.available) }} depuis l'enveloppe (elle tombe à 0)<template v-if="shortfall.accountId && shortfall.accountId !== (shortfall.line.fromAccountId || accounts.find((a) => a.isMain)?.id)">, et un virement de {{ fmt(shortfall.missing) }} depuis {{ accountById(shortfall.accountId)?.name }}</template>.
+          L'échéance avance d'un cycle et la mensualité repart. Décocher annule tout.
         </p>
       </div>
       <template #footer>
@@ -1287,6 +1290,13 @@ const mainEnvelopesTotal = computed(() => {
                   <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" @click="removeEntry(e)">×</button>
                 </div>
                 <p v-if="!entriesForLine(line).length" class="text-xs text-gray-400 py-1">Aucune entrée.</p>
+                <!-- Virements système liés (mouvements entre comptes, jamais comptés en dépense) -->
+                <div v-for="t in transfersForLine(line)" :key="'t' + t.id" class="flex items-center gap-2 text-[12px] py-1 text-gray-500">
+                  <span class="text-gray-400 w-20 shrink-0">{{ t.date }}</span>
+                  <span class="badge bg-stone-100 text-gray-500">virement</span>
+                  <span class="font-medium">{{ fmt(t.amount) }}</span>
+                  <span class="truncate">{{ t.label }}</span>
+                </div>
                 <button v-if="!current.isClosed" class="btn-secondary mt-2" @click="openAddEntry(line)">+ entrée</button>
               </div>
             </div>
