@@ -312,9 +312,8 @@ async function togglePaid(line) {
   } catch (e) { apiError(e) }
 }
 
-// ─── Entrées (déroulé par ligne) ─────────────────────────
+// ─── Entrées (déroulé par ligne : liste seulement, la saisie passe par le modal) ─
 const openEntriesLineId = ref(null)
-const entryForm = ref({})
 
 function defaultEntryDate(line) {
   if (line.recurringDay && current.value) {
@@ -324,23 +323,7 @@ function defaultEntryDate(line) {
 }
 
 function toggleEntries(line) {
-  if (openEntriesLineId.value === line.id) { openEntriesLineId.value = null; return }
-  openEntriesLineId.value = line.id
-  entryForm.value = {
-    amount: '',
-    date: defaultEntryDate(line),
-    label: '',
-    themeId: line.themeId || '',
-    // Mouvement entre comptes : Depuis + Vers pré-remplis depuis la ligne (template)
-    accountId: lineHasDestination(line)
-      ? (line.fromAccountId || accounts.value.find((a) => a.isMain)?.id || '')
-      : (line.fromAccountId || line.toAccountId || accounts.value.find((a) => a.isMain)?.id || ''),
-    toAccountId: lineHasDestination(line) ? (line.toAccountId || '') : '',
-    isShared: line.isShared,
-    potLineId: line.potLineId || pots.value[0]?.id || '',
-    envelopeId: '',          // « depuis l'enveloppe » : dépense liée, l'enveloppe baisse d'autant
-    envelopeInTarget: true,  // fait partie du projet → la cible affichée est corrigée
-  }
+  openEntriesLineId.value = openEntriesLineId.value === line.id ? null : line.id
 }
 
 // Cible corrigée d'une enveloppe : « 2 700 / 3 500 (4 500 − 1 000 dépensés) »
@@ -349,70 +332,104 @@ const envelopeTargetLabel = (env) => env.spentInTarget
   : fmt(env.targetAmount)
 const envelopeById = (id) => envelopes.value.find((e) => e.id === id) || null
 
-async function submitEntry(line) {
-  const f = entryForm.value
-  if (!f.amount) return
-  try {
-    await createEntry(current.value.id, {
-      lineId: line.id,
-      amount: parseFloat(f.amount),
-      date: f.date,
-      label: f.label || null,
-      themeId: f.themeId || null,
-      accountId: f.accountId || null,
-      toAccountId: f.toAccountId || null,
-      isShared: f.isShared,
-      potLineId: f.isShared ? (f.potLineId || null) : null,
-      envelopeId: f.envelopeId || null,
-      envelopeInTarget: f.envelopeInTarget !== false,
-    })
-    entryForm.value = { ...f, amount: '', label: '', envelopeId: '' }
-    await reload()
-  } catch (e) { apiError(e) }
-}
-
 async function removeEntry(entry) {
   try { await deleteEntry(current.value.id, entry.id); await reload() } catch (e) { apiError(e) }
 }
 
-// ─── Modification d'une entrée (montant, date, détail, comptes, thème, ½) ─
-const editingEntryId = ref(null)
-const entryEdit = ref({})
+// ─── Modal d'entrée (ajout / édition) — mêmes champs que le modal de ligne ─
+const entryModalLine = ref(null)   // ligne concernée (null = modal fermé)
+const entryModalEntry = ref(null)  // entrée en édition (null = ajout)
+const entryForm = ref({})
+const entryModalOpen = computed(() => entryModalLine.value !== null)
+const entryLineIsRevenu = computed(() => !!entryModalLine.value && lineCategoryType(entryModalLine.value) === 'revenu')
 
-function openEditEntry(e) {
-  editingEntryId.value = e.id
-  entryEdit.value = {
+function openAddEntry(line) {
+  entryModalLine.value = line
+  entryModalEntry.value = null
+  const mainId = accounts.value.find((a) => a.isMain)?.id || ''
+  const isRevenu = lineCategoryType(line) === 'revenu'
+  entryForm.value = {
+    amount: '',
+    date: defaultEntryDate(line),
+    label: '',
+    themeId: line.themeId || '',
+    source: isRevenu ? '' : ('a:' + (line.fromAccountId || mainId)),      // compte ou enveloppe
+    creditAccountId: isRevenu ? (line.toAccountId || mainId) : '',
+    toAccountId: lineHasDestination(line) ? (line.toAccountId || '') : '',
+    paymentMethod: line.paymentMethod || settings.value?.paymentMethods?.[0] || 'CB',
+    isShared: line.isShared,
+    potLineId: line.potLineId || pots.value[0]?.id || '',
+    envelopeInTarget: true,
+  }
+}
+
+function openEditEntry(line, e) {
+  entryModalLine.value = line
+  entryModalEntry.value = e
+  const isRevenu = lineCategoryType(line) === 'revenu'
+  entryForm.value = {
     amount: e.amount,
     date: e.date,
     label: e.label || '',
-    accountId: e.accountId || '',
-    toAccountId: e.toAccountId || '',
     themeId: e.themeId || '',
+    source: e.envelopeId ? 'e:' + e.envelopeId : (e.accountId ? 'a:' + e.accountId : ''),
+    creditAccountId: isRevenu ? (e.accountId || '') : '',
+    toAccountId: e.toAccountId || '',
+    paymentMethod: e.paymentMethod || line.paymentMethod || settings.value?.paymentMethods?.[0] || 'CB',
     isShared: e.isShared,
     potLineId: e.potLineId || pots.value[0]?.id || '',
-    envelopeId: e.envelopeId || '',
     envelopeInTarget: e.envelopeInTarget !== false,
   }
 }
 
-async function saveEntryEdit(e) {
-  const f = entryEdit.value
-  const amount = parseFloat(f.amount)
-  if (isNaN(amount) || !amount) return
+function closeEntryModal() {
+  entryModalLine.value = null
+  entryModalEntry.value = null
+}
+
+const entrySourceEnvelope = computed(() => {
+  const s = entryForm.value.source || ''
+  return s.startsWith('e:') ? envelopeById(Number(s.slice(2))) : null
+})
+const entrySourceAccountId = computed(() => {
+  const s = entryForm.value.source || ''
+  if (s.startsWith('a:')) return Number(s.slice(2))
+  if (entrySourceEnvelope.value) return entrySourceEnvelope.value.accountId || accounts.value.find((a) => a.isMain)?.id || null
+  return null
+})
+// « Vers » : ligne à destination (épargne, transfert, Vers du template), virement, ou entrée qui en a déjà un
+const entryIsTransfer = computed(() =>
+  !!entryModalLine.value && !entryLineIsRevenu.value && (
+    lineHasDestination(entryModalLine.value) || /virement/i.test(entryForm.value.paymentMethod || '') || !!entryForm.value.toAccountId
+  )
+)
+
+function entryPayload() {
+  const f = entryForm.value
+  const isRevenu = entryLineIsRevenu.value
+  return {
+    lineId: entryModalLine.value.id,
+    amount: parseFloat(f.amount),
+    date: f.date,
+    label: f.label || null,
+    themeId: f.themeId || null,
+    accountId: isRevenu ? (f.creditAccountId || null) : entrySourceAccountId.value,
+    toAccountId: entryIsTransfer.value ? (f.toAccountId || null) : null,
+    paymentMethod: isRevenu ? null : (f.paymentMethod || null),
+    isShared: f.isShared,
+    potLineId: f.isShared ? (f.potLineId || null) : null,
+    envelopeId: entrySourceEnvelope.value?.id || null,
+    envelopeInTarget: f.envelopeInTarget !== false,
+  }
+}
+
+async function submitEntryModal() {
+  const p = entryPayload()
+  if (isNaN(p.amount) || !p.amount) return
   try {
-    await updateEntry(current.value.id, e.id, {
-      amount,
-      date: f.date,
-      label: f.label || null,
-      accountId: f.accountId || null,
-      toAccountId: f.toAccountId || null,
-      themeId: f.themeId || null,
-      isShared: f.isShared,
-      potLineId: f.isShared ? (f.potLineId || null) : null,
-      envelopeId: f.envelopeId || null,
-      envelopeInTarget: f.envelopeInTarget !== false,
-    })
-    editingEntryId.value = null
+    if (entryModalEntry.value) await updateEntry(current.value.id, entryModalEntry.value.id, p)
+    else await createEntry(current.value.id, p)
+    closeEntryModal()
     await reload()
   } catch (err) { apiError(err) }
 }
@@ -791,6 +808,72 @@ const mainEnvelopesTotal = computed(() => {
       </template>
     </AppModal>
 
+    <!-- ─── Entrée (modal : ajout et édition) ─────────── -->
+    <AppModal :open="entryModalOpen" :title="(entryModalEntry ? 'Modifier l\'entrée — ' : 'Nouvelle entrée — ') + (entryModalLine?.label || '')" wide @close="closeEntryModal">
+      <div v-if="entryModalLine" class="flex flex-col gap-4">
+        <div class="flex flex-wrap gap-3 items-end">
+          <label class="field"><span>Montant (€)</span><input v-model="entryForm.amount" type="number" step="0.01" class="input w-28" @keyup.enter="submitEntryModal" /></label>
+          <label class="field"><span>Date</span><input v-model="entryForm.date" type="date" class="input w-36" /></label>
+          <label class="field"><span>Détail</span><input v-model="entryForm.label" type="text" class="input w-48" placeholder="Amazon — écouteurs (optionnel)" @keyup.enter="submitEntryModal" /></label>
+          <label v-if="themes.length" class="field"><span>Thème</span>
+            <select v-model="entryForm.themeId" class="input w-32">
+              <option value="">—</option>
+              <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="flex flex-wrap gap-3 items-end">
+          <label v-if="entryLineIsRevenu" class="field"><span>Compte crédité</span>
+            <select v-model="entryForm.creditAccountId" class="input w-40">
+              <option value="">—</option>
+              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+          </label>
+          <template v-else>
+            <label class="field"><span>Depuis</span>
+              <select v-model="entryForm.source" class="input w-44">
+                <option value="">— aucun</option>
+                <optgroup label="Mes comptes">
+                  <option v-for="a in accounts" :key="'a' + a.id" :value="'a:' + a.id">{{ a.name }}</option>
+                </optgroup>
+                <optgroup v-if="!entryModalLine.isPot && envelopes.length" label="Mes enveloppes">
+                  <option v-for="env in envelopes" :key="'e' + env.id" :value="'e:' + env.id">{{ env.name }}{{ env.accountName ? ' (' + env.accountName + ')' : '' }}</option>
+                </optgroup>
+              </select>
+            </label>
+            <label v-if="entrySourceEnvelope?.targetAmount" class="checkbox self-end" title="La cible affichée est corrigée d'autant : le reste à épargner ne bouge pas"><input v-model="entryForm.envelopeInTarget" type="checkbox" /><span>déduire de l'objectif</span></label>
+            <label class="field"><span>Moyen de paiement</span>
+              <select v-model="entryForm.paymentMethod" class="input w-32">
+                <option v-for="m in settings?.paymentMethods || ['CB']" :key="m" :value="m">{{ m }}</option>
+              </select>
+            </label>
+            <label v-if="entryIsTransfer" class="field" title="Vers un de vos comptes (provision, virement interne) ou extérieur"><span>Vers</span>
+              <select v-model="entryForm.toAccountId" class="input w-44">
+                <option value="">— extérieur (quelqu'un d'autre)</option>
+                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+            </label>
+          </template>
+        </div>
+        <p v-if="entrySourceEnvelope" class="text-[11.5px] text-gray-400 -mt-2">
+          Pris dans l'enveloppe « {{ entrySourceEnvelope.name }} »{{ entrySourceEnvelope.accountName ? ', compte ' + entrySourceEnvelope.accountName : '' }} — l'enveloppe baisse du montant.
+        </p>
+
+        <div v-if="sharingOn && !entryLineIsRevenu && !entryModalLine.isPot" class="flex flex-wrap gap-3 items-end">
+          <label class="checkbox" title="Dépense commune (rattachée à une cagnotte)"><input v-model="entryForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
+          <select v-if="entryForm.isShared && pots.length > 1" v-model="entryForm.potLineId" class="input w-40" title="Cagnotte concernée">
+            <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
+          </select>
+        </div>
+      </div>
+      <template #footer>
+        <button class="btn-primary" @click="submitEntryModal">{{ entryModalEntry ? 'Sauver' : 'Ajouter' }}</button>
+        <button class="btn-secondary" @click="closeEntryModal">Annuler</button>
+        <button v-if="entryModalEntry" class="btn-danger ml-auto" @click="removeEntry(entryModalEntry); closeEntryModal()">Supprimer</button>
+      </template>
+    </AppModal>
+
     <!-- ─── Aucun mois ───────────────────────────────── -->
     <div v-if="!current && !monthsList.length && !createFormOpen" class="text-center py-16 text-gray-400">
       <p class="mb-4">Aucun mois pour l'instant.</p>
@@ -1115,39 +1198,6 @@ const mainEnvelopesTotal = computed(() => {
                   <span class="font-medium text-gray-700">{{ potStatus(line) }}</span><span class="text-right font-semibold" :class="line.pot.toSend > 0 ? 'text-amber-600' : 'text-emerald-600'">{{ fmt(Math.abs(line.pot.toSend)) }}</span>
                 </div>
                 <div v-for="e in entriesForLine(line)" :key="e.id" class="flex items-center gap-2 text-[12.5px] py-1 flex-wrap">
-                  <!-- Édition inline de l'entrée -->
-                  <template v-if="editingEntryId === e.id">
-                    <input v-model="entryEdit.amount" type="number" step="0.01" class="input w-24" @keyup.enter="saveEntryEdit(e)" />
-                    <input v-model="entryEdit.date" type="date" class="input w-34" />
-                    <input v-model="entryEdit.label" type="text" class="input w-36" placeholder="Détail" @keyup.enter="saveEntryEdit(e)" />
-                    <select v-if="themes.length" v-model="entryEdit.themeId" class="input w-28">
-                      <option value="">— thème</option>
-                      <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
-                    </select>
-                    <select v-model="entryEdit.accountId" class="input w-28">
-                      <option value="">— compte</option>
-                      <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                    </select>
-                    <template v-if="lineHasDestination(line)">
-                      <span class="text-gray-300">→</span>
-                      <select v-model="entryEdit.toAccountId" class="input w-28">
-                        <option value="">— vers</option>
-                        <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                      </select>
-                    </template>
-                    <label v-if="sharingOn && !line.isPot" class="checkbox"><input v-model="entryEdit.isShared" type="checkbox" /><span>½</span></label>
-                    <select v-if="sharingOn && !line.isPot && entryEdit.isShared && pots.length > 1" v-model="entryEdit.potLineId" class="input w-32">
-                      <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
-                    </select>
-                    <select v-if="envelopes.length" v-model="entryEdit.envelopeId" class="input w-36" title="Dépense prise dans une enveloppe">
-                      <option value="">— pas d'enveloppe</option>
-                      <option v-for="env in envelopes" :key="env.id" :value="env.id">depuis {{ env.name }}</option>
-                    </select>
-                    <label v-if="entryEdit.envelopeId && envelopeById(entryEdit.envelopeId)?.targetAmount" class="checkbox" title="La cible affichée est corrigée d'autant"><input v-model="entryEdit.envelopeInTarget" type="checkbox" /><span>fait partie de l'objectif</span></label>
-                    <button class="btn-primary" @click="saveEntryEdit(e)">Sauver</button>
-                    <button class="btn-secondary" @click="editingEntryId = null">Annuler</button>
-                  </template>
-                  <template v-else>
                   <span class="text-gray-400 w-20 shrink-0">{{ e.date }}</span>
                   <span class="font-medium w-20 shrink-0">{{ fmt(e.amount) }}</span>
                   <span v-if="e.source === 'paye'" class="badge bg-blue-50 text-blue-600">payé</span>
@@ -1162,43 +1212,11 @@ const mainEnvelopesTotal = computed(() => {
                   <span v-if="accountById(e.accountId) || accountById(e.toAccountId)" class="text-gray-300 text-[11px] ml-auto shrink-0">
                     {{ accountById(e.accountId)?.name || '?' }}<template v-if="accountById(e.toAccountId)"> → {{ accountById(e.toAccountId).name }}</template>
                   </span>
-                  <button v-if="!current.isClosed" class="icon-btn text-gray-300 hover:text-gray-600 shrink-0" :class="{ 'ml-auto': !accountById(e.accountId) && !accountById(e.toAccountId) }" title="Modifier l'entrée" @click="openEditEntry(e)">✎</button>
+                  <button v-if="!current.isClosed" class="icon-btn text-gray-300 hover:text-gray-600 shrink-0" :class="{ 'ml-auto': !accountById(e.accountId) && !accountById(e.toAccountId) }" title="Modifier l'entrée" @click="openEditEntry(line, e)">✎</button>
                   <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" @click="removeEntry(e)">×</button>
-                  </template>
                 </div>
                 <p v-if="!entriesForLine(line).length" class="text-xs text-gray-400 py-1">Aucune entrée.</p>
-
-                <!-- Ajout d'entrée -->
-                <div v-if="!current.isClosed" class="flex flex-wrap gap-2 mt-2 items-center">
-                  <input v-model="entryForm.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="submitEntry(line)" />
-                  <input v-model="entryForm.date" type="date" class="input w-34" />
-                  <input v-model="entryForm.label" type="text" class="input w-36" placeholder="Détail (optionnel)" @keyup.enter="submitEntry(line)" />
-                  <select v-if="themes.length" v-model="entryForm.themeId" class="input w-28">
-                    <option value="">— thème</option>
-                    <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
-                  </select>
-                  <select v-model="entryForm.accountId" class="input w-28" :title="lineHasDestination(line) ? 'Depuis' : 'Compte'">
-                    <option value="">{{ lineHasDestination(line) ? '— depuis' : '— compte' }}</option>
-                    <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                  </select>
-                  <template v-if="lineHasDestination(line)">
-                    <span class="text-gray-300 text-[12px]">→</span>
-                    <select v-model="entryForm.toAccountId" class="input w-28" title="Vers">
-                      <option value="">— vers</option>
-                      <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                    </select>
-                  </template>
-                  <label v-if="sharingOn && !line.isPot" class="checkbox" title="Dépense commune (rattachée à une cagnotte)"><input v-model="entryForm.isShared" type="checkbox" /><span>½</span></label>
-                  <select v-if="sharingOn && !line.isPot && entryForm.isShared && pots.length > 1" v-model="entryForm.potLineId" class="input w-32" title="Cagnotte concernée">
-                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
-                  </select>
-                  <select v-if="envelopes.length" v-model="entryForm.envelopeId" class="input w-36" title="Dépense prise dans une enveloppe : elle baisse d'autant">
-                    <option value="">— pas d'enveloppe</option>
-                    <option v-for="env in envelopes" :key="env.id" :value="env.id">depuis {{ env.name }}</option>
-                  </select>
-                  <label v-if="entryForm.envelopeId && envelopeById(entryForm.envelopeId)?.targetAmount" class="checkbox" title="La cible affichée est corrigée d'autant (le reste à épargner ne bouge pas)"><input v-model="entryForm.envelopeInTarget" type="checkbox" /><span>fait partie de l'objectif</span></label>
-                  <button class="btn-secondary" @click="submitEntry(line)">Ajouter</button>
-                </div>
+                <button v-if="!current.isClosed" class="btn-secondary mt-2" @click="openAddEntry(line)">+ entrée</button>
               </div>
             </div>
 
