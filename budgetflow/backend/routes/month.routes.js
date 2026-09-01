@@ -13,7 +13,7 @@ const id = (req, name = "id") => Number(req.params[name]);
 
 // Mois
 router.get("/", wrap((req, res) => res.json(months.list())));
-router.get("/prefill", wrap((req, res) => res.json(months.prefill())));
+router.get("/prefill", (req, res, next) => months.prefill().then((r) => res.json(r)).catch(next));
 router.get("/current", wrap((req, res) => res.json(months.current())));
 router.post("/", wrap((req, res) => res.status(201).json(months.create(req.body))));
 router.get("/:id", wrap((req, res) => res.json(months.getById(id(req)))));

@@ -3,6 +3,28 @@ import { getSnapshots } from "./month.service.js";
 import * as pots from "./pot.service.js";
 
 /**
+ * Patrimoine total : comptes inclus, au solde live du mois en cours ; pour un compte investissement
+ * hébergeant des actifs valorisés, la VALEUR DE MARCHÉ (dernières valorisations) remplace le solde.
+ */
+export function getNetWorth() {
+  const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1")
+    || get("SELECT * FROM months ORDER BY period DESC LIMIT 1");
+  if (!month) return { total: 0, monthPeriod: null, accounts: [] };
+  const { accounts } = getSummary(month.id);
+  const rows = accounts.map((a) => {
+    const valued = all(
+      `SELECT a.id, (SELECT value_cents FROM asset_valuations v WHERE v.asset_id = a.id ORDER BY v.date DESC, v.id DESC LIMIT 1) AS value_cents
+       FROM assets a WHERE a.account_id = ? AND a.closed_at IS NULL`, a.accountId
+    ).filter((x) => x.value_cents !== null);
+    const marketValue = valued.length ? fromCents(valued.reduce((s, x) => s + x.value_cents, 0)) : null;
+    const used = marketValue !== null ? marketValue : a.current;
+    return { accountId: a.accountId, name: a.name, type: a.type, includeInNetWorth: a.includeInNetWorth, balance: a.current, marketValue, used };
+  });
+  const total = rows.filter((r) => r.includeInNetWorth && r.used !== null).reduce((s, r) => s + r.used, 0);
+  return { total: Math.round(total * 100) / 100, monthPeriod: month.period, accounts: rows };
+}
+
+/**
  * Bilan d'un mois — toute la logique de calcul vit ici (le front n'additionne rien).
  *
  * Règles (brainstorm) :

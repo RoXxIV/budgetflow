@@ -101,8 +101,9 @@ export function upsertSnapshots(monthId, snapshots) {
 
 // ─── Pré-remplissage du formulaire de création ────────────
 // Période proposée = mois suivant le dernier mois existant, sinon mois courant.
-// Soldes proposés = snapshots du dernier mois (à affiner avec le solde live — étape bilan).
-export function prefill() {
+// Soldes proposés = solde LIVE de fin du dernier mois (début + mouvements) : une suggestion
+// que l'utilisateur corrige (arrondis bancaires, intérêts…) — chaque mois repart de sa saisie.
+export async function prefill() {
   const latest = get("SELECT * FROM months ORDER BY period DESC LIMIT 1");
   let period;
   if (latest) {
@@ -112,8 +113,14 @@ export function prefill() {
     const now = new Date();
     period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   }
-  const snapshots = latest ? getSnapshots(latest.id) : [];
-  return { period, snapshots: snapshots.map(({ accountId, balance }) => ({ accountId, balance })) };
+  let snapshots = [];
+  if (latest) {
+    const { getSummary } = await import("./summary.service.js"); // import différé (dépendance circulaire)
+    snapshots = getSummary(latest.id).accounts
+      .filter((a) => a.current !== null)
+      .map((a) => ({ accountId: a.accountId, balance: a.current }));
+  }
+  return { period, previousPeriod: latest?.period ?? null, snapshots };
 }
 
 // ─── Création : duplication du template ───────────────────

@@ -4,7 +4,7 @@ import {
   getMonths, getMonthPrefill, createMonth, setMonthClosed,
   getMonthLines, payLine, unpayLine,
   getMonthSnapshots, upsertMonthSnapshots,
-  getMonthEntries, createEntry, deleteEntry,
+  getMonthEntries, createEntry, updateEntry, deleteEntry,
   getMonthSummary, getMonthEnvelopeContributions,
   createMonthLine, updateMonthLine, deleteMonthLine, applyLineToTemplate,
 } from '@/api/months.js'
@@ -228,6 +228,15 @@ const groupsRight = computed(() => groups.value.filter((_, i) => i % 2 === 1))
 // ─── Création de mois ────────────────────────────────────
 const createFormOpen = ref(false)
 const newMonth = ref({ period: '', snapshots: {} })
+const suggested = ref({})          // solde live de fin du mois précédent, par compte (suggestion)
+const previousPeriod = ref(null)
+const suggestionDelta = (accountId) => {
+  const s = suggested.value[accountId]
+  const v = newMonth.value.snapshots[accountId]
+  if (s == null || v === '' || v == null) return null
+  const d = Math.round((parseFloat(v) - s) * 100) / 100
+  return d === 0 ? null : d
+}
 
 const newMonthTaken = computed(() => monthsList.value.some((m) => m.period === newMonth.value.period))
 const newMonthName = computed(() => {
@@ -240,10 +249,15 @@ const newMonthName = computed(() => {
 async function openCreateForm() {
   const { data } = await getMonthPrefill()
   const map = {}
+  const sug = {}
   accounts.value.forEach((a) => {
-    map[a.id] = data.snapshots.find((s) => s.accountId === a.id)?.balance ?? ''
+    const s = data.snapshots.find((x) => x.accountId === a.id)
+    map[a.id] = s?.balance ?? ''
+    if (s) sug[a.id] = s.balance
   })
   newMonth.value = { period: data.period, snapshots: map }
+  suggested.value = sug
+  previousPeriod.value = data.previousPeriod
   createFormOpen.value = true
 }
 
@@ -332,6 +346,44 @@ async function submitEntry(line) {
 
 async function removeEntry(entry) {
   try { await deleteEntry(current.value.id, entry.id); await reload() } catch (e) { apiError(e) }
+}
+
+// ─── Modification d'une entrée (montant, date, détail, comptes, thème, ½) ─
+const editingEntryId = ref(null)
+const entryEdit = ref({})
+
+function openEditEntry(e) {
+  editingEntryId.value = e.id
+  entryEdit.value = {
+    amount: e.amount,
+    date: e.date,
+    label: e.label || '',
+    accountId: e.accountId || '',
+    toAccountId: e.toAccountId || '',
+    themeId: e.themeId || '',
+    isShared: e.isShared,
+    potLineId: e.potLineId || pots.value[0]?.id || '',
+  }
+}
+
+async function saveEntryEdit(e) {
+  const f = entryEdit.value
+  const amount = parseFloat(f.amount)
+  if (isNaN(amount) || !amount) return
+  try {
+    await updateEntry(current.value.id, e.id, {
+      amount,
+      date: f.date,
+      label: f.label || null,
+      accountId: f.accountId || null,
+      toAccountId: f.toAccountId || null,
+      themeId: f.themeId || null,
+      isShared: f.isShared,
+      potLineId: f.isShared ? (f.potLineId || null) : null,
+    })
+    editingEntryId.value = null
+    await reload()
+  } catch (err) { apiError(err) }
 }
 
 // ─── Lignes du mois (ajout / édition / suppression) ──────
@@ -532,11 +584,17 @@ const mainEnvelopesTotal = computed(() => {
         <span v-if="newMonthName && !newMonthTaken" class="text-[13px] font-medium text-violet-600">→ {{ newMonthName }}</span>
         <span v-if="newMonthTaken" class="text-[12.5px] font-medium text-red-500">Un mois existe déjà pour {{ newMonthName }}</span>
       </div>
-      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Solde de début de mois (recalage par compte)</p>
+      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Solde de début de mois (recalage par compte)</p>
+      <p v-if="previousPeriod" class="text-[11.5px] text-gray-400 mb-2">
+        Pré-rempli avec le solde de fin de {{ previousPeriod }} calculé par l'app — corrigez avec le vrai solde de la banque, l'écart s'affiche à titre d'info.
+      </p>
       <div class="flex flex-col gap-1.5 mb-4">
         <div v-for="a in accounts" :key="a.id" class="flex items-center gap-2.5">
           <span class="text-[13px] text-gray-600 w-36 shrink-0">{{ a.name }}</span>
           <input v-model="newMonth.snapshots[a.id]" type="number" step="0.01" class="input w-28" placeholder="—" @keyup.enter="submitCreate" />
+          <span v-if="suggestionDelta(a.id) !== null" class="text-[11px]" :class="suggestionDelta(a.id) > 0 ? 'text-emerald-600' : 'text-amber-600'" :title="'Suggéré : ' + fmt(suggested[a.id])">
+            {{ suggestionDelta(a.id) > 0 ? '+' : '' }}{{ fmt(suggestionDelta(a.id)) }} non expliqué
+          </span>
         </div>
       </div>
       <div class="flex gap-2">
@@ -919,7 +977,35 @@ const mainEnvelopesTotal = computed(() => {
                   <span>Ma part ({{ line.pot.myShare }} %)</span><span class="text-right font-medium text-gray-700">{{ fmt(line.pot.myPart) }}</span>
                   <span class="font-medium text-gray-700">{{ potStatus(line) }}</span><span class="text-right font-semibold" :class="line.pot.toSend > 0 ? 'text-amber-600' : 'text-emerald-600'">{{ fmt(Math.abs(line.pot.toSend)) }}</span>
                 </div>
-                <div v-for="e in entriesForLine(line)" :key="e.id" class="flex items-center gap-2 text-[12.5px] py-1">
+                <div v-for="e in entriesForLine(line)" :key="e.id" class="flex items-center gap-2 text-[12.5px] py-1 flex-wrap">
+                  <!-- Édition inline de l'entrée -->
+                  <template v-if="editingEntryId === e.id">
+                    <input v-model="entryEdit.amount" type="number" step="0.01" class="input w-24" @keyup.enter="saveEntryEdit(e)" />
+                    <input v-model="entryEdit.date" type="date" class="input w-34" />
+                    <input v-model="entryEdit.label" type="text" class="input w-36" placeholder="Détail" @keyup.enter="saveEntryEdit(e)" />
+                    <select v-if="themes.length" v-model="entryEdit.themeId" class="input w-28">
+                      <option value="">— thème</option>
+                      <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
+                    </select>
+                    <select v-model="entryEdit.accountId" class="input w-28">
+                      <option value="">— compte</option>
+                      <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                    </select>
+                    <template v-if="lineHasDestination(line)">
+                      <span class="text-gray-300">→</span>
+                      <select v-model="entryEdit.toAccountId" class="input w-28">
+                        <option value="">— vers</option>
+                        <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                      </select>
+                    </template>
+                    <label v-if="sharingOn && !line.isPot" class="checkbox"><input v-model="entryEdit.isShared" type="checkbox" /><span>½</span></label>
+                    <select v-if="sharingOn && !line.isPot && entryEdit.isShared && pots.length > 1" v-model="entryEdit.potLineId" class="input w-32">
+                      <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
+                    </select>
+                    <button class="btn-primary" @click="saveEntryEdit(e)">Sauver</button>
+                    <button class="btn-secondary" @click="editingEntryId = null">Annuler</button>
+                  </template>
+                  <template v-else>
                   <span class="text-gray-400 w-20 shrink-0">{{ e.date }}</span>
                   <span class="font-medium w-20 shrink-0">{{ fmt(e.amount) }}</span>
                   <span v-if="e.source === 'paye'" class="badge bg-blue-50 text-blue-600">payé</span>
@@ -931,7 +1017,9 @@ const mainEnvelopesTotal = computed(() => {
                   <span v-if="accountById(e.accountId) || accountById(e.toAccountId)" class="text-gray-300 text-[11px] ml-auto shrink-0">
                     {{ accountById(e.accountId)?.name || '?' }}<template v-if="accountById(e.toAccountId)"> → {{ accountById(e.toAccountId).name }}</template>
                   </span>
-                  <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" :class="{ 'ml-auto': !accountById(e.accountId) && !accountById(e.toAccountId) }" @click="removeEntry(e)">×</button>
+                  <button v-if="!current.isClosed" class="icon-btn text-gray-300 hover:text-gray-600 shrink-0" :class="{ 'ml-auto': !accountById(e.accountId) && !accountById(e.toAccountId) }" title="Modifier l'entrée" @click="openEditEntry(e)">✎</button>
+                  <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" @click="removeEntry(e)">×</button>
+                  </template>
                 </div>
                 <p v-if="!entriesForLine(line).length" class="text-xs text-gray-400 py-1">Aucune entrée.</p>
 

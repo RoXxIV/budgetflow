@@ -169,6 +169,48 @@ export function addContribution(envelopeId, { amount, date = null, kind = "norma
   return getById(envelopeId);
 }
 
+// ─── Recalage : aligner les enveloppes d'un compte sur son solde réel ───
+// delta = solde live du compte − Σ enveloppes ouvertes hébergées ; posé en contribution « ajustement »
+// sur l'enveloppe choisie (intérêts, arrondis, sortie non enregistrée…). Historique conservé.
+export function recalibrationPreview(envelopeId) {
+  const envelope = get("SELECT * FROM envelopes WHERE id = ?", envelopeId);
+  if (!envelope) throw httpError(404, "Enveloppe introuvable");
+  if (!envelope.account_id) throw httpError(400, "Enveloppe virtuelle : pas de compte à comparer");
+  const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1")
+    || get("SELECT * FROM months ORDER BY period DESC LIMIT 1");
+  if (!month) throw httpError(400, "Aucun mois : pas de solde de compte connu");
+  const { getSummary } = summaryModule();
+  const account = getSummary(month.id).accounts.find((a) => a.accountId === envelope.account_id);
+  if (!account || account.current === null) throw httpError(400, "Solde du compte inconnu (saisir le solde de début de mois)");
+  return {
+    envelopeId: envelope.id,
+    accountName: account.name,
+    accountBalance: account.current,
+    envelopesTotal: account.envelopesTotal,
+    delta: Math.round((account.current - account.envelopesTotal) * 100) / 100,
+    monthPeriod: month.period,
+  };
+}
+
+export function recalibrate(envelopeId, { notes = null } = {}) {
+  const preview = recalibrationPreview(envelopeId);
+  const cents = toCents(preview.delta);
+  if (!cents) throw httpError(400, "Déjà aligné sur le solde du compte");
+  return addContribution(envelopeId, {
+    amount: preview.delta,
+    kind: "ajustement",
+    notes: notes || `Recalage sur le solde de ${preview.accountName} (${preview.monthPeriod})`,
+  });
+}
+
+let _summary = null;
+function summaryModule() {
+  // Chargé à la demande : summary.service importe aussi ce module (dépendance circulaire)
+  if (!_summary) throw httpError(500, "summary non initialisé");
+  return _summary;
+}
+export function bindSummary(mod) { _summary = mod; }
+
 export function removeContribution(envelopeId, contributionId) {
   const c = get("SELECT * FROM envelope_contributions WHERE id = ? AND envelope_id = ?", contributionId, envelopeId);
   if (!c) throw httpError(404, "Contribution introuvable");

@@ -1,27 +1,60 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getAccounts, createAccount, updateAccount, deleteAccount } from '@/api/accounts.js'
+import { getAccounts, createAccount, updateAccount, deleteAccount, getNetWorth } from '@/api/accounts.js'
 import {
   getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope,
   getContributions, addContribution, removeContribution,
+  getRecalibration, recalibrateEnvelope,
 } from '@/api/envelopes.js'
 
 // ─── Data ────────────────────────────────────────────────
 const accounts = ref([])
 const envelopes = ref([])
+const netWorth = ref(null)
 const error = ref('')
 
 async function load() {
   try {
-    const [accRes, envRes] = await Promise.all([getAccounts(), getEnvelopes()])
+    const [accRes, envRes, nwRes] = await Promise.all([getAccounts(), getEnvelopes(), getNetWorth()])
     accounts.value = accRes.data
     envelopes.value = envRes.data
+    netWorth.value = nwRes.data
     error.value = ''
   } catch (e) {
     error.value = e.response?.data?.message || e.message
   }
 }
 onMounted(load)
+
+const netWorthOf = (accountId) => netWorth.value?.accounts.find((a) => a.accountId === accountId) || null
+
+// ─── Recalage d'une enveloppe sur le solde réel du compte ─
+const recal = ref(null) // aperçu { accountBalance, envelopesTotal, delta } de l'enveloppe ouverte
+
+async function loadRecalibration(envelope) {
+  recal.value = null
+  if (!envelope.accountId || envelope.isClosed) return
+  try { recal.value = (await getRecalibration(envelope.id)).data } catch { recal.value = null }
+}
+
+async function doRecalibrate(envelope) {
+  const d = recal.value?.delta
+  if (!d) return
+  const notes = prompt(
+    `Poser ${fmt(d)} en contribution d'ajustement sur « ${envelope.name} » pour l'aligner sur le solde de ${recal.value.accountName} (${fmt(recal.value.accountBalance)}).\n\nNote (optionnelle) :`,
+    d < 0 ? 'Sortie non enregistrée' : 'Intérêts / arrondis'
+  )
+  if (notes === null) return
+  try {
+    await addContributionRecal(envelope, notes)
+  } catch (e) { apiError(e) }
+}
+async function addContributionRecal(envelope, notes) {
+  await recalibrateEnvelope(envelope.id, notes || null)
+  contributions.value = (await getContributions(envelope.id)).data
+  await load()
+  await loadRecalibration(envelope)
+}
 
 // Enveloppes sans compte hôte (virtuelles) — les autres sont affichées dans leur compte
 const virtualEnvelopes = computed(() => envelopes.value.filter((e) => !e.accountId))
@@ -164,6 +197,7 @@ async function toggleContribs(envelope) {
   openEnvelopeId.value = envelope.id
   contribForm.value = { amount: '', date: new Date().toISOString().substring(0, 10), notes: '' }
   contributions.value = (await getContributions(envelope.id)).data
+  await loadRecalibration(envelope)
 }
 
 async function submitContribution(envelope) {
@@ -205,6 +239,18 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
     <p v-if="error" class="mb-4 text-[13px] text-red-600 bg-red-50 rounded-lg px-4 py-2.5">
       Backend injoignable : {{ error }}
     </p>
+
+    <!-- ─── Patrimoine ───────────────────────────────── -->
+    <div v-if="netWorth && accounts.length" class="card mb-5 flex items-center gap-6">
+      <div>
+        <span class="block text-[24px] font-bold tracking-tight">{{ fmt(netWorth.total) }}</span>
+        <span class="block text-[11.5px] text-gray-400 font-medium">Patrimoine total<span v-if="netWorth.monthPeriod"> · soldes de {{ netWorth.monthPeriod }}</span></span>
+      </div>
+      <p class="text-[11.5px] text-gray-400 max-w-md">
+        Somme des comptes inclus, au solde du mois en cours. Pour un compte investissement dont les actifs sont valorisés,
+        la valeur de marché remplace le solde.
+      </p>
+    </div>
 
     <!-- ─── Formulaire compte ────────────────────────── -->
     <div v-if="accountFormOpen" class="card mb-5">
@@ -299,6 +345,9 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <span class="badge" :class="TYPE_COLORS[account.type]">{{ TYPE_LABELS[account.type] }}</span>
           <span v-if="account.isMain" class="badge bg-violet-100 text-violet-700" title="Compte principal">★ principal</span>
           <span v-if="!account.includeInNetWorth" class="badge bg-gray-100 text-gray-500">hors patrimoine</span>
+          <span v-if="netWorthOf(account.id)?.used != null" class="text-[13px] font-semibold ml-1" :title="netWorthOf(account.id).marketValue != null ? 'Valeur de marché (solde ' + fmt(netWorthOf(account.id).balance) + ')' : 'Solde du mois en cours'">
+            {{ fmt(netWorthOf(account.id).used) }}<span v-if="netWorthOf(account.id).marketValue != null" class="text-[10.5px] text-gray-400 font-normal"> marché</span>
+          </span>
           <div class="ml-auto flex gap-1">
             <button class="icon-btn" title="Modifier" @click="openEditAccount(account)">✎</button>
             <button class="icon-btn text-red-400 hover:text-red-600" title="Supprimer" @click="removeAccountConfirm(account)">🗑</button>
@@ -320,6 +369,11 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 
             <!-- Contributions dépliées -->
             <div v-if="openEnvelopeId === envelope.id" class="mt-3 border-t border-stone-100 pt-3">
+              <!-- Recalage : l'enveloppe vs le solde réel du compte -->
+              <div v-if="recal && recal.delta" class="flex items-center gap-2 text-[12px] mb-2 px-2.5 py-2 rounded-lg" :class="recal.delta < 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'">
+                <span>{{ recal.accountName }} : {{ fmt(recal.accountBalance) }} · enveloppes {{ fmt(recal.envelopesTotal) }} · écart <b>{{ recal.delta > 0 ? '+' : '' }}{{ fmt(recal.delta) }}</b></span>
+                <button class="ml-auto btn-secondary" title="Contribution d'ajustement tracée, l'historique reste" @click.stop="doRecalibrate(envelope)">Recaler sur le compte</button>
+              </div>
               <div v-for="c in contributions" :key="c.id" class="flex items-center gap-2 text-[12.5px] py-1">
                 <span class="text-gray-400 w-20 shrink-0">{{ c.date }}</span>
                 <span :class="c.amount >= 0 ? 'text-emerald-600' : 'text-red-500'" class="font-medium w-24">{{ fmt(c.amount) }}</span>
