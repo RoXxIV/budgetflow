@@ -116,7 +116,11 @@ export function create({ name, accountId = null, targetAmount = null, deadline =
   name = (name || "").trim();
   if (!name) throw httpError(400, "Le nom de l'enveloppe est requis");
   assertNameFree(name, accountId);
+  if (accountId && !get("SELECT id FROM accounts WHERE id = ? AND is_active = 1", accountId)) {
+    throw httpError(400, "Compte hôte invalide ou désactivé");
+  }
   const cents = toCents(initialAmount);
+  if (cents < 0) throw httpError(400, "Le montant initial doit être positif");
 
   // Montant initial : soit pris dans une autre enveloppe du même compte (réaffectation), soit sur le disponible
   let source = null;
@@ -180,6 +184,10 @@ export function update(id, data) {
     if (!name) throw httpError(400, "Le nom de l'enveloppe est requis");
     const accountId = data.accountId !== undefined ? data.accountId : existing.account_id;
     assertNameFree(name, accountId, id);
+    // L'argent d'une enveloppe ne part jamais vers un compte désactivé (il sortirait du bilan)
+    if (accountId && accountId !== existing.account_id && !get("SELECT id FROM accounts WHERE id = ? AND is_active = 1", accountId)) {
+      throw httpError(400, "Compte hôte invalide ou désactivé");
+    }
     const target = data.targetAmount !== undefined ? toCents(data.targetAmount) : existing.target_amount_cents;
     const deadline = data.deadline !== undefined ? (data.deadline || null) : existing.deadline;
     const closedAt = data.isClosed !== undefined
@@ -215,7 +223,9 @@ export function update(id, data) {
     if (name !== existing.name && existing.account_id) {
       const account = get("SELECT * FROM accounts WHERE id = ?", existing.account_id);
       const siblings = get("SELECT COUNT(*) AS n FROM envelopes WHERE account_id = ? AND closed_at IS NULL", existing.account_id).n;
-      if (account && siblings === 1 && account.name === existing.name) {
+      // Le compte suit le renommage 1:1, sauf si un autre compte porte déjà ce nom (unicité)
+      if (account && siblings === 1 && account.name === existing.name
+          && !get("SELECT id FROM accounts WHERE lower(name) = lower(?) AND id != ?", name, account.id)) {
         run("UPDATE accounts SET name = ? WHERE id = ?", name, account.id);
       }
     }
