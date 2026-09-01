@@ -2,6 +2,7 @@ import api from './index.js'
 
 export const getMonths = () => api.get('/months')
 export const getMonthPrefill = () => api.get('/months/prefill')
+export const getCurrentMonth = () => api.get('/months/current')
 export const createMonth = (data) => api.post('/months', data)
 export const getMonth = (id) => api.get(`/months/${id}`)
 export const getMonthSummary = (id) => api.get(`/months/${id}/summary`)

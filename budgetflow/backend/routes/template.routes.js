@@ -10,5 +10,7 @@ router.post("/lines", wrap((req, res) => res.status(201).json(lines.create(null,
 router.put("/lines/reorder", wrap((req, res) => { lines.reorder(req.body.orders || []); res.json(lines.listByMonth(null)); }));
 router.put("/lines/:id", wrap((req, res) => res.json(lines.update(Number(req.params.id), req.body))));
 router.delete("/lines/:id", wrap((req, res) => res.json(lines.remove(Number(req.params.id)))));
+// Propagation : copie / met à jour la ligne dans un mois existant
+router.post("/lines/:id/apply-to-month/:monthId", wrap((req, res) => res.json(lines.applyToMonth(Number(req.params.id), Number(req.params.monthId)))));
 
 export default router;

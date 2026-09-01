@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getTemplateLines, createTemplateLine, updateTemplateLine, reorderTemplateLines, deleteTemplateLine } from '@/api/template.js'
+import { getTemplateLines, createTemplateLine, updateTemplateLine, reorderTemplateLines, deleteTemplateLine, applyTemplateLineToMonth } from '@/api/template.js'
+import { getCurrentMonth } from '@/api/months.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
 import { getAccounts } from '@/api/accounts.js'
@@ -13,17 +14,29 @@ const themes = ref([])
 const accounts = ref([])
 const settings = ref(null)
 
+const currentMonth = ref(null)   // mois ouvert du calendrier (cible de la propagation), ou null
+
 async function load() {
-  const [lRes, cRes, tRes, aRes, sRes] = await Promise.all([
-    getTemplateLines(), getCategories(), getThemes(), getAccounts(), getSettings(),
+  const [lRes, cRes, tRes, aRes, sRes, mRes] = await Promise.all([
+    getTemplateLines(), getCategories(), getThemes(), getAccounts(), getSettings(), getCurrentMonth(),
   ])
   lines.value = lRes.data
   categories.value = cRes.data
   themes.value = tRes.data
   accounts.value = aRes.data
   settings.value = sRes.data
+  currentMonth.value = mRes.data
 }
 onMounted(load)
+
+// ─── Propagation vers le mois en cours ───────────────────
+async function applyToCurrentMonth(line, { ask = true } = {}) {
+  if (!currentMonth.value) return
+  if (ask && !confirm(`Appliquer « ${line.label} » à ${currentMonth.value.name} ? (le réel du mois n'est pas touché)`)) return
+  try {
+    await applyTemplateLineToMonth(line.id, currentMonth.value.id)
+  } catch (e) { apiError(e) }
+}
 
 function apiError(e) {
   alert(e.response?.data?.message || e.message)
@@ -137,8 +150,15 @@ function formData() {
 async function submit() {
   if (!form.value.label.trim()) return
   try {
-    if (typeof openLineId.value === 'string') await createTemplateLine(formData())
-    else await updateTemplateLine(openLineId.value, formData())
+    if (typeof openLineId.value === 'string') {
+      const { data: created } = await createTemplateLine(formData())
+      // Nouvelle ligne : proposer de l'ajouter aussi au mois en cours (sinon elle n'apparaît qu'au prochain mois)
+      if (currentMonth.value && confirm(`Ligne ajoutée au template. L'ajouter aussi à ${currentMonth.value.name} ?`)) {
+        await applyToCurrentMonth(created, { ask: false })
+      }
+    } else {
+      await updateTemplateLine(openLineId.value, formData())
+    }
     closePanel()
     lines.value = (await getTemplateLines()).data
   } catch (e) { apiError(e) }
@@ -290,9 +310,12 @@ const formCategoryType = computed(() => {
                   <label class="field"><span>Ma part (%)</span><input v-model="form.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
                 </template>
               </div>
-              <div class="flex gap-2 mt-3">
+              <div class="flex gap-2 mt-3 items-center">
                 <button class="btn-primary" @click="submit">{{ typeof openLineId === 'string' ? 'Ajouter' : 'Sauver' }}</button>
                 <button class="btn-secondary" @click="closePanel">Annuler</button>
+                <button v-if="currentMonth" class="link text-xs" title="Copie ou met à jour cette ligne dans le mois en cours (sauvez d'abord vos modifications)" @click="applyToCurrentMonth(line)">
+                  Appliquer à {{ currentMonth.name }}
+                </button>
                 <button v-if="typeof openLineId !== 'string'" class="btn-danger ml-auto" @click="removeLineConfirm(line)">Supprimer</button>
               </div>
             </div>

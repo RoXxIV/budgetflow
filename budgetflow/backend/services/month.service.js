@@ -34,6 +34,15 @@ export function getById(id) {
   return serialize(row);
 }
 
+// « Mois en cours » : le mois ouvert du calendrier, sinon le mois ouvert le plus récent, sinon null
+export function current() {
+  const now = new Date();
+  const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const row = get("SELECT * FROM months WHERE period = ? AND closed_at IS NULL", period)
+    || get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1");
+  return row ? serialize(row) : null;
+}
+
 export function assertOpen(monthId) {
   const row = get("SELECT * FROM months WHERE id = ?", monthId);
   if (!row) throw httpError(404, "Mois introuvable");

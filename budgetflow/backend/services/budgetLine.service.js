@@ -124,6 +124,47 @@ export function remove(id, { force = false } = {}) {
   return { message: "Ligne supprimée" };
 }
 
+// « Appliquer au mois » : la ligne du template est copiée dans un mois (ou sa copie mise à jour).
+// Le réel du mois n'est jamais touché ; seule la définition de la ligne est propagée.
+export function applyToMonth(templateLineId, monthId) {
+  const tpl = get("SELECT * FROM budget_lines WHERE id = ? AND month_id IS NULL", templateLineId);
+  if (!tpl) throw httpError(404, "Ligne du template introuvable");
+  const month = get("SELECT * FROM months WHERE id = ?", monthId);
+  if (!month) throw httpError(404, "Mois introuvable");
+  if (month.closed_at) throw httpError(409, "Ce mois est clôturé");
+
+  // Cagnotte par défaut des ½ : on vise la copie de la cagnotte dans ce mois, si elle existe
+  const potCopy = tpl.pot_line_id
+    ? get("SELECT id FROM budget_lines WHERE month_id = ? AND template_line_id = ?", monthId, tpl.pot_line_id)?.id ?? null
+    : null;
+
+  const copy = get("SELECT * FROM budget_lines WHERE month_id = ? AND template_line_id = ?", monthId, tpl.id);
+  if (copy) {
+    run(
+      `UPDATE budget_lines SET label = ?, category_id = ?, theme_id = ?, planned_amount_cents = ?,
+         from_account_id = ?, to_account_id = ?, payment_method = ?, is_shared = ?, recurring_day = ?,
+         is_pot = ?, pot_partner_name = ?, pot_partner_paid_cents = ?, pot_my_share = ?, pot_line_id = ? WHERE id = ?`,
+      tpl.label, tpl.category_id, tpl.theme_id, tpl.planned_amount_cents,
+      tpl.from_account_id, tpl.to_account_id, tpl.payment_method, tpl.is_shared, tpl.recurring_day,
+      tpl.is_pot, tpl.pot_partner_name, tpl.pot_partner_paid_cents, tpl.pot_my_share, potCopy, copy.id
+    );
+    return { ...getById(copy.id), created: false };
+  }
+
+  const max = get("SELECT COALESCE(MAX(sort_order), -1) AS m FROM budget_lines WHERE month_id = ?", monthId).m;
+  const { lastInsertRowid } = run(
+    `INSERT INTO budget_lines
+      (month_id, template_line_id, label, category_id, theme_id, planned_amount_cents,
+       from_account_id, to_account_id, payment_method, is_shared, recurring_day, sort_order, notes,
+       is_pot, pot_partner_name, pot_partner_paid_cents, pot_my_share, pot_line_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    monthId, tpl.id, tpl.label, tpl.category_id, tpl.theme_id, tpl.planned_amount_cents,
+    tpl.from_account_id, tpl.to_account_id, tpl.payment_method, tpl.is_shared, tpl.recurring_day, max + 1, tpl.notes,
+    tpl.is_pot, tpl.pot_partner_name, tpl.pot_partner_paid_cents, tpl.pot_my_share, potCopy
+  );
+  return { ...getById(Number(lastInsertRowid)), created: true };
+}
+
 // « Reporter dans le template » : la ligne du mois devient le nouveau standard
 export function applyToTemplate(id) {
   const line = get("SELECT * FROM budget_lines WHERE id = ?", id);
