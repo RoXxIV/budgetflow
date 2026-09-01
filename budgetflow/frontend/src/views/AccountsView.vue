@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import AppModal from '@/components/AppModal.vue'
 import { getAccounts, createAccount, updateAccount, deleteAccount, setAccountActive, getNetWorth } from '@/api/accounts.js'
 import {
-  getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope,
+  getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope, closeEnvelopeInto,
   getContributions, addContribution, removeContribution,
   getRecalibration, recalibrateEnvelope, getAvailability, reallocateEnvelope,
 } from '@/api/envelopes.js'
@@ -298,38 +298,42 @@ async function toggleClosed(envelope) {
 }
 
 async function removeEnvelopeConfirm(envelope) {
-  const ok = await confirmDialog({ title: "Supprimer l'enveloppe", message: `Supprimer « ${envelope.name} » ?`, confirmLabel: 'Supprimer', danger: true })
+  const ok = await confirmDialog({ title: "Supprimer l'enveloppe", message: `Supprimer « ${envelope.name} » ? (avec un historique, elle sera clôturée à la place — rien n'est perdu)`, confirmLabel: 'Supprimer', danger: true })
   if (!ok) return
   try { await deleteEnvelope(envelope.id); await load() } catch (e) {
     const p = e.response?.data
     if (p?.code === 'ENVELOPE_HAS_FUNDS') {
-      // L'enveloppe a un historique : clôturer (recommandé), libérer, ou réaffecter avant suppression
-      envelopeDelete.value = { envelope, total: p.total, contributions: p.contributions, choice: 'close', toEnvelopeId: '' }
+      // L'enveloppe a un historique : clôturer, seule ou en réaffectant son contenu (jamais de perte)
+      envelopeDelete.value = { envelope, total: p.total, contributions: p.contributions, choice: 'close', destination: defaultDestination(envelope) }
       return
     }
     apiError(e)
   }
 }
 
-// ─── Suppression d'une enveloppe avec historique ─────────
-const envelopeDelete = ref(null) // { envelope, total, contributions, choice: close|release|reallocate, toEnvelopeId }
+// ─── Enveloppe avec historique : clôturer, ou clôturer et réaffecter ─
+const envelopeDelete = ref(null) // { envelope, total, contributions, choice: close|reallocate, destination: 'e:ID'|'a:ID' }
 const envelopeDeleteTargets = computed(() => {
   const d = envelopeDelete.value
   if (!d) return []
-  return envelopes.value.filter((e) => (e.accountId || null) === (d.envelope.accountId || null) && e.id !== d.envelope.id && !e.isClosed)
+  return envelopes.value.filter((e) => e.id !== d.envelope.id && !e.isClosed)
 })
+function defaultDestination(envelope) {
+  const env = envelopes.value.find((e) => e.id !== envelope.id && !e.isClosed)
+  if (env) return 'e:' + env.id
+  const acc = activeAccounts.value.find((a) => a.isMain) || activeAccounts.value[0]
+  return acc ? 'a:' + acc.id : ''
+}
 
 async function confirmEnvelopeDelete() {
   const d = envelopeDelete.value
   if (!d) return
   try {
-    if (d.choice === 'close') {
-      await updateEnvelope(d.envelope.id, { isClosed: true })
-    } else if (d.choice === 'reallocate') {
-      if (!d.toEnvelopeId) return
-      await deleteEnvelope(d.envelope.id, { mode: 'reallocate', toEnvelope: d.toEnvelopeId })
+    if (d.choice === 'reallocate' && d.destination) {
+      const [kind, rawId] = d.destination.split(':')
+      await closeEnvelopeInto(d.envelope.id, kind === 'e' ? { toEnvelopeId: Number(rawId) } : { toAccountId: Number(rawId) })
     } else {
-      await deleteEnvelope(d.envelope.id, { mode: 'release' })
+      await updateEnvelope(d.envelope.id, { isClosed: true })
     }
     envelopeDelete.value = null
     if (openEnvelopeId.value === d.envelope.id) openEnvelopeId.value = null
@@ -533,34 +537,38 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
       </template>
     </AppModal>
 
-    <!-- ─── Suppression d'une enveloppe avec historique ── -->
+    <!-- ─── Enveloppe avec historique : clôturer, ou clôturer et réaffecter ── -->
     <AppModal :open="!!envelopeDelete" title="L'enveloppe n'est pas vide" @close="envelopeDelete = null">
       <div v-if="envelopeDelete" class="flex flex-col gap-3 text-[13px]">
         <p>
           « <b>{{ envelopeDelete.envelope.name }}</b> » contient <b>{{ fmt(envelopeDelete.total) }}</b>
           ({{ envelopeDelete.contributions }} contribution{{ envelopeDelete.contributions > 1 ? 's' : '' }}).
+          L'historique est conservé dans les deux cas.
         </p>
         <label class="checkbox items-start">
           <input v-model="envelopeDelete.choice" type="radio" value="close" class="mt-0.5" />
-          <span><b>Clôturer</b> (recommandé) — l'historique est conservé, l'argent redevient hors enveloppes{{ envelopeDelete.envelope.accountName ? ' de ' + envelopeDelete.envelope.accountName : '' }}. Réouvrable.</span>
+          <span><b>Clôturer</b> — l'argent redevient hors enveloppes{{ envelopeDelete.envelope.accountName ? ' de ' + envelopeDelete.envelope.accountName : ' du compte principal' }}. Réouvrable.</span>
         </label>
-        <label class="checkbox items-start">
-          <input v-model="envelopeDelete.choice" type="radio" value="release" class="mt-0.5" />
-          <span><b>Supprimer et libérer</b> — l'historique est effacé, l'argent redevient hors enveloppes{{ envelopeDelete.envelope.accountName ? ' de ' + envelopeDelete.envelope.accountName : '' }} (aucun mouvement bancaire).</span>
-        </label>
-        <label v-if="envelopeDelete.total > 0 && envelopeDeleteTargets.length" class="checkbox items-start">
+        <label v-if="envelopeDelete.total > 0" class="checkbox items-start">
           <input v-model="envelopeDelete.choice" type="radio" value="reallocate" class="mt-0.5" />
-          <span class="flex items-center gap-2 flex-wrap"><b>Supprimer et réaffecter</b> {{ fmt(envelopeDelete.total) }} vers
-            <select v-model="envelopeDelete.toEnvelopeId" class="input w-40" @click.prevent.stop="envelopeDelete.choice = 'reallocate'">
-              <option value="">— enveloppe</option>
-              <option v-for="t in envelopeDeleteTargets" :key="t.id" :value="t.id">{{ t.name }}</option>
+          <span class="flex items-center gap-2 flex-wrap"><b>Clôturer et réaffecter</b> {{ fmt(envelopeDelete.total) }} vers
+            <select v-model="envelopeDelete.destination" class="input w-56" @focus="envelopeDelete.choice = 'reallocate'">
+              <optgroup v-if="envelopeDeleteTargets.length" label="Mes enveloppes">
+                <option v-for="t in envelopeDeleteTargets" :key="'e' + t.id" :value="'e:' + t.id">{{ t.name }}{{ t.accountName ? ' (' + t.accountName + ')' : '' }}</option>
+              </optgroup>
+              <optgroup label="Mes comptes (hors enveloppes)">
+                <option v-for="a in activeAccounts" :key="'a' + a.id" :value="'a:' + a.id">{{ a.name }}</option>
+              </optgroup>
             </select>
           </span>
         </label>
+        <p class="text-[11.5px] text-gray-400">
+          Si la destination est sur un autre compte, un virement système du montant est enregistré dans le mois en cours — l'argent suit physiquement.
+        </p>
       </div>
       <template #footer>
-        <button class="btn-primary" :class="{ 'bg-red-500! hover:bg-red-600!': envelopeDelete?.choice !== 'close' }" :disabled="envelopeDelete?.choice === 'reallocate' && !envelopeDelete?.toEnvelopeId" @click="confirmEnvelopeDelete">
-          {{ envelopeDelete?.choice === 'close' ? 'Clôturer' : 'Supprimer' }}
+        <button class="btn-primary" :disabled="envelopeDelete?.choice === 'reallocate' && !envelopeDelete?.destination" @click="confirmEnvelopeDelete">
+          {{ envelopeDelete?.choice === 'reallocate' ? 'Clôturer et réaffecter' : 'Clôturer' }}
         </button>
         <button class="btn-secondary" @click="envelopeDelete = null">Annuler</button>
       </template>

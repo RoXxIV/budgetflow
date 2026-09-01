@@ -223,10 +223,9 @@ export function update(id, data) {
   });
 }
 
-// Suppression : refusée si l'enveloppe alimente une ligne mensualisée du template.
-// Si elle a un historique, il faut choisir : « release » (l'argent redevient hors enveloppes du compte)
-// ou « reallocate » (le contenu part dans une autre enveloppe du même compte). Sans mode → 409 avec les infos du modal.
-export function remove(id, { mode = null, toEnvelopeId = null } = {}) {
+// Suppression définitive : réservée à une enveloppe SANS historique (créée par erreur).
+// Avec un historique, la voie est la clôture — seule, ou en réaffectant le contenu (closeInto).
+export function remove(id) {
   const existing = get("SELECT * FROM envelopes WHERE id = ?", id);
   if (!existing) throw httpError(404, "Enveloppe introuvable");
 
@@ -237,23 +236,68 @@ export function remove(id, { mode = null, toEnvelopeId = null } = {}) {
 
   const total = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ?", id).s;
   const n = get("SELECT COUNT(*) AS n FROM envelope_contributions WHERE envelope_id = ?", id).n;
-  if (n > 0 && !mode) {
-    const err = httpError(409, `« ${existing.name} » a un historique de ${n} contribution(s) pour un total de ${fromCents(total).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €`);
+  if (n > 0) {
+    const err = httpError(409, `« ${existing.name} » a un historique de ${n} contribution(s) pour un total de ${fromCents(total).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € : clôturez-la (l'historique reste)`);
     err.payload = { code: "ENVELOPE_HAS_FUNDS", total: fromCents(total), contributions: n, accountId: existing.account_id };
     throw err;
   }
 
+  run("DELETE FROM envelopes WHERE id = ?", id);
+  return { message: "Enveloppe supprimée" };
+}
+
+// Clôturer en réaffectant tout le contenu : vers n'importe quelle enveloppe ouverte, ou vers le
+// « hors enveloppes » d'un compte actif. L'historique est conservé (contribution négative tracée) ;
+// si l'argent change de compte hôte, un virement système suit dans le mois ouvert.
+export function closeInto(id, { toEnvelopeId = null, toAccountId = null } = {}) {
+  const existing = get("SELECT * FROM envelopes WHERE id = ?", id);
+  if (!existing) throw httpError(404, "Enveloppe introuvable");
+  if (existing.closed_at) throw httpError(409, "Enveloppe déjà clôturée");
+  const linked = get("SELECT label FROM budget_lines WHERE envelope_id = ? AND month_id IS NULL LIMIT 1", id);
+  if (linked) {
+    throw httpError(409, `Cette enveloppe alimente la ligne mensualisée « ${linked.label} » : démensualisez la ligne d'abord (template).`);
+  }
+
+  const total = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ?", id).s;
+  const mainId = get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
+  const hostSrc = existing.account_id ?? mainId;
+
   return tx(() => {
-    if (mode === "reallocate" && total > 0) {
-      const target = get("SELECT * FROM envelopes WHERE id = ? AND closed_at IS NULL", toEnvelopeId);
-      if (!target || target.id === id) throw httpError(400, "Enveloppe destinataire invalide");
-      if (target.account_id !== existing.account_id) throw httpError(400, "La réaffectation ne se fait qu'entre enveloppes d'un même compte");
-      run("INSERT INTO envelope_contributions (envelope_id, amount_cents, kind, notes) VALUES (?, ?, 'reaffectation', ?)",
-        target.id, total, `Pris dans « ${existing.name} » (supprimée)`);
+    if (total > 0) {
+      let hostDst = null;
+      if (toEnvelopeId) {
+        const target = get("SELECT * FROM envelopes WHERE id = ? AND closed_at IS NULL", toEnvelopeId);
+        if (!target || target.id === id) throw httpError(400, "Enveloppe destinataire invalide");
+        hostDst = target.account_id ?? mainId;
+        run("INSERT INTO envelope_contributions (envelope_id, amount_cents, kind, notes) VALUES (?, ?, 'reaffectation', ?)",
+          id, -total, `Réaffecté vers « ${target.name} » (clôture)`);
+        run("INSERT INTO envelope_contributions (envelope_id, amount_cents, kind, notes) VALUES (?, ?, 'reaffectation', ?)",
+          target.id, total, `Pris dans « ${existing.name} » (clôturée)`);
+      } else if (toAccountId) {
+        const account = get("SELECT * FROM accounts WHERE id = ? AND is_active = 1", toAccountId);
+        if (!account) throw httpError(400, "Compte destinataire invalide");
+        hostDst = account.id;
+        run("INSERT INTO envelope_contributions (envelope_id, amount_cents, kind, notes) VALUES (?, ?, 'reaffectation', ?)",
+          id, -total, `Libéré vers « ${account.name} » (clôture)`);
+      } else {
+        throw httpError(400, "Destination requise (enveloppe ou compte)");
+      }
+
+      // L'argent change de compte : virement système pour que l'historique bancaire colle
+      if (hostSrc && hostDst && hostSrc !== hostDst) {
+        const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1");
+        if (!month) throw httpError(409, "Aucun mois ouvert pour enregistrer le virement de réaffectation");
+        const accName = (aid) => get("SELECT name FROM accounts WHERE id = ?", aid)?.name || "?";
+        run(
+          `INSERT INTO entries (month_id, label, amount_cents, account_id, to_account_id, source)
+           VALUES (?, ?, ?, ?, ?, 'manuelle')`,
+          month.id, `Enveloppe « ${existing.name} » réaffectée : ${accName(hostSrc)} → ${accName(hostDst)}`,
+          total, hostSrc, hostDst
+        );
+      }
     }
-    // mode « release » : rien à poser, la réservation disparaît avec l'enveloppe
-    run("DELETE FROM envelopes WHERE id = ?", id); // contributions supprimées en cascade
-    return { message: "Enveloppe supprimée" };
+    run("UPDATE envelopes SET closed_at = ? WHERE id = ?", new Date().toISOString(), id);
+    return getById(id);
   });
 }
 
