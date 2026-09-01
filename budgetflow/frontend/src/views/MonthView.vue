@@ -433,6 +433,8 @@ function openAddLine(category) {
     plannedAmount: '',   // prévu seul → ligne à cocher plus tard
     actualAmount: '',    // montant rempli → entrée créée tout de suite (le réel remplace le prévu)
     entryDate: new Date().toISOString().substring(0, 10),
+    envelopeId: '',      // « depuis l'enveloppe » sur l'entrée créée
+    envelopeInTarget: true,
     categoryId: category.id,
     themeId: '',
     fromAccountId: category.type === 'revenu' ? '' : (accounts.value.find((a) => a.isMain)?.id || ''),
@@ -507,6 +509,9 @@ async function submitLineForm() {
           accountId: (lineFormCategoryType.value === 'revenu' ? f.toAccountId : f.fromAccountId) || null,
           toAccountId: lineHasDestination(line) ? (f.toAccountId || null) : null,
           isShared: f.isShared,
+          potLineId: f.isShared ? (f.potLineId || null) : null,
+          envelopeId: f.envelopeId || null,
+          envelopeInTarget: f.envelopeInTarget !== false,
         })
       }
     } else {
@@ -1127,6 +1132,13 @@ const mainEnvelopesTotal = computed(() => {
                 <label v-if="!lineForm.isPot" class="field" title="À venir : la ligne se cochera quand ce sera passé"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
                 <label v-if="!lineForm.isPot" class="field" title="Déjà passé : l'entrée est créée tout de suite"><span>Montant (€)</span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
                 <label v-if="!lineForm.isPot && lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
+                <label v-if="!lineForm.isPot && lineForm.actualAmount && envelopes.length" class="field" title="Dépense prise dans une enveloppe : elle baisse d'autant"><span>Depuis l'enveloppe</span>
+                  <select v-model="lineForm.envelopeId" class="input w-36">
+                    <option value="">— non</option>
+                    <option v-for="env in envelopes" :key="env.id" :value="env.id">{{ env.name }}</option>
+                  </select>
+                </label>
+                <label v-if="!lineForm.isPot && lineForm.actualAmount && lineForm.envelopeId && envelopeById(lineForm.envelopeId)?.targetAmount" class="checkbox self-end" title="La cible affichée est corrigée d'autant (le reste à épargner ne bouge pas)"><input v-model="lineForm.envelopeInTarget" type="checkbox" /><span>fait partie de l'objectif</span></label>
                 <label v-else class="field" title="Date par défaut du « payé »"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" placeholder="—" /></label>
                 <label v-if="themes.length" class="field"><span>Thème</span>
                   <select v-model="lineForm.themeId" class="input w-28">
