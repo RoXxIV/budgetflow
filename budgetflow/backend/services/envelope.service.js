@@ -17,15 +17,20 @@ function monthlySuggestion(targetCents, totalCents, deadline) {
 }
 
 function serialize(row) {
+  // Dépenses du projet (contributions « depense » comptées dans l'objectif) : la cible affichée en est corrigée
+  const spentInTarget = -(row.spent_in_target_cents ?? 0);
+  const effectiveTarget = row.target_amount_cents ? row.target_amount_cents - spentInTarget : null;
   return {
     id: row.id,
     name: row.name,
     accountId: row.account_id,
     accountName: row.account_name ?? null,
     targetAmount: fromCents(row.target_amount_cents),
+    spentInTarget: fromCents(spentInTarget),
+    effectiveTarget: fromCents(effectiveTarget),
     deadline: row.deadline,
     total: fromCents(row.total_cents ?? 0),
-    monthlySuggestion: monthlySuggestion(row.target_amount_cents, row.total_cents, row.deadline),
+    monthlySuggestion: monthlySuggestion(effectiveTarget, row.total_cents, row.deadline),
     isClosed: !!row.closed_at,
     createdAt: row.created_at,
   };
@@ -39,7 +44,8 @@ function assertPeriodOpen(date) {
 
 const LIST_SQL = `
   SELECT e.*, a.name AS account_name,
-    COALESCE((SELECT SUM(c.amount_cents) FROM envelope_contributions c WHERE c.envelope_id = e.id), 0) AS total_cents
+    COALESCE((SELECT SUM(c.amount_cents) FROM envelope_contributions c WHERE c.envelope_id = e.id), 0) AS total_cents,
+    COALESCE((SELECT SUM(c.amount_cents) FROM envelope_contributions c WHERE c.envelope_id = e.id AND c.kind = 'depense' AND c.in_target = 1), 0) AS spent_in_target_cents
   FROM envelopes e
   LEFT JOIN accounts a ON a.id = e.account_id
 `;
@@ -210,6 +216,8 @@ export function listContributionsByPeriod(period) {
     kind: c.kind,
     fromAccountId: c.from_account_id,
     fromAccountName: c.from_account_name ?? null,
+    entryId: c.entry_id,
+    inTarget: !!c.in_target,
     notes: c.notes,
   }));
 }
@@ -227,8 +235,34 @@ export function listContributions(envelopeId) {
     kind: c.kind,
     fromAccountId: c.from_account_id,
     fromAccountName: c.from_account_name ?? null,
+    entryId: c.entry_id,
+    inTarget: !!c.in_target,
     notes: c.notes,
   }));
+}
+
+// ─── Dépense depuis une enveloppe, liée à une entrée du mois ───
+// Appelé après création / modification d'une entrée : crée, met à jour ou retire la contribution « depense ».
+export function syncEntryExpense(entry) {
+  const existing = get("SELECT * FROM envelope_contributions WHERE entry_id = ?", entry.id);
+  if (!entry.envelope_id) {
+    if (existing) run("DELETE FROM envelope_contributions WHERE id = ?", existing.id);
+    return;
+  }
+  const envelope = get("SELECT * FROM envelopes WHERE id = ?", entry.envelope_id);
+  if (!envelope) return;
+  const notes = entry.label || get("SELECT label FROM budget_lines WHERE id = ?", entry.line_id)?.label || "Dépense depuis l'enveloppe";
+  if (existing) {
+    run(
+      "UPDATE envelope_contributions SET envelope_id = ?, amount_cents = ?, date = ?, in_target = ?, notes = ? WHERE id = ?",
+      envelope.id, -entry.amount_cents, entry.date, entry.envelope_in_target ? 1 : 0, notes, existing.id
+    );
+  } else {
+    run(
+      "INSERT INTO envelope_contributions (envelope_id, amount_cents, date, kind, entry_id, in_target, notes) VALUES (?, ?, ?, 'depense', ?, ?, ?)",
+      envelope.id, -entry.amount_cents, entry.date, entry.id, entry.envelope_in_target ? 1 : 0, notes
+    );
+  }
 }
 
 export function addContribution(envelopeId, { amount, date = null, kind = "normale", fromAccountId = null, notes = null }) {
@@ -296,6 +330,7 @@ export function bindSummary(mod) { _summary = mod; }
 export function removeContribution(envelopeId, contributionId) {
   const c = get("SELECT * FROM envelope_contributions WHERE id = ? AND envelope_id = ?", contributionId, envelopeId);
   if (!c) throw httpError(404, "Contribution introuvable");
+  if (c.entry_id) throw httpError(409, "Cette dépense est liée à une entrée du mois : modifiez ou supprimez l'entrée");
   assertPeriodOpen(c.date);
   run("DELETE FROM envelope_contributions WHERE id = ?", contributionId);
   return getById(envelopeId);

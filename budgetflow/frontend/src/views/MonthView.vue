@@ -157,7 +157,7 @@ const openEnvelopeId = ref(null)
 const contribForm = ref({})
 const contribsForEnvelope = (env) => monthContribs.value.filter((c) => c.envelopeId === env.id)
 const monthContribTotal = computed(() => monthContribs.value.filter((c) => c.kind === 'normale').reduce((s, c) => s + c.amount, 0))
-const envelopePct = (env) => (env.targetAmount ? Math.min(100, Math.round((env.total / env.targetAmount) * 100)) : null)
+const envelopePct = (env) => (env.effectiveTarget ? Math.min(100, Math.round((env.total / env.effectiveTarget) * 100)) : null)
 
 function toggleEnvelope(env) {
   if (openEnvelopeId.value === env.id) { openEnvelopeId.value = null; return }
@@ -338,8 +338,16 @@ function toggleEntries(line) {
     toAccountId: lineHasDestination(line) ? (line.toAccountId || '') : '',
     isShared: line.isShared,
     potLineId: line.potLineId || pots.value[0]?.id || '',
+    envelopeId: '',          // « depuis l'enveloppe » : dépense liée, l'enveloppe baisse d'autant
+    envelopeInTarget: true,  // fait partie du projet → la cible affichée est corrigée
   }
 }
+
+// Cible corrigée d'une enveloppe : « 2 700 / 3 500 (4 500 − 1 000 dépensés) »
+const envelopeTargetLabel = (env) => env.spentInTarget
+  ? `${fmt(env.effectiveTarget)} (${fmt(env.targetAmount)} − ${fmt(env.spentInTarget)} dépensés)`
+  : fmt(env.targetAmount)
+const envelopeById = (id) => envelopes.value.find((e) => e.id === id) || null
 
 async function submitEntry(line) {
   const f = entryForm.value
@@ -355,8 +363,10 @@ async function submitEntry(line) {
       toAccountId: f.toAccountId || null,
       isShared: f.isShared,
       potLineId: f.isShared ? (f.potLineId || null) : null,
+      envelopeId: f.envelopeId || null,
+      envelopeInTarget: f.envelopeInTarget !== false,
     })
-    entryForm.value = { ...f, amount: '', label: '' }
+    entryForm.value = { ...f, amount: '', label: '', envelopeId: '' }
     await reload()
   } catch (e) { apiError(e) }
 }
@@ -380,6 +390,8 @@ function openEditEntry(e) {
     themeId: e.themeId || '',
     isShared: e.isShared,
     potLineId: e.potLineId || pots.value[0]?.id || '',
+    envelopeId: e.envelopeId || '',
+    envelopeInTarget: e.envelopeInTarget !== false,
   }
 }
 
@@ -397,6 +409,8 @@ async function saveEntryEdit(e) {
       themeId: f.themeId || null,
       isShared: f.isShared,
       potLineId: f.isShared ? (f.potLineId || null) : null,
+      envelopeId: f.envelopeId || null,
+      envelopeInTarget: f.envelopeInTarget !== false,
     })
     editingEntryId.value = null
     await reload()
@@ -730,9 +744,9 @@ const mainEnvelopesTotal = computed(() => {
             </span>
             <span class="ml-auto shrink-0 text-right">
               <span class="text-[13px] font-semibold">{{ fmt(env.total) }}</span>
-              <span v-if="env.targetAmount" class="text-[11px] text-gray-400"> / {{ fmt(env.targetAmount) }}</span>
-              <span v-if="env.targetAmount" class="block text-[10.5px]" :class="env.total >= env.targetAmount ? 'text-emerald-600' : 'text-gray-400'">
-                {{ env.total >= env.targetAmount ? 'cible atteinte' : 'reste ' + fmt(env.targetAmount - env.total) }}
+              <span v-if="env.targetAmount" class="text-[11px] text-gray-400" :title="env.spentInTarget ? fmt(env.targetAmount) + ' − ' + fmt(env.spentInTarget) + ' déjà dépensés pour le projet' : ''"> / {{ fmt(env.effectiveTarget) }}</span>
+              <span v-if="env.targetAmount" class="block text-[10.5px]" :class="env.total >= env.effectiveTarget ? 'text-emerald-600' : 'text-gray-400'">
+                {{ env.total >= env.effectiveTarget ? 'cible atteinte' : 'reste ' + fmt(env.effectiveTarget - env.total) }}{{ env.spentInTarget ? ' · ' + fmt(env.spentInTarget) + ' dépensés' : '' }}
               </span>
             </span>
           </div>
@@ -1041,6 +1055,11 @@ const mainEnvelopesTotal = computed(() => {
                     <select v-if="sharingOn && !line.isPot && entryEdit.isShared && pots.length > 1" v-model="entryEdit.potLineId" class="input w-32">
                       <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
                     </select>
+                    <select v-if="envelopes.length" v-model="entryEdit.envelopeId" class="input w-36" title="Dépense prise dans une enveloppe">
+                      <option value="">— pas d'enveloppe</option>
+                      <option v-for="env in envelopes" :key="env.id" :value="env.id">depuis {{ env.name }}</option>
+                    </select>
+                    <label v-if="entryEdit.envelopeId && envelopeById(entryEdit.envelopeId)?.targetAmount" class="checkbox" title="La cible affichée est corrigée d'autant"><input v-model="entryEdit.envelopeInTarget" type="checkbox" /><span>fait partie de l'objectif</span></label>
                     <button class="btn-primary" @click="saveEntryEdit(e)">Sauver</button>
                     <button class="btn-secondary" @click="editingEntryId = null">Annuler</button>
                   </template>
@@ -1053,6 +1072,9 @@ const mainEnvelopesTotal = computed(() => {
                     ½{{ pots.length > 1 ? ' ' + ((potById(e.potLineId) || pots[0]).pot?.partnerName || '') : '' }}
                   </span>
                   <span class="text-gray-400 truncate">{{ e.label }}</span>
+                  <span v-if="e.envelopeId && envelopeById(e.envelopeId)" class="badge bg-violet-50 text-violet-700" :title="e.envelopeInTarget ? 'Fait partie de l\'objectif' : 'Hors objectif'">
+                    depuis {{ envelopeById(e.envelopeId).name }}{{ e.envelopeInTarget ? '' : ' · hors objectif' }}
+                  </span>
                   <span v-if="accountById(e.accountId) || accountById(e.toAccountId)" class="text-gray-300 text-[11px] ml-auto shrink-0">
                     {{ accountById(e.accountId)?.name || '?' }}<template v-if="accountById(e.toAccountId)"> → {{ accountById(e.toAccountId).name }}</template>
                   </span>
@@ -1086,6 +1108,11 @@ const mainEnvelopesTotal = computed(() => {
                   <select v-if="sharingOn && !line.isPot && entryForm.isShared && pots.length > 1" v-model="entryForm.potLineId" class="input w-32" title="Cagnotte concernée">
                     <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
                   </select>
+                  <select v-if="envelopes.length" v-model="entryForm.envelopeId" class="input w-36" title="Dépense prise dans une enveloppe : elle baisse d'autant">
+                    <option value="">— pas d'enveloppe</option>
+                    <option v-for="env in envelopes" :key="env.id" :value="env.id">depuis {{ env.name }}</option>
+                  </select>
+                  <label v-if="entryForm.envelopeId && envelopeById(entryForm.envelopeId)?.targetAmount" class="checkbox" title="La cible affichée est corrigée d'autant (le reste à épargner ne bouge pas)"><input v-model="entryForm.envelopeInTarget" type="checkbox" /><span>fait partie de l'objectif</span></label>
                   <button class="btn-secondary" @click="submitEntry(line)">Ajouter</button>
                 </div>
               </div>

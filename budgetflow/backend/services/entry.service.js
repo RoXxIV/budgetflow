@@ -1,6 +1,7 @@
 import { all, get, run, toCents, fromCents, httpError } from "../db/index.js";
 import { assertOpen } from "./month.service.js";
 import * as pots from "./pot.service.js";
+import { syncEntryExpense } from "./envelope.service.js";
 
 function serialize(row) {
   return {
@@ -18,6 +19,8 @@ function serialize(row) {
     isShared: !!row.is_shared,
     source: row.source,
     notes: row.notes,
+    envelopeId: row.envelope_id,           // « depuis l'enveloppe » : dépense liée
+    envelopeInTarget: !!row.envelope_in_target,
   };
 }
 
@@ -41,13 +44,16 @@ export function create(monthId, data) {
   const potLineId = data.potLineId !== undefined ? (data.potLineId || null) : (line?.pot_line_id ?? null);
 
   const { lastInsertRowid: id } = run(
-    `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, pot_line_id, source, notes)
-     VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, pot_line_id, source, notes, envelope_id, envelope_in_target)
+     VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     monthId, data.lineId ?? null, data.label ?? null, cents, data.date ?? null,
     accountId, data.toAccountId ?? null, data.paymentMethod ?? null, data.themeId ?? null,
-    data.isShared ? 1 : 0, potLineId, data.source ?? "manuelle", data.notes ?? null
+    data.isShared ? 1 : 0, potLineId, data.source ?? "manuelle", data.notes ?? null,
+    data.envelopeId || null, data.envelopeInTarget === false ? 0 : 1
   );
-  return serialize(get("SELECT * FROM entries WHERE id = ?", id));
+  const row = get("SELECT * FROM entries WHERE id = ?", id);
+  syncEntryExpense(row);
+  return serialize(row);
 }
 
 export function update(id, data) {
@@ -62,15 +68,21 @@ export function update(id, data) {
 
   run(
     `UPDATE entries SET label = ?, amount_cents = ?, date = ?, account_id = ?, to_account_id = ?,
-       payment_method = ?, theme_id = ?, is_shared = ?, pot_line_id = ?, notes = ? WHERE id = ?`,
+       payment_method = ?, theme_id = ?, is_shared = ?, pot_line_id = ?, notes = ?,
+       envelope_id = ?, envelope_in_target = ? WHERE id = ?`,
     val("label", "label"), cents, val("date", "date"),
     val("accountId", "account_id"), val("toAccountId", "to_account_id"),
     val("paymentMethod", "payment_method"),
     val("themeId", "theme_id"), val("isShared", "is_shared", (v) => (v ? 1 : 0)),
     val("potLineId", "pot_line_id", (v) => v || null),
-    val("notes", "notes"), id
+    val("notes", "notes"),
+    val("envelopeId", "envelope_id", (v) => v || null),
+    val("envelopeInTarget", "envelope_in_target", (v) => (v === false ? 0 : 1)),
+    id
   );
-  return serialize(get("SELECT * FROM entries WHERE id = ?", id));
+  const row = get("SELECT * FROM entries WHERE id = ?", id);
+  syncEntryExpense(row); // la contribution « depense » liée suit (montant, date, enveloppe, objectif)
+  return serialize(row);
 }
 
 export function remove(id) {

@@ -85,7 +85,7 @@ const TYPE_COLORS = {
   especes: 'bg-amber-50 text-amber-700',
 }
 const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
-const pct = (e) => (e.targetAmount ? Math.min(100, Math.round((e.total / e.targetAmount) * 100)) : null)
+const pct = (e) => (e.effectiveTarget ? Math.min(100, Math.round((e.total / e.effectiveTarget) * 100)) : null)
 
 function apiError(e) {
   alert(e.response?.data?.message || e.message)
@@ -262,7 +262,7 @@ async function deleteContribution(envelope, contribId) {
   } catch (e) { apiError(e) }
 }
 
-const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement', reaffectation: 'réaffectation' }
+const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement', reaffectation: 'réaffectation', depense: 'dépense' }
 </script>
 
 <template>
@@ -422,7 +422,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
               <span class="text-[13.5px] font-medium">{{ envelope.name }}</span>
               <span v-if="envelope.isClosed" class="badge bg-gray-100 text-gray-500">clôturée</span>
               <span class="ml-auto text-[13.5px] font-semibold">{{ fmt(envelope.total) }}</span>
-              <span v-if="envelope.targetAmount" class="text-xs text-gray-400">/ {{ fmt(envelope.targetAmount) }}</span>
+              <span v-if="envelope.targetAmount" class="text-xs text-gray-400" :title="envelope.spentInTarget ? fmt(envelope.targetAmount) + ' − ' + fmt(envelope.spentInTarget) + ' déjà dépensés pour le projet' : ''">/ {{ fmt(envelope.effectiveTarget) }}<span v-if="envelope.spentInTarget"> · {{ fmt(envelope.spentInTarget) }} dépensés</span></span>
             </div>
             <div v-if="envelope.targetAmount" class="progress mt-1.5">
               <div class="progress-bar" :style="{ width: pct(envelope) + '%' }" />
