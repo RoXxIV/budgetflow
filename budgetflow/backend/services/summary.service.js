@@ -1,5 +1,6 @@
 import { all, get, fromCents, httpError } from "../db/index.js";
 import { getSnapshots } from "./month.service.js";
+import * as sharing from "./sharing.service.js";
 
 /**
  * Bilan d'un mois — toute la logique de calcul vit ici (le front n'additionne rien).
@@ -150,5 +151,6 @@ export function getSummary(monthId) {
     },
     mainAccount: main ? { id: main.accountId, name: main.name } : null,
     accounts: accountRows,
+    sharing: sharing.compute(monthId, settings), // null si le module est désactivé
   };
 }

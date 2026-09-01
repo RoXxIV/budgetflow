@@ -156,6 +156,9 @@ async function moveLine(group, index, delta) {
   } catch (e) { apiError(e) }
 }
 
+// Les ½ n'existent que si le module Partage est actif
+const sharingOn = computed(() => !!settings.value?.sharing?.enabled)
+
 // Le type de la catégorie du formulaire (adapte les champs affichés)
 const formCategoryType = computed(() => {
   const c = categories.value.find((x) => x.id === form.value.categoryId)
@@ -211,7 +214,7 @@ const formCategoryType = computed(() => {
             <div class="line-row" @click="openLineId === line.id ? closePanel() : openEdit(line)">
               <span class="text-[13px] font-medium truncate">{{ line.label }}</span>
               <span v-if="line.recurringDay" class="badge bg-blue-50 text-blue-600" title="Jour du mois (date par défaut du « payé »)">le {{ line.recurringDay }}</span>
-              <span v-if="line.isShared" class="badge bg-amber-50 text-amber-600" title="Partagé">½</span>
+              <span v-if="sharingOn && line.isShared" class="badge bg-amber-50 text-amber-600" title="Partagé">½</span>
               <span v-if="themeById(line.themeId)" class="badge" :style="{ background: themeById(line.themeId).color + '22', color: themeById(line.themeId).color }">
                 {{ themeById(line.themeId).name }}
               </span>
@@ -257,7 +260,7 @@ const formCategoryType = computed(() => {
                     <option v-for="m in settings?.paymentMethods || []" :key="m" :value="m">{{ m }}</option>
                   </select>
                 </label>
-                <label v-if="formCategoryType !== 'revenu'" class="checkbox self-end"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
+                <label v-if="sharingOn && formCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (module Partage)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
               </div>
               <div class="flex gap-2 mt-3">
                 <button class="btn-primary" @click="submit">{{ typeof openLineId === 'string' ? 'Ajouter' : 'Sauver' }}</button>
@@ -293,7 +296,7 @@ const formCategoryType = computed(() => {
                   <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                 </select>
               </label>
-              <label v-if="formCategoryType !== 'revenu'" class="checkbox self-end"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
+              <label v-if="sharingOn && formCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (module Partage)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
             </div>
             <div class="flex gap-2 mt-3">
               <button class="btn-primary" @click="submit">Ajouter</button>

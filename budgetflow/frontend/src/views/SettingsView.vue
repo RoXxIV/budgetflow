@@ -1,21 +1,59 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getSettings, updateSettings } from '@/api/settings.js'
 import { getCategories, createCategory, updateCategory, reorderCategories, deleteCategory } from '@/api/categories.js'
 import { getThemes, createTheme, updateTheme, deleteTheme } from '@/api/themes.js'
+import { getTemplateLines } from '@/api/template.js'
 
 // ─── Data ────────────────────────────────────────────────
 const settings = ref(null)
 const categories = ref([])
 const themes = ref([])
+const templateLines = ref([])
 
 async function load() {
-  const [setRes, catRes, themeRes] = await Promise.all([getSettings(), getCategories(), getThemes()])
+  const [setRes, catRes, themeRes, tlRes] = await Promise.all([getSettings(), getCategories(), getThemes(), getTemplateLines()])
   settings.value = setRes.data
   categories.value = catRes.data
   themes.value = themeRes.data
+  templateLines.value = tlRes.data
 }
 onMounted(load)
+
+// ─── Module Partage ──────────────────────────────────────
+const newPartnerPayment = ref({ label: '', amount: '' })
+
+function addPartnerPayment() {
+  const p = newPartnerPayment.value
+  if (!p.label.trim() || !(parseFloat(p.amount) > 0)) return
+  settings.value.sharing.partnerPayments.push({ label: p.label.trim(), amount: parseFloat(p.amount) })
+  newPartnerPayment.value = { label: '', amount: '' }
+}
+function removePartnerPayment(i) {
+  settings.value.sharing.partnerPayments.splice(i, 1)
+}
+
+async function saveSharing() {
+  try {
+    const s = settings.value.sharing
+    await updateSettings({
+      sharing: {
+        enabled: s.enabled,
+        partnerName: s.partnerName,
+        myShare: Number(s.myShare) || 50,
+        targetLineId: s.targetLineId || null,
+        partnerPayments: s.partnerPayments,
+      },
+    })
+    flashSaved()
+  } catch (e) { apiError(e) }
+}
+
+// Lignes du template rangées dans une catégorie de type transfert (candidates naturelles)
+const categoryTypeOf = (line) => categories.value.find((c) => c.id === line.categoryId)?.type
+const targetLineOptions = computed(() =>
+  [...templateLines.value].sort((a, b) => (categoryTypeOf(a) === 'transfert' ? -1 : 0) - (categoryTypeOf(b) === 'transfert' ? -1 : 0))
+)
 
 function apiError(e) {
   alert(e.response?.data?.message || e.message)
@@ -245,6 +283,56 @@ async function removeThemeConfirm(theme) {
             </div>
           </div>
           <button class="btn-primary" @click="saveGeneral">Sauvegarder</button>
+        </div>
+
+        <!-- ─── Module Partage ───────────────────────── -->
+        <div class="card">
+          <div class="flex items-center gap-3 mb-1">
+            <h2 class="section-title mb-0">Partage</h2>
+            <label class="checkbox ml-auto"><input v-model="settings.sharing.enabled" type="checkbox" /><span>Activer</span></label>
+          </div>
+          <p class="text-xs text-gray-400 mb-3">
+            Dépenses communes égalisées chaque mois avec un partenaire. Marquez « ½ » ce que vous payez pour deux ;
+            indiquez ce que l'autre paie directement ; l'app calcule ce que vous vous devez.
+          </p>
+
+          <div v-if="settings.sharing.enabled" class="flex flex-col gap-3">
+            <div class="flex flex-wrap gap-4 items-end">
+              <label class="field">
+                <span>Partenaire</span>
+                <input v-model="settings.sharing.partnerName" type="text" class="input w-36" placeholder="Prénom" />
+              </label>
+              <label class="field">
+                <span>Ma part (%)</span>
+                <input v-model="settings.sharing.myShare" type="number" min="0" max="100" class="input w-20" />
+              </label>
+              <label class="field">
+                <span>Ligne du virement (template)</span>
+                <select v-model="settings.sharing.targetLineId" class="input w-44">
+                  <option :value="null">— aucune</option>
+                  <option v-for="l in targetLineOptions" :key="l.id" :value="l.id">
+                    {{ l.label }}{{ categoryTypeOf(l) === 'transfert' ? '' : ' (' + (categoryTypeOf(l) || '?') + ')' }}
+                  </option>
+                </select>
+              </label>
+            </div>
+
+            <div>
+              <p class="text-xs font-medium text-gray-500 mb-1.5">Ce que {{ settings.sharing.partnerName || 'le partenaire' }} paie directement chaque mois</p>
+              <div v-for="(p, i) in settings.sharing.partnerPayments" :key="i" class="row">
+                <span class="text-[13px] flex-1">{{ p.label }}</span>
+                <span class="text-[13px] font-semibold">{{ p.amount.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) }} €</span>
+                <button class="icon-btn text-red-300 hover:text-red-500" @click="removePartnerPayment(i)">×</button>
+              </div>
+              <div class="row">
+                <input v-model="newPartnerPayment.label" type="text" class="input flex-1" placeholder="Loyer, Internet…" @keyup.enter="addPartnerPayment" />
+                <input v-model="newPartnerPayment.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="addPartnerPayment" />
+                <button class="btn-secondary" @click="addPartnerPayment">Ajouter</button>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn-primary mt-3" @click="saveSharing">Sauvegarder</button>
         </div>
       </div>
     </div>

@@ -5,7 +5,7 @@ import {
   getMonthLines, payLine, unpayLine,
   getMonthSnapshots, upsertMonthSnapshots,
   getMonthEntries, createEntry, deleteEntry,
-  getMonthSummary, getMonthEnvelopeContributions,
+  getMonthSummary, getMonthEnvelopeContributions, applySharing,
   createMonthLine, updateMonthLine, deleteMonthLine, applyLineToTemplate,
 } from '@/api/months.js'
 import { getEnvelopes, addContribution, removeContribution } from '@/api/envelopes.js'
@@ -69,6 +69,17 @@ async function reload() {
   summaryData.value = sumRes.data
   envelopes.value = envRes.data.filter((e) => !e.isClosed)
   monthContribs.value = mcRes.data
+}
+
+// ─── Partage (module optionnel : les ½ n'existent que s'il est actif) ─
+const sharingOn = computed(() => !!settings.value?.sharing?.enabled)
+const showSharingDetail = ref(false)
+
+async function doApplySharing() {
+  const s = summaryData.value?.sharing
+  if (!s) return
+  if (!confirm(`Poser ${fmt(s.toSend)} sur « ${s.targetLine?.label} » pour ${s.partnerName} ?`)) return
+  try { await applySharing(current.value.id); await reload() } catch (e) { apiError(e) }
 }
 
 // ─── Enveloppes (contribution rapide depuis le mois) ─────
@@ -512,6 +523,44 @@ const mainEnvelopesTotal = computed(() => {
         </div>
       </div>
 
+      <!-- ─── Partage ──────────────────────────────── -->
+      <div v-if="summaryData?.sharing" class="card px-5 py-3.5 mb-4">
+        <div class="flex items-center gap-3 flex-wrap">
+          <span class="badge bg-amber-50 text-amber-600">½</span>
+          <span class="text-[13.5px]">
+            <template v-if="summaryData.sharing.toSend > 0">
+              À envoyer à <span class="font-semibold">{{ summaryData.sharing.partnerName }}</span> :
+              <span class="text-[17px] font-bold text-amber-600">{{ fmt(summaryData.sharing.toSend) }}</span>
+            </template>
+            <template v-else-if="summaryData.sharing.toSend < 0">
+              <span class="font-semibold">{{ summaryData.sharing.partnerName }}</span> vous doit :
+              <span class="text-[17px] font-bold text-emerald-600">{{ fmt(-summaryData.sharing.toSend) }}</span>
+            </template>
+            <template v-else>Rien à égaliser avec {{ summaryData.sharing.partnerName }} ce mois</template>
+          </span>
+          <span v-if="summaryData.sharing.targetLine?.applied" class="text-[11.5px] text-gray-400">
+            posé : {{ fmt(summaryData.sharing.targetLine.applied) }} sur « {{ summaryData.sharing.targetLine.label }} »
+            <span v-if="Math.abs(summaryData.sharing.targetLine.applied - summaryData.sharing.toSend) >= 0.01" class="text-amber-500">· à mettre à jour</span>
+          </span>
+          <span class="ml-auto flex gap-3 items-center">
+            <button class="link text-xs" @click="showSharingDetail = !showSharingDetail">{{ showSharingDetail ? '▲' : '▼' }} détail</button>
+            <button
+              v-if="!current.isClosed && summaryData.sharing.toSend > 0"
+              class="btn-primary"
+              :disabled="!summaryData.sharing.targetLine"
+              :title="summaryData.sharing.targetLine ? '' : 'Choisir une ligne cible dans Paramètres › Partage'"
+              @click="doApplySharing"
+            >Appliquer</button>
+          </span>
+        </div>
+        <div v-if="showSharingDetail" class="mt-2.5 text-[12.5px] text-gray-500 grid grid-cols-2 gap-x-6 gap-y-1 max-w-xl">
+          <span>Payé par moi en commun (½)</span><span class="text-right font-medium text-gray-700">{{ fmt(summaryData.sharing.sharedByMe) }}<span v-if="summaryData.sharing.sharedPlanned" class="text-gray-400 font-normal"> dont {{ fmt(summaryData.sharing.sharedPlanned) }} prévu</span></span>
+          <span>Payé par {{ summaryData.sharing.partnerName }}</span><span class="text-right font-medium text-gray-700">{{ fmt(summaryData.sharing.partnerPaid) }}<span class="text-gray-400 font-normal"> ({{ summaryData.sharing.partnerPayments.map((p) => p.label).join(', ') || '—' }})</span></span>
+          <span>Total commun</span><span class="text-right font-medium text-gray-700">{{ fmt(summaryData.sharing.total) }}</span>
+          <span>Ma part ({{ summaryData.sharing.myShare }} %)</span><span class="text-right font-medium text-gray-700">{{ fmt(summaryData.sharing.myPart) }}</span>
+        </div>
+      </div>
+
       <!-- ─── Enveloppes ───────────────────────────── -->
       <div v-if="envelopes.length" class="card p-0 overflow-hidden mb-4">
         <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
@@ -612,7 +661,7 @@ const mainEnvelopesTotal = computed(() => {
                   {{ line.label }}
                 </span>
                 <span v-if="line.recurringDay && !isPaid(line)" class="badge bg-blue-50 text-blue-600">le {{ line.recurringDay }}</span>
-                <span v-if="line.isShared" class="badge bg-amber-50 text-amber-600">½</span>
+                <span v-if="sharingOn && line.isShared" class="badge bg-amber-50 text-amber-600">½</span>
 
                 <!-- Montant : le réel remplace le prévu -->
                 <span class="ml-auto shrink-0 text-right">
@@ -658,7 +707,7 @@ const mainEnvelopesTotal = computed(() => {
                       <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                     </select>
                   </label>
-                  <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end"><input v-model="lineForm.isShared" type="checkbox" /><span>½</span></label>
+                  <label v-if="sharingOn && lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (module Partage)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
                 </div>
                 <div class="flex gap-2 mt-3 items-center">
                   <button class="btn-primary" @click="submitLineForm">Sauver</button>
@@ -678,7 +727,7 @@ const mainEnvelopesTotal = computed(() => {
                   <span class="font-medium w-20 shrink-0">{{ fmt(e.amount) }}</span>
                   <span v-if="e.source === 'paye'" class="badge bg-blue-50 text-blue-600">payé</span>
                   <span v-if="themeById(e.themeId)" class="badge" :style="{ background: themeById(e.themeId).color + '22', color: themeById(e.themeId).color }">{{ themeById(e.themeId).name }}</span>
-                  <span v-if="e.isShared" class="badge bg-amber-50 text-amber-600">½</span>
+                  <span v-if="sharingOn && e.isShared" class="badge bg-amber-50 text-amber-600">½</span>
                   <span class="text-gray-400 truncate">{{ e.label }}</span>
                   <span v-if="accountById(e.accountId) || accountById(e.toAccountId)" class="text-gray-300 text-[11px] ml-auto shrink-0">
                     {{ accountById(e.accountId)?.name || '?' }}<template v-if="accountById(e.toAccountId)"> → {{ accountById(e.toAccountId).name }}</template>
@@ -707,7 +756,7 @@ const mainEnvelopesTotal = computed(() => {
                       <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                     </select>
                   </template>
-                  <label class="checkbox"><input v-model="entryForm.isShared" type="checkbox" /><span>½</span></label>
+                  <label v-if="sharingOn" class="checkbox" title="Dépense commune (module Partage)"><input v-model="entryForm.isShared" type="checkbox" /><span>½</span></label>
                   <button class="btn-secondary" @click="submitEntry(line)">Ajouter</button>
                 </div>
               </div>
@@ -741,7 +790,7 @@ const mainEnvelopesTotal = computed(() => {
                     <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                   </select>
                 </label>
-                <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end"><input v-model="lineForm.isShared" type="checkbox" /><span>½</span></label>
+                <label v-if="sharingOn && lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (module Partage)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
               </div>
               <div class="flex gap-2 mt-3">
                 <button class="btn-primary" @click="submitLineForm">Ajouter</button>
