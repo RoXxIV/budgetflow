@@ -426,19 +426,26 @@ const lineFormCategoryType = computed(() => {
   return c?.type || 'depense'
 })
 
+const lineFormCategory = ref(null)
+const addLineOpen = computed(() => typeof lineFormId.value === 'string')
+
 function openAddLine(category) {
   lineFormId.value = `new-${category.id}`
+  lineFormCategory.value = category
+  const mainId = accounts.value.find((a) => a.isMain)?.id || ''
   lineForm.value = {
     label: '',
     plannedAmount: '',   // prévu seul → ligne à cocher plus tard
     actualAmount: '',    // montant rempli → entrée créée tout de suite (le réel remplace le prévu)
     entryDate: new Date().toISOString().substring(0, 10),
-    envelopeId: '',      // « depuis l'enveloppe » sur l'entrée créée
+    // « Depuis » : un compte ('a:ID') ou une enveloppe ('e:ID' → dépense prise dans l'enveloppe)
+    source: mainId ? 'a:' + mainId : '',
     envelopeInTarget: true,
+    paymentMethod: settings.value?.paymentMethods?.[0] || 'CB',
     categoryId: category.id,
     themeId: '',
-    fromAccountId: category.type === 'revenu' ? '' : (accounts.value.find((a) => a.isMain)?.id || ''),
-    toAccountId: '',
+    fromAccountId: '',
+    toAccountId: category.type === 'revenu' ? mainId : '',
     isShared: false,
     recurringDay: '',
     potLineId: pots.value[0]?.id || '',
@@ -448,6 +455,22 @@ function openAddLine(category) {
     potMyShare: 50,
   }
 }
+
+// Source choisie dans « Depuis » : compte ou enveloppe (→ compte hôte, sinon principal)
+const sourceEnvelope = computed(() => {
+  const s = lineForm.value.source || ''
+  return s.startsWith('e:') ? envelopeById(Number(s.slice(2))) : null
+})
+const sourceAccountId = computed(() => {
+  const s = lineForm.value.source || ''
+  if (s.startsWith('a:')) return Number(s.slice(2))
+  if (sourceEnvelope.value) return sourceEnvelope.value.accountId || accounts.value.find((a) => a.isMain)?.id || null
+  return null
+})
+// Virement : moyen de paiement « virement », ou catégorie qui a une destination (épargne, transfert)
+const isTransfer = computed(() =>
+  /virement/i.test(lineForm.value.paymentMethod || '') || ['epargne', 'transfert'].includes(lineFormCategoryType.value)
+)
 
 function openEditLine(line) {
   lineFormId.value = line.id
@@ -474,13 +497,16 @@ function closeLineForm() {
 
 function lineFormData() {
   const f = lineForm.value
+  const adding = typeof lineFormId.value === 'string'
+  const isRevenu = lineFormCategoryType.value === 'revenu'
   return {
     label: f.label,
     plannedAmount: f.plannedAmount === '' ? 0 : parseFloat(f.plannedAmount),
     categoryId: f.categoryId || null,
     themeId: f.themeId || null,
-    fromAccountId: f.fromAccountId || null,
-    toAccountId: f.toAccountId || null,
+    fromAccountId: adding ? (isRevenu ? null : sourceAccountId.value) : (f.fromAccountId || null),
+    toAccountId: adding ? ((isRevenu || isTransfer.value) ? (f.toAccountId || null) : null) : (f.toAccountId || null),
+    paymentMethod: adding && !isRevenu ? (f.paymentMethod || null) : undefined,
     isShared: f.isShared,
     recurringDay: f.recurringDay === '' ? null : Number(f.recurringDay),
     potLineId: f.isShared ? (f.potLineId || null) : null,
@@ -496,21 +522,23 @@ async function submitLineForm() {
   const f = lineForm.value
   try {
     if (typeof lineFormId.value === 'string') {
+      const isRevenu = lineFormCategoryType.value === 'revenu'
       const { data: line } = await createMonthLine(current.value.id, lineFormData())
       // Montant rempli : l'entrée est créée tout de suite (une seule saisie)
       const amount = parseFloat(f.actualAmount)
-      if (amount > 0) {
+      if (amount > 0 && !f.isPot) {
         await createEntry(current.value.id, {
           lineId: line.id,
           amount,
           date: f.entryDate,
           themeId: f.themeId || null,
-          // Revenu : le compte de l'entrée est celui qui est crédité (« Vers »)
-          accountId: (lineFormCategoryType.value === 'revenu' ? f.toAccountId : f.fromAccountId) || null,
-          toAccountId: lineHasDestination(line) ? (f.toAccountId || null) : null,
+          // Revenu : le compte de l'entrée est celui qui est crédité ; sinon la source (compte ou compte hôte de l'enveloppe)
+          accountId: isRevenu ? (f.toAccountId || null) : sourceAccountId.value,
+          toAccountId: !isRevenu && isTransfer.value ? (f.toAccountId || null) : null,
+          paymentMethod: isRevenu ? null : (f.paymentMethod || null),
           isShared: f.isShared,
           potLineId: f.isShared ? (f.potLineId || null) : null,
-          envelopeId: f.envelopeId || null,
+          envelopeId: sourceEnvelope.value?.id || null,
           envelopeInTarget: f.envelopeInTarget !== false,
         })
       }
@@ -658,6 +686,84 @@ const mainEnvelopesTotal = computed(() => {
       <template #footer>
         <button class="btn-primary" :disabled="!newMonth.period || newMonthTaken" @click="submitCreate">Créer depuis le template</button>
         <button class="btn-secondary" @click="createFormOpen = false">Annuler</button>
+      </template>
+    </AppModal>
+
+    <!-- ─── Nouvelle ligne du mois (modal) ───────────── -->
+    <AppModal :open="addLineOpen" :title="'Nouvelle ligne — ' + (lineFormCategory?.name || '')" wide @close="closeLineForm">
+      <div class="flex flex-col gap-4">
+        <!-- Quoi / combien -->
+        <div class="flex flex-wrap gap-3 items-end">
+          <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-44" placeholder="Hôtel Japon, Canva, Cadeau…" @keyup.enter="submitLineForm" /></label>
+          <template v-if="!lineForm.isPot">
+            <label class="field" title="À venir : la ligne se cochera quand ce sera passé"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
+            <label class="field" title="Déjà passé : l'entrée est créée tout de suite"><span>Montant (€)</span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
+            <label v-if="lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
+            <label v-else class="field" title="Date par défaut du « payé »"><span>Jour du mois</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
+          </template>
+          <label v-if="themes.length" class="field"><span>Thème</span>
+            <select v-model="lineForm.themeId" class="input w-32">
+              <option value="">—</option>
+              <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+          </label>
+        </div>
+
+        <!-- D'où vient l'argent, où il va -->
+        <div v-if="!lineForm.isPot" class="flex flex-wrap gap-3 items-end">
+          <label v-if="lineFormCategoryType === 'revenu'" class="field"><span>Compte crédité</span>
+            <select v-model="lineForm.toAccountId" class="input w-40">
+              <option value="">—</option>
+              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+          </label>
+          <template v-else>
+            <label class="field"><span>Depuis</span>
+              <select v-model="lineForm.source" class="input w-44">
+                <optgroup label="Mes comptes">
+                  <option v-for="a in accounts" :key="'a' + a.id" :value="'a:' + a.id">{{ a.name }}</option>
+                </optgroup>
+                <optgroup v-if="envelopes.length" label="Mes enveloppes">
+                  <option v-for="env in envelopes" :key="'e' + env.id" :value="'e:' + env.id">{{ env.name }}{{ env.accountName ? ' (' + env.accountName + ')' : '' }}</option>
+                </optgroup>
+              </select>
+            </label>
+            <label v-if="sourceEnvelope?.targetAmount" class="checkbox self-end" title="La cible affichée est corrigée d'autant : le reste à épargner ne bouge pas"><input v-model="lineForm.envelopeInTarget" type="checkbox" /><span>déduire de l'objectif</span></label>
+            <label class="field"><span>Moyen de paiement</span>
+              <select v-model="lineForm.paymentMethod" class="input w-32">
+                <option v-for="m in settings?.paymentMethods || ['CB']" :key="m" :value="m">{{ m }}</option>
+              </select>
+            </label>
+            <label v-if="isTransfer" class="field"><span>Vers</span>
+              <select v-model="lineForm.toAccountId" class="input w-40">
+                <option value="">— compte destination</option>
+                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+            </label>
+          </template>
+        </div>
+        <p v-if="sourceEnvelope" class="text-[11.5px] -mt-2" :class="lineForm.actualAmount ? 'text-gray-400' : 'text-amber-600'">
+          <template v-if="lineForm.actualAmount">Pris dans l'enveloppe « {{ sourceEnvelope.name }} »{{ sourceEnvelope.accountName ? ', compte ' + sourceEnvelope.accountName : '' }} — l'enveloppe baisse du montant.</template>
+          <template v-else>Renseignez un Montant : c'est l'entrée créée qui sort de l'enveloppe (une ligne seulement prévue n'y touche pas).</template>
+        </p>
+
+        <!-- Partage -->
+        <div v-if="lineFormCategoryType !== 'revenu'" class="flex flex-wrap gap-3 items-end">
+          <label v-if="sharingOn && !lineForm.isPot" class="checkbox" title="Dépense commune (rattachée à une cagnotte)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
+          <select v-if="sharingOn && !lineForm.isPot && lineForm.isShared && pots.length > 1" v-model="lineForm.potLineId" class="input w-40" title="Cagnotte concernée">
+            <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
+          </select>
+          <label class="checkbox" title="Partage avec quelqu'un : le prévu de la ligne est calculé à partir des ½"><input v-model="lineForm.isPot" type="checkbox" /><span>Cette ligne est une cagnotte</span></label>
+          <template v-if="lineForm.isPot">
+            <label class="field"><span>Partenaire</span><input v-model="lineForm.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
+            <label class="field"><span>Il/elle a payé (€)</span><input v-model="lineForm.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>
+            <label class="field"><span>Ma part (%)</span><input v-model="lineForm.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
+          </template>
+        </div>
+      </div>
+      <template #footer>
+        <button class="btn-primary" @click="submitLineForm">Ajouter</button>
+        <button class="btn-secondary" @click="closeLineForm">Annuler</button>
       </template>
     </AppModal>
 
@@ -1123,58 +1229,8 @@ const mainEnvelopesTotal = computed(() => {
               </div>
             </div>
 
-            <p v-if="!group.lines.length && lineFormId !== `new-${group.category.id}`" class="text-xs text-gray-400 px-4 py-2.5">Aucune ligne.</p>
-
-            <!-- Ajout d'une ligne au mois (sans toucher au template) -->
-            <div v-if="lineFormId === `new-${group.category.id}`" class="edit-panel">
-              <div class="flex flex-wrap gap-3">
-                <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-40" placeholder="Canva, Cadeau…" @keyup.enter="submitLineForm" /></label>
-                <label v-if="!lineForm.isPot" class="field" title="À venir : la ligne se cochera quand ce sera passé"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
-                <label v-if="!lineForm.isPot" class="field" title="Déjà passé : l'entrée est créée tout de suite"><span>Montant (€)</span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
-                <label v-if="!lineForm.isPot && lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
-                <label v-if="!lineForm.isPot && lineForm.actualAmount && envelopes.length" class="field" title="Dépense prise dans une enveloppe : elle baisse d'autant"><span>Depuis l'enveloppe</span>
-                  <select v-model="lineForm.envelopeId" class="input w-36">
-                    <option value="">— non</option>
-                    <option v-for="env in envelopes" :key="env.id" :value="env.id">{{ env.name }}</option>
-                  </select>
-                </label>
-                <label v-if="!lineForm.isPot && lineForm.actualAmount && lineForm.envelopeId && envelopeById(lineForm.envelopeId)?.targetAmount" class="checkbox self-end" title="La cible affichée est corrigée d'autant (le reste à épargner ne bouge pas)"><input v-model="lineForm.envelopeInTarget" type="checkbox" /><span>fait partie de l'objectif</span></label>
-                <label v-else class="field" title="Date par défaut du « payé »"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" placeholder="—" /></label>
-                <label v-if="themes.length" class="field"><span>Thème</span>
-                  <select v-model="lineForm.themeId" class="input w-28">
-                    <option value="">—</option>
-                    <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
-                  </select>
-                </label>
-                <label v-if="lineFormCategoryType !== 'revenu'" class="field"><span>Depuis</span>
-                  <select v-model="lineForm.fromAccountId" class="input w-28">
-                    <option value="">—</option>
-                    <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                  </select>
-                </label>
-                <label v-if="lineFormCategoryType !== 'depense'" class="field"><span>Vers</span>
-                  <select v-model="lineForm.toAccountId" class="input w-28">
-                    <option value="">—</option>
-                    <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                  </select>
-                </label>
-                <label v-if="sharingOn && !lineForm.isPot && lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (rattachée à une cagnotte)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
-                  <select v-if="sharingOn && !lineForm.isPot && lineForm.isShared && pots.length > 1" v-model="lineForm.potLineId" class="input w-36 self-end" title="Cagnotte concernée">
-                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
-                  </select>
-                  <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Partage avec quelqu'un : le prévu de la ligne est calculé à partir des ½"><input v-model="lineForm.isPot" type="checkbox" /><span>Cagnotte</span></label>
-                  <template v-if="lineForm.isPot">
-                    <label class="field"><span>Partenaire</span><input v-model="lineForm.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
-                    <label class="field"><span>Il/elle a payé (€)</span><input v-model="lineForm.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>
-                    <label class="field"><span>Ma part (%)</span><input v-model="lineForm.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
-                  </template>
-              </div>
-              <div class="flex gap-2 mt-3">
-                <button class="btn-primary" @click="submitLineForm">Ajouter</button>
-                <button class="btn-secondary" @click="closeLineForm">Annuler</button>
-              </div>
-            </div>
-            <button v-else-if="!current.isClosed" class="link text-xs px-4 py-2 block" @click="openAddLine(group.category)">+ ligne</button>
+            <p v-if="!group.lines.length" class="text-xs text-gray-400 px-4 py-2.5">Aucune ligne.</p>
+            <button v-if="!current.isClosed" class="link text-xs px-4 py-2 block" @click="openAddLine(group.category)">+ ligne</button>
           </div>
         </div>
       </div>
