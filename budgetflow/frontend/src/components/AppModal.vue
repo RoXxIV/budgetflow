@@ -19,8 +19,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="fixed inset-0 z-50 flex items-start justify-center bg-gray-900/40 px-4 py-10 overflow-y-auto" @mousedown.self="emit('close')">
-      <div class="bg-white rounded-2xl shadow-xl w-full flex flex-col max-h-[calc(100vh-5rem)]" :class="wide ? 'max-w-3xl' : 'max-w-xl'">
+    <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4 py-6" @mousedown.self="emit('close')">
+      <div class="bg-white rounded-2xl shadow-xl w-full flex flex-col max-h-[calc(100vh-3rem)]" :class="wide ? 'max-w-3xl' : 'max-w-xl'">
         <div class="flex items-center gap-3 px-5 py-3.5 border-b border-stone-100">
           <h3 class="text-[15px] font-semibold">{{ title }}</h3>
           <button class="ml-auto w-7 h-7 rounded-md hover:bg-stone-100 text-gray-400 cursor-pointer text-[15px]" title="Fermer (Échap)" @click="emit('close')">×</button>
