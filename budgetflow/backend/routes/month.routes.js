@@ -39,7 +39,7 @@ router.delete("/:id/lines/:lineId", wrap((req, res) => { months.assertOpen(id(re
 router.post("/:id/lines/:lineId/apply-to-template", wrap((req, res) => res.json(budgetLines.applyToTemplate(id(req, "lineId")))));
 
 // ☐ payé
-router.post("/:id/lines/:lineId/pay", wrap((req, res) => res.status(201).json(entries.pay(id(req), id(req, "lineId")))));
+router.post("/:id/lines/:lineId/pay", wrap((req, res) => res.status(201).json(entries.pay(id(req), id(req, "lineId"), req.body || {}))));
 router.delete("/:id/lines/:lineId/pay", wrap((req, res) => res.json(entries.unpay(id(req), id(req, "lineId")))));
 
 // Snapshots

@@ -111,7 +111,10 @@ export function remove(id) {
 }
 
 // ─── ☐ payé : crée l'entrée au prévu, à la date du jour récurrent ───
-export function pay(monthId, lineId) {
+// Ligne mensualisée dont l'enveloppe ne couvre pas le montant : sans shortfallAccountId → 409 ENVELOPE_SHORT
+// (le front propose « vider l'enveloppe et prendre le reste sur … ») ; avec → deux entrées : la part
+// couverte sort de l'enveloppe (compte hôte), le reste du compte indiqué. L'enveloppe ne devient jamais négative.
+export function pay(monthId, lineId, { shortfallAccountId = null } = {}) {
   const month = assertOpen(monthId);
   const line = get("SELECT * FROM budget_lines WHERE id = ? AND month_id = ?", lineId, monthId);
   if (!line) throw httpError(404, "Ligne introuvable sur ce mois");
@@ -134,28 +137,60 @@ export function pay(monthId, lineId) {
     ? `${month.period}-${String(line.recurring_day).padStart(2, "0")}`
     : null;
 
-  // Ligne mensualisée : le compte débité est celui où l'enveloppe a mis l'argent de côté (compte hôte).
-  // Dans la réalité : virement hôte → compte prélevé, puis prélèvement ; l'effet net est un débit du
-  // compte hôte, enregistré en une seule entrée (ne pas saisir le virement inverse en plus).
-  const envelopeAccount = line.envelope_id ? get("SELECT account_id FROM envelopes WHERE id = ?", line.envelope_id)?.account_id : null;
-  return create(monthId, {
+  const base = {
     lineId,
-    amount: fromCents(amountCents),
     date: day,
-    accountId: envelopeAccount ?? line.from_account_id ?? line.to_account_id ?? null,
     toAccountId: line.from_account_id ? line.to_account_id : null, // les deux si la ligne est un mouvement entre comptes
     paymentMethod: line.payment_method,
     themeId: line.theme_id,
     isShared: !!line.is_shared,
     source: "paye",
+  };
+
+  // Ligne mensualisée : le compte débité est celui où l'enveloppe a mis l'argent de côté (compte hôte).
+  // Dans la réalité : virement hôte → compte prélevé, puis prélèvement ; l'effet net est un débit du
+  // compte hôte, enregistré en une seule entrée (ne pas saisir le virement inverse en plus).
+  if (line.envelope_id) {
+    const envelope = get("SELECT * FROM envelopes WHERE id = ?", line.envelope_id);
+    const available = Math.max(0, get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ?", line.envelope_id).s);
+    const missing = amountCents - available;
+    if (missing > 0 && !shortfallAccountId) {
+      const err = httpError(409, `L'enveloppe « ${envelope.name} » ne contient que ${fromCents(available).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € sur ${fromCents(amountCents).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €`);
+      err.payload = { code: "ENVELOPE_SHORT", envelopeId: envelope.id, envelopeName: envelope.name, available: fromCents(available), missing: fromCents(missing), amount: fromCents(amountCents) };
+      throw err;
+    }
+    const covered = Math.min(amountCents, available);
+    let last = null;
+    if (covered > 0) {
+      last = create(monthId, { ...base, amount: fromCents(covered), accountId: envelope.account_id ?? line.from_account_id ?? null, envelopeId: envelope.id, envelopeInTarget: false });
+    }
+    if (missing > 0) {
+      last = create(monthId, { ...base, amount: fromCents(missing), accountId: shortfallAccountId, envelopeId: null, label: covered > 0 ? "reste hors enveloppe" : null });
+      // L'échéance avance quand même d'un cycle (create ne le fait que pour la part sortie de l'enveloppe)
+      if ((line.interval_months || 1) > 1) {
+        run("UPDATE envelopes SET deadline = ? WHERE id = ?", nextDueDate(line, periodPlus(month.period, 1)), envelope.id);
+      }
+    }
+    return last;
+  }
+
+  return create(monthId, {
+    ...base,
+    amount: fromCents(amountCents),
+    accountId: line.from_account_id ?? line.to_account_id ?? null,
   });
 }
 
-// Décocher : ne retire que l'entrée créée par « payé » (jamais les saisies manuelles)
+// Décocher : ne retire que les entrées créées par « payé » (jamais les saisies manuelles)
 export function unpay(monthId, lineId) {
-  assertOpen(monthId);
-  const entry = get("SELECT * FROM entries WHERE line_id = ? AND source = 'paye'", lineId);
-  if (!entry) throw httpError(404, "Aucune entrée « payé » sur cette ligne");
-  run("DELETE FROM entries WHERE id = ?", entry.id);
+  const month = assertOpen(monthId);
+  const entries = all("SELECT * FROM entries WHERE line_id = ? AND source = 'paye'", lineId);
+  if (!entries.length) throw httpError(404, "Aucune entrée « payé » sur cette ligne");
+  for (const e of entries) run("DELETE FROM entries WHERE id = ?", e.id); // les contributions « depense » liées suivent (CASCADE)
+  // Ligne mensualisée : l'échéance revient au cycle courant
+  const line = get("SELECT * FROM budget_lines WHERE id = ?", lineId);
+  if (line?.envelope_id && (line.interval_months || 1) > 1) {
+    run("UPDATE envelopes SET deadline = ? WHERE id = ?", nextDueDate(line, month.period), line.envelope_id);
+  }
   return { message: "Marquage payé retiré" };
 }

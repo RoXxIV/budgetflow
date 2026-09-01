@@ -34,7 +34,7 @@ app.use("/api/assets", assetRoutes);
 app.use((err, req, res, next) => {
   const status = err.status || 500;
   if (status >= 500) console.error(err);
-  res.status(status).json({ message: err.message || "Erreur serveur" });
+  res.status(status).json({ message: err.message || "Erreur serveur", ...(err.payload || {}) });
 });
 
 app.listen(PORT, () => {

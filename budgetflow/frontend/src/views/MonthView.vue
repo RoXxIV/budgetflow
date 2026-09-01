@@ -318,11 +318,31 @@ async function toggleClosed() {
 }
 
 // ─── ☐ payé ──────────────────────────────────────────────
+// Enveloppe insuffisante (ligne mensualisée) : le backend répond ENVELOPE_SHORT → modal « vider et prendre le reste sur … »
+const shortfall = ref(null) // { line, envelopeName, available, missing, amount, accountId }
+
 async function togglePaid(line) {
   try {
     if (!isPaid(line)) await payLine(current.value.id, line.id)
-    else if (hasPayEntry(line) && entriesForLine(line).length === 1) await unpayLine(current.value.id, line.id)
+    else if (hasPayEntry(line) && entriesForLine(line).every((e) => e.source === 'paye')) await unpayLine(current.value.id, line.id)
     else { openEntriesLineId.value = line.id; return } // entrées manuelles → gérer dans le déroulé
+    await reload()
+  } catch (e) {
+    const p = e.response?.data
+    if (p?.code === 'ENVELOPE_SHORT') {
+      shortfall.value = { line, ...p, accountId: line.fromAccountId || accounts.value.find((a) => a.isMain)?.id || '' }
+      return
+    }
+    apiError(e)
+  }
+}
+
+async function confirmShortfall() {
+  const s = shortfall.value
+  if (!s?.accountId) return
+  try {
+    await payLine(current.value.id, s.line.id, { shortfallAccountId: s.accountId })
+    shortfall.value = null
     await reload()
   } catch (e) { apiError(e) }
 }
@@ -624,12 +644,13 @@ function overBudget(line) {
 }
 function showCheckbox(line) {
   const entries = entriesForLine(line)
+  const onlyPaid = entries.length > 0 && entries.every((e) => e.source === 'paye')
   if (line.isPot) {
     // Cagnotte : à cocher dès qu'il y a quelque chose à régler (dans un sens ou l'autre)
-    return entries.length === 0 ? line.pot?.toSend !== 0 : (entries.length === 1 && entries[0].source === 'paye')
+    return entries.length === 0 ? line.pot?.toSend !== 0 : onlyPaid
   }
   if (!(line.plannedAmount > 0)) return false
-  return entries.length === 0 || (entries.length === 1 && entries[0].source === 'paye')
+  return entries.length === 0 || onlyPaid
 }
 
 // ─── Snapshots (édition) ─────────────────────────────────
@@ -889,6 +910,31 @@ const mainEnvelopesTotal = computed(() => {
       </template>
     </AppModal>
 
+    <!-- ─── Enveloppe insuffisante (☐ payé d'une ligne mensualisée) ── -->
+    <AppModal :open="!!shortfall" title="Enveloppe insuffisante" @close="shortfall = null">
+      <div v-if="shortfall" class="flex flex-col gap-3 text-[13px]">
+        <p>
+          L'enveloppe <b>« {{ shortfall.envelopeName }} »</b> contient <b>{{ fmt(shortfall.available) }}</b>
+          pour un paiement de <b>{{ fmt(shortfall.amount) }}</b> — il manque <b class="text-amber-600">{{ fmt(shortfall.missing) }}</b>.
+        </p>
+        <div class="flex flex-wrap gap-3 items-end">
+          <label class="field"><span>Prendre le reste sur</span>
+            <select v-model="shortfall.accountId" class="input w-44">
+              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+          </label>
+        </div>
+        <p class="text-[11.5px] text-gray-400">
+          Deux entrées seront créées : {{ fmt(shortfall.available) }} depuis l'enveloppe (elle tombe à 0) et {{ fmt(shortfall.missing) }} depuis ce compte.
+          L'échéance avance d'un cycle et la mensualité repart. Décocher annule les deux.
+        </p>
+      </div>
+      <template #footer>
+        <button class="btn-primary" @click="confirmShortfall">Vider l'enveloppe et prendre le reste</button>
+        <button class="btn-secondary" @click="shortfall = null">Annuler</button>
+      </template>
+    </AppModal>
+
     <!-- ─── Aucun mois ───────────────────────────────── -->
     <div v-if="!current && !monthsList.length && !createFormOpen" class="text-center py-16 text-gray-400">
       <p class="mb-4">Aucun mois pour l'instant.</p>
@@ -979,8 +1025,8 @@ const mainEnvelopesTotal = computed(() => {
             />
             <span class="text-[13px] font-medium truncate">{{ env.name }}</span>
             <span v-if="env.accountName" class="badge bg-stone-100 text-gray-500">{{ env.accountName }}</span>
-            <span v-if="contribsForEnvelope(env).length" class="badge bg-violet-50 text-violet-700">
-              +{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois
+            <span v-if="contribsForEnvelope(env).length" class="badge" :class="contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? 'bg-violet-50 text-violet-700' : 'bg-amber-50 text-amber-700'">
+              {{ contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? '+' : '' }}{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois
             </span>
             <span v-else-if="env.monthlySuggestion" class="text-[11px] text-gray-400" title="Mensualité suggérée pour atteindre la cible à l'échéance">
               ≈ {{ fmt(env.monthlySuggestion) }} / mois

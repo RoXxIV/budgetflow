@@ -16,7 +16,7 @@ export const updateMonthLine = (id, lineId, data) => api.put(`/months/${id}/line
 export const deleteMonthLine = (id, lineId, force = false) => api.delete(`/months/${id}/lines/${lineId}${force ? '?force=1' : ''}`)
 export const applyLineToTemplate = (id, lineId) => api.post(`/months/${id}/lines/${lineId}/apply-to-template`)
 
-export const payLine = (id, lineId) => api.post(`/months/${id}/lines/${lineId}/pay`)
+export const payLine = (id, lineId, data = {}) => api.post(`/months/${id}/lines/${lineId}/pay`, data)
 export const unpayLine = (id, lineId) => api.delete(`/months/${id}/lines/${lineId}/pay`)
 
 export const getMonthSnapshots = (id) => api.get(`/months/${id}/snapshots`)
