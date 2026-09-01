@@ -5,8 +5,9 @@ import { getAccounts, createAccount, updateAccount, deleteAccount, getNetWorth }
 import {
   getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope,
   getContributions, addContribution, removeContribution,
-  getRecalibration, recalibrateEnvelope,
+  getRecalibration, recalibrateEnvelope, getAvailability, reallocateEnvelope,
 } from '@/api/envelopes.js'
+import { watch } from 'vue'
 
 // ─── Data ────────────────────────────────────────────────
 const accounts = ref([])
@@ -55,6 +56,21 @@ async function addContributionRecal(envelope, notes) {
   contributions.value = (await getContributions(envelope.id)).data
   await load()
   await loadRecalibration(envelope)
+}
+
+// ─── Réaffectation entre enveloppes d'un même compte ─────
+const reallocForm = ref({ toEnvelopeId: '', amount: '' })
+const reallocTargets = (envelope) => envelopes.value.filter((e) => e.accountId === envelope.accountId && e.id !== envelope.id && !e.isClosed)
+
+async function doReallocate(envelope) {
+  const f = reallocForm.value
+  if (!f.toEnvelopeId || !(parseFloat(f.amount) > 0)) return
+  try {
+    await reallocateEnvelope(envelope.id, { toEnvelopeId: f.toEnvelopeId, amount: parseFloat(f.amount) })
+    reallocForm.value = { toEnvelopeId: '', amount: '' }
+    contributions.value = (await getContributions(envelope.id)).data
+    await load()
+  } catch (e) { apiError(e) }
 }
 
 // Enveloppes sans compte hôte (virtuelles) — les autres sont affichées dans leur compte
@@ -138,8 +154,29 @@ const editingEnvelopeId = ref(null)
 const envelopeForm = ref(defaultEnvelopeForm())
 
 function defaultEnvelopeForm() {
-  return { name: '', accountId: '', targetAmount: '', deadline: '', initialAmount: '' }
+  return { name: '', accountId: '', targetAmount: '', deadline: '', initialAmount: '', fromEnvelopeId: '' }
 }
+
+// ─── Invariant : le montant initial ne dépasse pas le disponible hors enveloppes du compte ───
+const availability = ref(null) // { balance, envelopesTotal, available } du compte choisi
+watch(() => envelopeForm.value.accountId, async (id) => {
+  availability.value = null
+  envelopeForm.value.fromEnvelopeId = ''
+  if (id) { try { availability.value = (await getAvailability(id)).data } catch { availability.value = null } }
+})
+const siblingEnvelopes = computed(() =>
+  envelopes.value.filter((e) => e.accountId === envelopeForm.value.accountId && !e.isClosed && e.id !== editingEnvelopeId.value)
+)
+const initialTooHigh = computed(() => {
+  const f = envelopeForm.value
+  const amount = parseFloat(f.initialAmount)
+  if (!(amount > 0)) return false
+  if (f.fromEnvelopeId) {
+    const src = siblingEnvelopes.value.find((e) => e.id === f.fromEnvelopeId)
+    return src ? amount > src.total : false
+  }
+  return availability.value?.available != null && amount > availability.value.available
+})
 
 function openAddEnvelope(accountId = '') {
   editingEnvelopeId.value = null
@@ -172,7 +209,12 @@ async function submitEnvelope() {
     if (editingEnvelopeId.value) {
       await updateEnvelope(editingEnvelopeId.value, data)
     } else {
-      await createEnvelope({ ...data, initialAmount: f.initialAmount === '' ? null : parseFloat(f.initialAmount) })
+      if (initialTooHigh.value) return
+      await createEnvelope({
+        ...data,
+        initialAmount: f.initialAmount === '' ? null : parseFloat(f.initialAmount),
+        fromEnvelopeId: f.fromEnvelopeId || null,
+      })
     }
     envelopeFormOpen.value = false
     await load()
@@ -321,11 +363,31 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
         </label>
         <label v-if="!editingEnvelopeId" class="field">
           <span>Montant initial</span>
-          <input v-model="envelopeForm.initialAmount" type="number" step="0.01" class="input w-32" placeholder="0.00" />
+          <input v-model="envelopeForm.initialAmount" type="number" step="0.01" class="input w-32" :class="{ 'border-red-400': initialTooHigh }" placeholder="0.00" />
+        </label>
+        <label v-if="!editingEnvelopeId && siblingEnvelopes.length" class="field">
+          <span>Pris dans une enveloppe du compte</span>
+          <select v-model="envelopeForm.fromEnvelopeId" class="input w-44">
+            <option value="">— non (sur le disponible)</option>
+            <option v-for="e in siblingEnvelopes" :key="e.id" :value="e.id">{{ e.name }} ({{ fmt(e.total) }})</option>
+          </select>
         </label>
       </div>
+      <!-- Rappel du disponible : l'invariant Σ enveloppes ≤ solde du compte -->
+      <p v-if="!editingEnvelopeId && envelopeForm.accountId && availability" class="text-[12px] mt-2" :class="initialTooHigh ? 'text-red-500' : 'text-gray-400'">
+        <template v-if="availability.available === null">Solde de {{ availability.accountName }} inconnu (saisir le solde de début de mois) — pas de contrôle possible.</template>
+        <template v-else-if="envelopeForm.fromEnvelopeId">
+          Montant pris dans « {{ siblingEnvelopes.find((e) => e.id === envelopeForm.fromEnvelopeId)?.name }} » — aucun mouvement bancaire, l'enveloppe source baisse d'autant.
+          <span v-if="initialTooHigh"> Elle ne contient pas assez.</span>
+        </template>
+        <template v-else>
+          {{ availability.accountName }} : {{ fmt(availability.balance) }} · déjà en enveloppes {{ fmt(availability.envelopesTotal) }} ·
+          <b>disponible hors enveloppes {{ fmt(availability.available) }}</b>
+          <span v-if="initialTooHigh"> — le montant initial dépasse le disponible.</span>
+        </template>
+      </p>
       <template #footer>
-        <button class="btn-primary" @click="submitEnvelope">{{ editingEnvelopeId ? 'Sauver' : 'Créer' }}</button>
+        <button class="btn-primary" :disabled="initialTooHigh" @click="submitEnvelope">{{ editingEnvelopeId ? 'Sauver' : 'Créer' }}</button>
         <button class="btn-secondary" @click="envelopeFormOpen = false">Annuler</button>
       </template>
     </AppModal>
@@ -386,6 +448,17 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
                 <input v-model="contribForm.date" type="date" class="input w-36" />
                 <input v-model="contribForm.notes" type="text" class="input flex-1" placeholder="Note (optionnelle)" />
                 <button class="btn-secondary" @click="submitContribution(envelope)">Ajouter</button>
+              </div>
+              <!-- Réaffecter vers une autre enveloppe du compte (aucun mouvement bancaire) -->
+              <div v-if="!envelope.isClosed && reallocTargets(envelope).length" class="flex gap-2 mt-2 items-center text-xs">
+                <span class="text-gray-400">Réaffecter</span>
+                <input v-model="reallocForm.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="doReallocate(envelope)" />
+                <span class="text-gray-400">vers</span>
+                <select v-model="reallocForm.toEnvelopeId" class="input w-40">
+                  <option value="">— enveloppe</option>
+                  <option v-for="t in reallocTargets(envelope)" :key="t.id" :value="t.id">{{ t.name }}</option>
+                </select>
+                <button class="btn-secondary" @click="doReallocate(envelope)">OK</button>
               </div>
               <div class="flex gap-3 mt-2 text-xs">
                 <button class="link" @click="openEditEnvelope(envelope)">Modifier</button>
