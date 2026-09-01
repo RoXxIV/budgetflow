@@ -103,15 +103,19 @@ export function check(formula, symbols = []) {
 }
 
 // ─── Mois : relevés, estimation, écart ───────────────────
-// Crée les relevés manquants du mois (report de l'index de fin du mois précédent)
+// Crée les relevés manquants du mois. Pour un index : report du DERNIER index de fin saisi
+// sur un mois antérieur (pas forcément le mois juste avant — un mois sans relevé n'interrompt pas la chaîne).
 function ensureReadings(month, defs) {
-  const previous = get("SELECT * FROM months WHERE period < ? ORDER BY period DESC LIMIT 1", month.period);
   return defs.map((def) => {
     let r = get("SELECT * FROM calculator_readings WHERE def_id = ? AND month_id = ?", def.id, month.id);
     if (!r) {
       let prev = null;
-      if (def.kind === "index" && previous) {
-        prev = get("SELECT current_value FROM calculator_readings WHERE def_id = ? AND month_id = ?", def.id, previous.id)?.current_value ?? null;
+      if (def.kind === "index") {
+        prev = get(
+          `SELECT cr.current_value FROM calculator_readings cr JOIN months m ON m.id = cr.month_id
+           WHERE cr.def_id = ? AND m.period < ? AND cr.current_value IS NOT NULL
+           ORDER BY m.period DESC LIMIT 1`, def.id, month.period
+        )?.current_value ?? null;
       }
       run("INSERT INTO calculator_readings (def_id, month_id, previous_value) VALUES (?, ?, ?)", def.id, month.id, prev);
       r = get("SELECT * FROM calculator_readings WHERE def_id = ? AND month_id = ?", def.id, month.id);
