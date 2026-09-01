@@ -47,6 +47,15 @@ export function getSummary(monthId) {
     monthStart, monthStart
   );
 
+  // Mouvements d'investissement datés dans le mois (versement : contrepartie → hôte ; retrait : hôte → contrepartie)
+  const assetMovements = all(
+    `SELECT m.*, a.account_id AS host_account_id, a.monthly_dca_cents FROM asset_movements m
+     JOIN assets a ON a.id = m.asset_id
+     WHERE m.date >= ? AND m.date < date(?, '+1 month')`,
+    monthStart, monthStart
+  );
+  const openAssets = all("SELECT * FROM assets WHERE closed_at IS NULL");
+
   // Enveloppes ouvertes par compte hôte (total = somme des contributions)
   const envelopeRows = all(
     `SELECT e.account_id, SUM(c.amount_cents) AS total_cents
@@ -75,6 +84,15 @@ export function getSummary(monthId) {
     if (c.from_account_id) {
       move(c.from_account_id, -c.amount_cents);
       move(c.env_account_id, c.amount_cents);
+    }
+  }
+  for (const m of assetMovements) {
+    if (m.kind === "versement") {
+      move(m.counterpart_account_id, -m.amount_cents);
+      move(m.host_account_id, m.amount_cents);
+    } else {
+      move(m.host_account_id, -m.amount_cents);
+      move(m.counterpart_account_id, m.amount_cents);
     }
   }
 
@@ -120,6 +138,14 @@ export function getSummary(monthId) {
       prevusRestants += plannedCents;
     }
   }
+  // DCA prévu non encore versé ce mois : présumé versé depuis le compte principal
+  const dcaDone = new Set(assetMovements.filter((m) => m.source === "dca").map((m) => m.asset_id));
+  let dcaRestants = 0;
+  for (const a of openAssets) {
+    if (a.monthly_dca_cents && !dcaDone.has(a.id)) dcaRestants += a.monthly_dca_cents;
+  }
+  prevusRestants += dcaRestants;
+
   const projete = disponible !== null
     ? disponible + fromCents(revenusRestants - prevusRestants)
     : null;
@@ -131,7 +157,10 @@ export function getSummary(monthId) {
   const savingsFromContribs = contributions
     .filter((c) => c.kind === "normale")
     .reduce((s, c) => s + c.amount_cents, 0);
-  const misDeCote = fromCents(savingsFromLines + savingsFromContribs);
+  const savingsFromAssets = assetMovements
+    .filter((m) => m.kind === "versement")
+    .reduce((s, m) => s + m.amount_cents, 0);
+  const misDeCote = fromCents(savingsFromLines + savingsFromContribs + savingsFromAssets);
 
   const revActual = lines.filter((l) => l.category_type === "revenu").reduce((s, l) => s + l.actual_cents, 0);
   const revPlanned = lines.filter((l) => l.category_type === "revenu").reduce((s, l) => s + l.planned_amount_cents, 0);

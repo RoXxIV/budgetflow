@@ -156,12 +156,24 @@ function removePaymentMethod(m) {
   settings.value.paymentMethods = settings.value.paymentMethods.filter((x) => x !== m)
 }
 
+const newInvestmentType = ref('')
+function addInvestmentType() {
+  const v = newInvestmentType.value.trim()
+  if (!v || settings.value.investmentTypes.includes(v)) return
+  settings.value.investmentTypes.push(v)
+  newInvestmentType.value = ''
+}
+function removeInvestmentType(t) {
+  settings.value.investmentTypes = settings.value.investmentTypes.filter((x) => x !== t)
+}
+
 async function saveGeneral() {
   try {
     await updateSettings({
       currency: settings.value.currency,
       savingRate: Number(settings.value.savingRate) || 0,
       paymentMethods: settings.value.paymentMethods,
+      investmentTypes: settings.value.investmentTypes,
     })
     flashSaved()
   } catch (e) { apiError(e) }
@@ -355,6 +367,16 @@ async function removeThemeConfirm(theme) {
                 <button class="text-gray-400 hover:text-red-500 ml-1 cursor-pointer" @click="removePaymentMethod(m)">×</button>
               </span>
               <input v-model="newPaymentMethod" type="text" class="input w-32" placeholder="Ajouter…" @keyup.enter="addPaymentMethod" />
+            </div>
+          </div>
+          <div class="mb-4">
+            <p class="text-xs font-medium text-gray-500 mb-1.5">Types d'investissement</p>
+            <div class="flex flex-wrap gap-1.5 items-center">
+              <span v-for="t in settings.investmentTypes" :key="t" class="chip">
+                {{ t }}
+                <button class="text-gray-400 hover:text-red-500 ml-1 cursor-pointer" @click="removeInvestmentType(t)">×</button>
+              </span>
+              <input v-model="newInvestmentType" type="text" class="input w-32" placeholder="Ajouter…" @keyup.enter="addInvestmentType" />
             </div>
           </div>
           <button class="btn-primary" @click="saveGeneral">Sauvegarder</button>

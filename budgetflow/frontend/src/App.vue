@@ -6,6 +6,7 @@ const route = useRoute()
 const navLinks = [
   { name: 'Mois', to: '/mois' },
   { name: 'Comptes', to: '/comptes' },
+  { name: 'Investissements', to: '/investissements' },
   { name: 'Template', to: '/template' },
   { name: 'Paramètres', to: '/parametres' },
 ]

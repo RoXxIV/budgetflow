@@ -5,6 +5,7 @@ import * as entries from "../services/entry.service.js";
 import * as summary from "../services/summary.service.js";
 import * as envelopes from "../services/envelope.service.js";
 import * as calculators from "../services/calculator.service.js";
+import * as assets from "../services/asset.service.js";
 
 const router = Router();
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
@@ -21,6 +22,10 @@ router.get("/:id/summary", wrap((req, res) => res.json(summary.getSummary(id(req
 router.get("/:id/calculators", wrap((req, res) => res.json(calculators.monthState(id(req)))));
 router.put("/:id/calculators/:calcId/readings", wrap((req, res) => res.json(calculators.saveReadings(id(req), id(req, "calcId"), req.body.readings || []))));
 router.post("/:id/calculators/:calcId/regularize", wrap((req, res) => res.json(calculators.regularize(id(req), id(req, "calcId")))));
+// Investissements : mouvements datés dans ce mois, ☐ versé (DCA)
+router.get("/:id/asset-movements", wrap((req, res) => res.json(assets.listMovementsByPeriod(months.getById(id(req)).period))));
+router.post("/:id/assets/:assetId/dca", wrap((req, res) => res.status(201).json(assets.dca(id(req), id(req, "assetId")))));
+router.delete("/:id/assets/:assetId/dca", wrap((req, res) => res.json(assets.undca(id(req), id(req, "assetId")))));
 // Contributions d'enveloppes datées dans ce mois (la saisie passe par /envelopes/:id/contributions)
 router.get("/:id/envelope-contributions", wrap((req, res) => res.json(envelopes.listContributionsByPeriod(months.getById(id(req)).period))));
 router.put("/:id", wrap((req, res) => res.json(months.setClosed(id(req), !!req.body.isClosed))));

@@ -10,6 +10,7 @@ import {
 } from '@/api/months.js'
 import { getEnvelopes, addContribution, removeContribution } from '@/api/envelopes.js'
 import { getMonthCalculators, saveMonthReadings, regularizeCalculator } from '@/api/calculators.js'
+import { getAssets, addAssetMovement, removeAssetMovement, getMonthAssetMovements, dcaAsset, undcaAsset } from '@/api/assets.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
 import { getAccounts } from '@/api/accounts.js'
@@ -47,33 +48,74 @@ const envelopes = ref([])          // enveloppes ouvertes
 const monthContribs = ref([])      // contributions datées dans le mois
 
 const calculators = ref([])        // état des calculateurs sur ce mois (relevés, estimé, écart)
+const assets = ref([])             // actifs ouverts
+const monthAssetMovements = ref([]) // versements / retraits datés dans le mois
+
+async function loadMonthData(monthId) {
+  const [lRes, eRes, sumRes, envRes, mcRes, calcRes, aRes, amRes] = await Promise.all([
+    getMonthLines(monthId), getMonthEntries(monthId), getMonthSummary(monthId),
+    getEnvelopes(), getMonthEnvelopeContributions(monthId), getMonthCalculators(monthId),
+    getAssets(), getMonthAssetMovements(monthId),
+  ])
+  lines.value = lRes.data
+  entriesAll.value = eRes.data
+  summaryData.value = sumRes.data
+  envelopes.value = envRes.data.filter((e) => !e.isClosed)
+  monthContribs.value = mcRes.data
+  calculators.value = calcRes.data
+  assets.value = aRes.data.filter((a) => !a.isClosed)
+  monthAssetMovements.value = amRes.data
+}
 
 async function openMonth(month) {
   current.value = month
-  const [lRes, eRes, sRes, sumRes, envRes, mcRes, calcRes] = await Promise.all([
-    getMonthLines(month.id), getMonthEntries(month.id), getMonthSnapshots(month.id), getMonthSummary(month.id),
-    getEnvelopes(), getMonthEnvelopeContributions(month.id), getMonthCalculators(month.id),
-  ])
-  lines.value = lRes.data
-  entriesAll.value = eRes.data
+  const [sRes] = await Promise.all([getMonthSnapshots(month.id), loadMonthData(month.id)])
   snapshots.value = sRes.data
-  summaryData.value = sumRes.data
-  envelopes.value = envRes.data.filter((e) => !e.isClosed)
-  monthContribs.value = mcRes.data
-  calculators.value = calcRes.data
 }
 
 async function reload() {
-  const [lRes, eRes, sumRes, envRes, mcRes, calcRes] = await Promise.all([
-    getMonthLines(current.value.id), getMonthEntries(current.value.id), getMonthSummary(current.value.id),
-    getEnvelopes(), getMonthEnvelopeContributions(current.value.id), getMonthCalculators(current.value.id),
-  ])
-  lines.value = lRes.data
-  entriesAll.value = eRes.data
-  summaryData.value = sumRes.data
-  envelopes.value = envRes.data.filter((e) => !e.isClosed)
-  monthContribs.value = mcRes.data
-  calculators.value = calcRes.data
+  await loadMonthData(current.value.id)
+}
+
+// ─── Investissements : ☐ versé (DCA), mouvements du mois ─
+const openAssetId = ref(null)
+const assetMovementForm = ref({})
+const movementsForAsset = (asset) => monthAssetMovements.value.filter((m) => m.assetId === asset.id)
+const dcaDone = (asset) => movementsForAsset(asset).some((m) => m.source === 'dca')
+const monthInvestedTotal = computed(() => monthAssetMovements.value.filter((m) => m.kind === 'versement').reduce((s, m) => s + m.amount, 0))
+
+async function toggleDca(asset) {
+  try {
+    if (dcaDone(asset)) await undcaAsset(current.value.id, asset.id)
+    else await dcaAsset(current.value.id, asset.id)
+    await reload()
+  } catch (e) { apiError(e) }
+}
+
+function toggleAsset(asset) {
+  if (openAssetId.value === asset.id) { openAssetId.value = null; return }
+  openAssetId.value = asset.id
+  const today = new Date().toISOString().substring(0, 10)
+  assetMovementForm.value = {
+    kind: 'versement',
+    amount: '',
+    date: today.startsWith(current.value.period) ? today : `${current.value.period}-01`,
+    counterpartAccountId: accounts.value.find((a) => a.isMain)?.id || '',
+  }
+}
+
+async function submitAssetMovement(asset) {
+  const f = assetMovementForm.value
+  if (!f.amount) return
+  try {
+    await addAssetMovement(asset.id, { kind: f.kind, amount: parseFloat(f.amount), date: f.date, counterpartAccountId: f.counterpartAccountId || null })
+    assetMovementForm.value = { ...f, amount: '' }
+    await reload()
+  } catch (e) { apiError(e) }
+}
+
+async function deleteAssetMovement(m) {
+  try { await removeAssetMovement(m.assetId, m.id); await reload() } catch (e) { apiError(e) }
 }
 
 // ─── Calculateurs : saisie des relevés, régularisation ───
@@ -625,6 +667,67 @@ const mainEnvelopesTotal = computed(() => {
               <span v-if="env.accountName" class="text-gray-300 text-[12px]">→ {{ env.accountName }}</span>
               <input v-model="contribForm.notes" type="text" class="input w-36" placeholder="Note (optionnelle)" @keyup.enter="submitContribution(env)" />
               <button class="btn-secondary" @click="submitContribution(env)">Ajouter</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Investissements ──────────────────────── -->
+      <div v-if="assets.length" class="card p-0 overflow-hidden mb-4">
+        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
+          <span class="font-semibold text-[13.5px]">Investissements</span>
+          <span class="badge bg-teal-50 text-teal-700">versements</span>
+          <span class="ml-auto text-[12.5px] text-gray-400">ce mois : <span class="font-semibold text-teal-600">{{ fmt(monthInvestedTotal) }}</span></span>
+        </div>
+        <div v-for="asset in assets" :key="asset.id">
+          <div class="line-row" @click="toggleAsset(asset)">
+            <!-- ☐ versé : le DCA prévu, une fois par mois -->
+            <input
+              v-if="asset.monthlyDca > 0"
+              type="checkbox"
+              class="shrink-0 accent-teal-600 cursor-pointer"
+              :checked="dcaDone(asset)"
+              :disabled="current.isClosed"
+              :title="dcaDone(asset) ? 'Versé — décocher retire le versement DCA' : 'Marquer le versement mensuel comme fait'"
+              @click.stop="toggleDca(asset)"
+            />
+            <span class="text-[13px] font-medium truncate" :class="{ 'text-gray-400': asset.monthlyDca > 0 && !dcaDone(asset) && !movementsForAsset(asset).length }">{{ asset.name }}</span>
+            <span v-if="asset.type" class="badge bg-violet-50 text-violet-700">{{ asset.type }}</span>
+            <span v-if="asset.accountName" class="badge bg-stone-100 text-gray-500">{{ asset.accountName }}</span>
+            <span v-if="movementsForAsset(asset).length" class="badge bg-teal-50 text-teal-700">
+              {{ movementsForAsset(asset).length }} mouvement{{ movementsForAsset(asset).length > 1 ? 's' : '' }}
+            </span>
+            <span class="ml-auto shrink-0 text-right">
+              <span class="text-[13px] font-semibold" :class="movementsForAsset(asset).length ? '' : 'text-gray-400'">
+                {{ fmt(movementsForAsset(asset).length ? movementsForAsset(asset).reduce((s, m) => s + (m.kind === 'versement' ? m.amount : -m.amount), 0) : asset.monthlyDca) }}
+              </span>
+              <span v-if="!movementsForAsset(asset).length && asset.monthlyDca" class="text-[11px] text-gray-400"> prévu</span>
+            </span>
+          </div>
+          <div v-if="openAssetId === asset.id" class="edit-panel">
+            <div v-for="m in movementsForAsset(asset)" :key="m.id" class="flex items-center gap-2 text-[12.5px] py-1">
+              <span class="text-gray-400 w-20 shrink-0">{{ m.date }}</span>
+              <span class="font-medium w-20 shrink-0" :class="m.kind === 'versement' ? 'text-emerald-600' : 'text-red-500'">{{ m.kind === 'retrait' ? '−' : '+' }}{{ fmt(m.amount) }}</span>
+              <span v-if="m.source === 'dca'" class="badge bg-blue-50 text-blue-600">DCA</span>
+              <span class="text-gray-300 text-[11px] ml-auto shrink-0">
+                {{ m.kind === 'versement' ? (m.counterpartAccountName || '?') + ' → ' + (asset.accountName || asset.name) : (asset.accountName || asset.name) + ' → ' + (m.counterpartAccountName || '?') }}
+              </span>
+              <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" @click="deleteAssetMovement(m)">×</button>
+            </div>
+            <p v-if="!movementsForAsset(asset).length" class="text-xs text-gray-400 py-1">Aucun mouvement ce mois.</p>
+            <div v-if="!current.isClosed" class="flex flex-wrap gap-2 mt-2 items-center">
+              <select v-model="assetMovementForm.kind" class="input w-28">
+                <option value="versement">Versement</option>
+                <option value="retrait">Retrait</option>
+              </select>
+              <input v-model="assetMovementForm.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="submitAssetMovement(asset)" />
+              <input v-model="assetMovementForm.date" type="date" class="input w-34" />
+              <select v-model="assetMovementForm.counterpartAccountId" class="input w-28" :title="assetMovementForm.kind === 'versement' ? 'Compte source' : 'Compte destination'">
+                <option value="">— compte</option>
+                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+              <span v-if="asset.accountName" class="text-gray-300 text-[12px]">{{ assetMovementForm.kind === 'versement' ? '→ ' + asset.accountName : '← ' + asset.accountName }}</span>
+              <button class="btn-secondary" @click="submitAssetMovement(asset)">Ajouter</button>
             </div>
           </div>
         </div>
