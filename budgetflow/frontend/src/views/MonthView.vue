@@ -438,7 +438,7 @@ function openAddLine(category) {
     actualAmount: '',    // montant rempli → entrée créée tout de suite (le réel remplace le prévu)
     entryDate: new Date().toISOString().substring(0, 10),
     // « Depuis » : un compte ('a:ID') ou une enveloppe ('e:ID' → dépense prise dans l'enveloppe)
-    source: mainId ? 'a:' + mainId : '',
+    source: category.type === 'revenu' ? '' : (mainId ? 'a:' + mainId : ''),
     envelopeInTarget: true,
     paymentMethod: settings.value?.paymentMethods?.[0] || 'CB',
     categoryId: category.id,
@@ -710,9 +710,9 @@ const mainEnvelopesTotal = computed(() => {
           <template v-if="!lineForm.isPot">
             <label class="field" title="À venir : la ligne se cochera quand ce sera passé"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
             <label v-if="lineModalAdding" class="field" title="Déjà passé : l'entrée est créée tout de suite"><span>Montant (€)</span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
-            <label v-if="lineModalAdding && lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
-            <label v-else class="field" title="Date par défaut du « payé »"><span>Jour du mois</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
           </template>
+          <label v-if="lineModalAdding && !lineForm.isPot && lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
+          <label v-else class="field" :title="lineForm.isPot ? 'Jour où vous réglez la cagnotte' : 'Date par défaut du « payé »'"><span>Jour du mois</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
           <label v-if="!lineModalAdding" class="field"><span>Catégorie</span>
             <select v-model="lineForm.categoryId" class="input w-40">
               <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
@@ -726,8 +726,8 @@ const mainEnvelopesTotal = computed(() => {
           </label>
         </div>
 
-        <!-- D'où vient l'argent, où il va -->
-        <div v-if="!lineForm.isPot" class="flex flex-wrap gap-3 items-end">
+        <!-- D'où vient l'argent, où il va (une cagnotte aussi : son règlement est un vrai mouvement) -->
+        <div class="flex flex-wrap gap-3 items-end">
           <label v-if="lineFormCategoryType === 'revenu'" class="field"><span>Compte crédité</span>
             <select v-model="lineForm.toAccountId" class="input w-40">
               <option value="">—</option>
@@ -737,15 +737,16 @@ const mainEnvelopesTotal = computed(() => {
           <template v-else>
             <label class="field"><span>Depuis</span>
               <select v-model="lineForm.source" class="input w-44">
+                <option value="">— aucun</option>
                 <optgroup label="Mes comptes">
                   <option v-for="a in accounts" :key="'a' + a.id" :value="'a:' + a.id">{{ a.name }}</option>
                 </optgroup>
-                <optgroup v-if="lineModalAdding && envelopes.length" label="Mes enveloppes">
+                <optgroup v-if="lineModalAdding && !lineForm.isPot && envelopes.length" label="Mes enveloppes">
                   <option v-for="env in envelopes" :key="'e' + env.id" :value="'e:' + env.id">{{ env.name }}{{ env.accountName ? ' (' + env.accountName + ')' : '' }}</option>
                 </optgroup>
               </select>
             </label>
-            <label v-if="sourceEnvelope?.targetAmount" class="checkbox self-end" title="La cible affichée est corrigée d'autant : le reste à épargner ne bouge pas"><input v-model="lineForm.envelopeInTarget" type="checkbox" /><span>déduire de l'objectif</span></label>
+            <label v-if="sourceEnvelope?.targetAmount && lineForm.actualAmount" class="checkbox self-end" title="La cible affichée est corrigée d'autant : le reste à épargner ne bouge pas"><input v-model="lineForm.envelopeInTarget" type="checkbox" /><span>déduire de l'objectif</span></label>
             <label class="field"><span>Moyen de paiement</span>
               <select v-model="lineForm.paymentMethod" class="input w-32">
                 <option v-for="m in settings?.paymentMethods || ['CB']" :key="m" :value="m">{{ m }}</option>
