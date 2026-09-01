@@ -324,7 +324,7 @@ const formCategoryType = computed(() => {
             Mensualisée : l'enveloppe « {{ form.label || '…' }} »
             <template v-if="modalLine?.envelopeId && envelopeById(modalLine.envelopeId)"> ({{ fmt(envelopeById(modalLine.envelopeId).total) }} / {{ fmt(envelopeById(modalLine.envelopeId).targetAmount) }}, ≈ {{ fmt(envelopeById(modalLine.envelopeId).monthlySuggestion) }}/mois)</template>
             propose chaque mois la part à mettre de côté{{ modalLine?.envelopeId ? '' : ' — elle démarre à 0' }}, depuis le compte principal vers « mise de côté sur ».
-            Le jour J, la ligne apparaît dans le mois : le ☐ payé débite « Depuis » (le compte réellement prélevé) et libère l'enveloppe ; « Vers » = où part le paiement (extérieur pour un abonnement).
+            Le jour J, la ligne apparaît dans le mois : le ☐ payé sort le montant de l'enveloppe et débite le compte « mise de côté sur » — effet net de « virement vers le compte prélevé, puis prélèvement », ne saisissez pas le virement inverse. « Vers » = où part le paiement (extérieur pour un abonnement).
           </template>
         </p>
 

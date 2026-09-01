@@ -134,15 +134,15 @@ export function pay(monthId, lineId) {
     ? `${month.period}-${String(line.recurring_day).padStart(2, "0")}`
     : null;
 
-  // Le compte débité est le « Depuis » de la ligne (celui que le prélèvement touche réellement).
-  // Ligne mensualisée : l'enveloppe est libérée du montant ; si elle attend sur un autre compte,
-  // l'argent y reste (à rapatrier, ou le recalage du mois suivant s'en charge).
+  // Ligne mensualisée : le compte débité est celui où l'enveloppe a mis l'argent de côté (compte hôte).
+  // Dans la réalité : virement hôte → compte prélevé, puis prélèvement ; l'effet net est un débit du
+  // compte hôte, enregistré en une seule entrée (ne pas saisir le virement inverse en plus).
   const envelopeAccount = line.envelope_id ? get("SELECT account_id FROM envelopes WHERE id = ?", line.envelope_id)?.account_id : null;
   return create(monthId, {
     lineId,
     amount: fromCents(amountCents),
     date: day,
-    accountId: line.from_account_id ?? envelopeAccount ?? line.to_account_id ?? null,
+    accountId: envelopeAccount ?? line.from_account_id ?? line.to_account_id ?? null,
     toAccountId: line.from_account_id ? line.to_account_id : null, // les deux si la ligne est un mouvement entre comptes
     paymentMethod: line.payment_method,
     themeId: line.theme_id,
