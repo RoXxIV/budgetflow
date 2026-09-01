@@ -11,6 +11,7 @@ export function monthName(period) {
   const [y, m] = period.split("-").map(Number);
   return `${MONTH_NAMES[m - 1]} ${y}`;
 }
+const formatPeriodName = monthName;
 
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -120,11 +121,16 @@ export async function prefill() {
       .filter((a) => a.current !== null)
       .map((a) => ({ accountId: a.accountId, balance: a.current }));
   }
-  return { period, previousPeriod: latest?.period ?? null, snapshots };
+  // Enveloppes ouvertes : cumul actuel, à recaler en même temps que les comptes
+  const { list: listEnvelopes } = await import("./envelope.service.js");
+  const envelopes = listEnvelopes()
+    .filter((e) => !e.isClosed)
+    .map((e) => ({ id: e.id, name: e.name, accountId: e.accountId, accountName: e.accountName, total: e.total }));
+  return { period, previousPeriod: latest?.period ?? null, snapshots, envelopes };
 }
 
 // ─── Création : duplication du template ───────────────────
-export function create({ period, snapshots = [] }) {
+export function create({ period, snapshots = [], envelopes = [] }) {
   if (!PERIOD_RE.test(period || "")) throw httpError(400, "Période invalide (attendu : YYYY-MM)");
   const existing = get("SELECT id FROM months WHERE period = ?", period);
   if (existing) throw httpError(409, `Un mois existe déjà pour ${monthName(period)}`);
@@ -161,6 +167,21 @@ export function create({ period, snapshots = [] }) {
       run(
         "INSERT INTO account_snapshots (month_id, account_id, balance_cents) VALUES (?, ?, ?)",
         monthId, s.accountId, toCents(s.balance)
+      );
+    }
+
+    // Recalage des enveloppes : l'écart entre le cumul et le montant réel saisi devient
+    // une contribution « ajustement » datée du 1er du mois (historique conservé)
+    for (const e of envelopes) {
+      if (e.total === null || e.total === undefined || e.total === "") continue;
+      const env = get("SELECT * FROM envelopes WHERE id = ? AND closed_at IS NULL", e.envelopeId);
+      if (!env) continue;
+      const current = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ?", env.id).s;
+      const delta = toCents(e.total) - current;
+      if (delta === 0) continue;
+      run(
+        "INSERT INTO envelope_contributions (envelope_id, amount_cents, date, kind, notes) VALUES (?, ?, ?, 'ajustement', ?)",
+        env.id, delta, `${period}-01`, e.notes || `Recalage à la création de ${formatPeriodName(period)}`
       );
     }
 

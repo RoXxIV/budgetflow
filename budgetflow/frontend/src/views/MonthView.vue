@@ -230,6 +230,18 @@ const createFormOpen = ref(false)
 const newMonth = ref({ period: '', snapshots: {} })
 const suggested = ref({})          // solde live de fin du mois précédent, par compte (suggestion)
 const previousPeriod = ref(null)
+const newEnvelopes = ref([])       // [{ id, name, accountId, accountName, total (cumul), value (saisie) }]
+const envelopeDelta = (e) => {
+  if (e.value === '' || e.value == null) return null
+  const d = Math.round((parseFloat(e.value) - e.total) * 100) / 100
+  return d === 0 ? null : d
+}
+// « = compte » : recopie le solde saisi pour le compte hôte (enveloppe seule sur son compte)
+const envelopesOnAccount = (accountId) => newEnvelopes.value.filter((e) => e.accountId === accountId).length
+function copyAccountBalance(e) {
+  const v = newMonth.value.snapshots[e.accountId]
+  if (v !== '' && v != null) e.value = v
+}
 const suggestionDelta = (accountId) => {
   const s = suggested.value[accountId]
   const v = newMonth.value.snapshots[accountId]
@@ -258,6 +270,7 @@ async function openCreateForm() {
   newMonth.value = { period: data.period, snapshots: map }
   suggested.value = sug
   previousPeriod.value = data.previousPeriod
+  newEnvelopes.value = (data.envelopes || []).map((e) => ({ ...e, value: e.total }))
   createFormOpen.value = true
 }
 
@@ -266,8 +279,11 @@ async function submitCreate() {
   const snapshotList = Object.entries(newMonth.value.snapshots)
     .filter(([, v]) => v !== '' && v !== null)
     .map(([accountId, balance]) => ({ accountId: Number(accountId), balance: parseFloat(balance) }))
+  const envelopeList = newEnvelopes.value
+    .filter((e) => envelopeDelta(e) !== null)
+    .map((e) => ({ envelopeId: e.id, total: parseFloat(e.value) }))
   try {
-    const { data: created } = await createMonth({ period: newMonth.value.period, snapshots: snapshotList })
+    const { data: created } = await createMonth({ period: newMonth.value.period, snapshots: snapshotList, envelopes: envelopeList })
     createFormOpen.value = false
     monthsList.value = (await getMonths()).data
     await openMonth(monthsList.value.find((m) => m.id === created.id))
@@ -597,6 +613,29 @@ const mainEnvelopesTotal = computed(() => {
           </span>
         </div>
       </div>
+
+      <!-- Recalage des enveloppes -->
+      <template v-if="newEnvelopes.length">
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Enveloppes (montant réel)</p>
+        <p class="text-[11.5px] text-gray-400 mb-2">
+          Pré-rempli avec le cumul des contributions. Si l'argent réellement mis de côté diffère, corrigez : l'écart devient une contribution d'ajustement datée du mois.
+        </p>
+        <div class="flex flex-col gap-1.5 mb-4">
+          <div v-for="e in newEnvelopes" :key="e.id" class="flex items-center gap-2.5">
+            <span class="text-[13px] text-gray-600 w-36 shrink-0 truncate" :title="e.accountName ? 'sur ' + e.accountName : 'virtuelle'">{{ e.name }}</span>
+            <input v-model="e.value" type="number" step="0.01" class="input w-28" @keyup.enter="submitCreate" />
+            <button
+              v-if="e.accountId && newMonth.snapshots[e.accountId] !== '' && envelopesOnAccount(e.accountId) === 1"
+              class="link text-[11px]"
+              :title="'Recopier le solde saisi pour ' + e.accountName"
+              @click="copyAccountBalance(e)"
+            >= {{ e.accountName }}</button>
+            <span v-if="envelopeDelta(e) !== null" class="text-[11px]" :class="envelopeDelta(e) > 0 ? 'text-emerald-600' : 'text-amber-600'">
+              {{ envelopeDelta(e) > 0 ? '+' : '' }}{{ fmt(envelopeDelta(e)) }} d'ajustement
+            </span>
+          </div>
+        </div>
+      </template>
       <div class="flex gap-2">
         <button class="btn-primary" :disabled="!newMonth.period || newMonthTaken" @click="submitCreate">Créer depuis le template</button>
         <button class="btn-secondary" @click="createFormOpen = false">Annuler</button>
