@@ -7,6 +7,7 @@ import {
 } from '@/api/assets.js'
 import { getAccounts } from '@/api/accounts.js'
 import { getSettings } from '@/api/settings.js'
+import AppModal from '@/components/AppModal.vue'
 
 // ─── Data ────────────────────────────────────────────────
 const assets = ref([])
@@ -145,8 +146,7 @@ async function deleteMovement(asset, m) {
     </div>
 
     <!-- ─── Formulaire ───────────────────────────────── -->
-    <div v-if="formOpen" class="card px-5 py-4 mb-5">
-      <h3 class="text-[14px] font-semibold mb-3">{{ editingId ? "Modifier l'actif" : 'Nouvel actif' }}</h3>
+    <AppModal :open="formOpen" :title="editingId ? 'Modifier l\'actif' : 'Nouvel actif'" @close="formOpen = false">
       <div class="flex flex-wrap gap-4 items-end">
         <label class="field"><span>Nom</span><input v-model="form.name" type="text" class="input w-44" placeholder="MSCI World, BTC…" @keyup.enter="submit" /></label>
         <label class="field"><span>Type</span>
@@ -163,11 +163,11 @@ async function deleteMovement(asset, m) {
         </label>
         <label class="field"><span>Versement mensuel prévu (€)</span><input v-model="form.monthlyDca" type="number" step="0.01" class="input w-28" placeholder="0" /></label>
       </div>
-      <div class="flex gap-2 mt-4">
+      <template #footer>
         <button class="btn-primary" @click="submit">{{ editingId ? 'Sauver' : 'Créer' }}</button>
         <button class="btn-secondary" @click="formOpen = false">Annuler</button>
-      </div>
-    </div>
+      </template>
+    </AppModal>
 
     <div v-if="!assets.length && !formOpen" class="text-center py-16 text-gray-400">
       <p class="mb-4">Aucun actif pour l'instant.</p>

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import AppModal from '@/components/AppModal.vue'
 import { getAccounts, createAccount, updateAccount, deleteAccount, getNetWorth } from '@/api/accounts.js'
 import {
   getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope,
@@ -253,8 +254,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
     </div>
 
     <!-- ─── Formulaire compte ────────────────────────── -->
-    <div v-if="accountFormOpen" class="card mb-5">
-      <h3 class="form-title">{{ editingAccountId ? 'Modifier le compte' : 'Nouveau compte' }}</h3>
+    <AppModal :open="accountFormOpen" :title="editingAccountId ? 'Modifier le compte' : 'Nouveau compte'" @close="accountFormOpen = false">
       <div class="flex flex-wrap gap-4 items-end">
         <label class="field">
           <span>Nom</span>
@@ -291,15 +291,14 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
       <p v-if="!editingAccountId && accountForm.type === 'epargne' && !accountForm.multiProjects" class="text-xs text-gray-400 mt-2">
         Une enveloppe « {{ accountForm.name || '…' }} » sera créée automatiquement sur ce compte.
       </p>
-      <div class="flex gap-2 mt-4">
+      <template #footer>
         <button class="btn-primary" @click="submitAccount">{{ editingAccountId ? 'Sauver' : 'Créer' }}</button>
         <button class="btn-secondary" @click="accountFormOpen = false">Annuler</button>
-      </div>
-    </div>
+      </template>
+    </AppModal>
 
     <!-- ─── Formulaire enveloppe ─────────────────────── -->
-    <div v-if="envelopeFormOpen" class="card mb-5">
-      <h3 class="form-title">{{ editingEnvelopeId ? "Modifier l'enveloppe" : 'Nouvelle enveloppe' }}</h3>
+    <AppModal :open="envelopeFormOpen" :title="editingEnvelopeId ? 'Modifier l\'enveloppe' : 'Nouvelle enveloppe'" @close="envelopeFormOpen = false">
       <div class="flex flex-wrap gap-4 items-end">
         <label class="field">
           <span>Nom</span>
@@ -325,11 +324,11 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <input v-model="envelopeForm.initialAmount" type="number" step="0.01" class="input w-32" placeholder="0.00" />
         </label>
       </div>
-      <div class="flex gap-2 mt-4">
+      <template #footer>
         <button class="btn-primary" @click="submitEnvelope">{{ editingEnvelopeId ? 'Sauver' : 'Créer' }}</button>
         <button class="btn-secondary" @click="envelopeFormOpen = false">Annuler</button>
-      </div>
-    </div>
+      </template>
+    </AppModal>
 
     <!-- ─── Aucun compte ─────────────────────────────── -->
     <div v-if="!accounts.length && !virtualEnvelopes.length" class="text-center py-16 text-gray-400">

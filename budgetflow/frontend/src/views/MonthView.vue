@@ -10,6 +10,7 @@ import {
 } from '@/api/months.js'
 import { getEnvelopes, addContribution, removeContribution } from '@/api/envelopes.js'
 import { getMonthCalculators, saveMonthReadings, regularizeCalculator } from '@/api/calculators.js'
+import AppModal from '@/components/AppModal.vue'
 import { getAssets, addAssetMovement, removeAssetMovement, getMonthAssetMovements, dcaAsset, undcaAsset } from '@/api/assets.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
@@ -593,8 +594,7 @@ const mainEnvelopesTotal = computed(() => {
     </div>
 
     <!-- ─── Formulaire création ──────────────────────── -->
-    <div v-if="createFormOpen" class="card px-5 py-4 mb-5">
-      <h3 class="text-[14px] font-semibold mb-3">Nouveau mois</h3>
+    <AppModal :open="createFormOpen" title="Nouveau mois" @close="createFormOpen = false">
       <div class="flex items-center gap-3 mb-3">
         <input v-model="newMonth.period" type="month" class="input" />
         <span v-if="newMonthName && !newMonthTaken" class="text-[13px] font-medium text-violet-600">→ {{ newMonthName }}</span>
@@ -636,11 +636,11 @@ const mainEnvelopesTotal = computed(() => {
           </div>
         </div>
       </template>
-      <div class="flex gap-2">
+      <template #footer>
         <button class="btn-primary" :disabled="!newMonth.period || newMonthTaken" @click="submitCreate">Créer depuis le template</button>
         <button class="btn-secondary" @click="createFormOpen = false">Annuler</button>
-      </div>
-    </div>
+      </template>
+    </AppModal>
 
     <!-- ─── Aucun mois ───────────────────────────────── -->
     <div v-if="!current && !monthsList.length && !createFormOpen" class="text-center py-16 text-gray-400">
