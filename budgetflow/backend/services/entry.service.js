@@ -147,9 +147,11 @@ export function pay(monthId, lineId, { shortfallAccountId = null } = {}) {
   const count = get("SELECT COUNT(*) AS n FROM entries WHERE line_id = ?", lineId).n;
   if (count > 0) throw httpError(409, "Cette ligne a déjà des entrées");
 
+  // La date reste dans le mois de la fiche : jour récurrent, sinon aujourd'hui si on y est, sinon le 1er
+  const today = new Date().toISOString().substring(0, 10);
   const day = line.recurring_day
     ? `${month.period}-${String(line.recurring_day).padStart(2, "0")}`
-    : null;
+    : (today.startsWith(month.period) ? today : `${month.period}-01`);
 
   const base = {
     lineId,

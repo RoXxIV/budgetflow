@@ -355,11 +355,17 @@ async function confirmShortfall() {
 // ─── Entrées (déroulé par ligne : liste seulement, la saisie passe par le modal) ─
 const openEntriesLineId = ref(null)
 
+// Date par défaut : toujours dans le mois de la fiche (aujourd'hui si on y est, sinon le 1er)
+function defaultDate() {
+  const today = new Date().toISOString().substring(0, 10)
+  return current.value && !today.startsWith(current.value.period) ? `${current.value.period}-01` : today
+}
+
 function defaultEntryDate(line) {
   if (line.recurringDay && current.value) {
     return `${current.value.period}-${String(line.recurringDay).padStart(2, '0')}`
   }
-  return new Date().toISOString().substring(0, 10)
+  return defaultDate()
 }
 
 function toggleEntries(line) {
@@ -493,7 +499,7 @@ function openAddLine(category) {
     label: '',
     plannedAmount: '',   // prévu seul → ligne à cocher plus tard
     actualAmount: '',    // montant rempli → entrée créée tout de suite (le réel remplace le prévu)
-    entryDate: new Date().toISOString().substring(0, 10),
+    entryDate: defaultDate(),
     // « Depuis » : un compte ('a:ID') ou une enveloppe ('e:ID' → dépense prise dans l'enveloppe)
     source: category.type === 'revenu' ? '' : (mainId ? 'a:' + mainId : ''),
     envelopeInTarget: true,
