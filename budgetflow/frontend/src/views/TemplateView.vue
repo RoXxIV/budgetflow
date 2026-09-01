@@ -6,6 +6,7 @@ import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
 import { getAccounts } from '@/api/accounts.js'
 import { getSettings } from '@/api/settings.js'
+import { getEnvelopes, updateEnvelope } from '@/api/envelopes.js'
 import AppModal from '@/components/AppModal.vue'
 
 // ─── Data ────────────────────────────────────────────────
@@ -16,10 +17,11 @@ const accounts = ref([])
 const settings = ref(null)
 
 const currentMonth = ref(null)   // mois ouvert du calendrier (cible de la propagation), ou null
+const envelopes = ref([])        // pour afficher / changer le compte hôte d'une ligne mensualisée
 
 async function load() {
-  const [lRes, cRes, tRes, aRes, sRes, mRes] = await Promise.all([
-    getTemplateLines(), getCategories(), getThemes(), getAccounts(), getSettings(), getCurrentMonth(),
+  const [lRes, cRes, tRes, aRes, sRes, mRes, eRes] = await Promise.all([
+    getTemplateLines(), getCategories(), getThemes(), getAccounts(), getSettings(), getCurrentMonth(), getEnvelopes(),
   ])
   lines.value = lRes.data
   categories.value = cRes.data
@@ -27,7 +29,9 @@ async function load() {
   accounts.value = aRes.data
   settings.value = sRes.data
   currentMonth.value = mRes.data
+  envelopes.value = eRes.data
 }
+const envelopeById = (id) => envelopes.value.find((e) => e.id === id) || null
 onMounted(load)
 
 // ─── Propagation vers le mois en cours ───────────────────
@@ -151,7 +155,7 @@ function openEdit(line) {
     intervalMonths: line.intervalMonths || 1,
     anchorMonth: line.anchorMonth || '',
     monthlyize: !!line.envelopeId,
-    monthlyizeAccountId: '',
+    monthlyizeAccountId: envelopeById(line.envelopeId)?.accountId || '',
   }
 }
 
@@ -198,13 +202,19 @@ async function submit() {
     } else {
       saved = (await updateTemplateLine(openLineId.value, formData())).data
     }
-    // Mensualisation : enveloppe liée créée / déliée selon la case
+    // Mensualisation : enveloppe liée créée / déliée selon la case ; compte hôte modifiable ensuite
     const wantMonthly = Number(f.intervalMonths) > 1 && f.monthlyize
     if (wantMonthly !== !!saved.envelopeId) {
       await monthlyizeTemplateLine(saved.id, wantMonthly, f.monthlyizeAccountId || null)
+    } else if (wantMonthly && saved.envelopeId) {
+      const env = envelopeById(saved.envelopeId)
+      const wantedAccount = f.monthlyizeAccountId || accounts.value.find((a) => a.isMain)?.id || null
+      if (env && (env.accountId || null) !== wantedAccount) await updateEnvelope(env.id, { accountId: wantedAccount })
     }
     closePanel()
-    lines.value = (await getTemplateLines()).data
+    const [lRes, eRes] = await Promise.all([getTemplateLines(), getEnvelopes()])
+    lines.value = lRes.data
+    envelopes.value = eRes.data
   } catch (e) { apiError(e) }
 }
 
@@ -300,7 +310,7 @@ const formCategoryType = computed(() => {
           </label>
           <template v-if="Number(form.intervalMonths) > 1">
             <label class="checkbox self-end" title="Une enveloppe lisse la charge : mensualité suggérée chaque mois, et le ☐ payé sortira de l'enveloppe"><input v-model="form.monthlyize" type="checkbox" /><span>Mensualiser</span></label>
-            <label v-if="form.monthlyize && !modalLine?.envelopeId" class="field"><span>Où l'argent attend</span>
+            <label v-if="form.monthlyize" class="field" title="Compte hôte de l'enveloppe : c'est là que les mensualités s'accumulent, et de là que le paiement partira le jour J"><span>Mise de côté sur</span>
               <select v-model="form.monthlyizeAccountId" class="input w-44">
                 <option value="">Compte principal (virtuelle)</option>
                 <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
@@ -310,7 +320,12 @@ const formCategoryType = computed(() => {
         </div>
         <p v-if="Number(form.intervalMonths) > 1" class="text-[11.5px] text-gray-400 -mt-2">
           La ligne n'apparaît que les mois du cycle{{ form.anchorMonth ? ' (' + MONTHS[form.anchorMonth - 1] + (Number(form.intervalMonths) < 12 ? ', puis tous les ' + form.intervalMonths + ' mois' : ', chaque année') + ')' : '' }}.
-          <template v-if="form.monthlyize">Mensualisée : l'enveloppe « {{ form.label || '…' }} » propose chaque mois la part à mettre de côté pour être prêt le jour J{{ modalLine?.envelopeId ? '' : ' — elle démarre à 0' }}.</template>
+          <template v-if="form.monthlyize">
+            Mensualisée : l'enveloppe « {{ form.label || '…' }} »
+            <template v-if="modalLine?.envelopeId && envelopeById(modalLine.envelopeId)"> ({{ fmt(envelopeById(modalLine.envelopeId).total) }} / {{ fmt(envelopeById(modalLine.envelopeId).targetAmount) }}, ≈ {{ fmt(envelopeById(modalLine.envelopeId).monthlySuggestion) }}/mois)</template>
+            propose chaque mois la part à mettre de côté{{ modalLine?.envelopeId ? '' : ' — elle démarre à 0' }}.
+            Le jour J, le ☐ payé sort de cette enveloppe (compte « mise de côté sur ») ; « Vers » ci-dessous = où part le paiement (extérieur pour un abonnement).
+          </template>
         </p>
 
         <div class="flex flex-wrap gap-3 items-end">
