@@ -17,6 +17,11 @@ Implémenté et testé (tests ciblés ✓, revue complète ✓, build front OK).
 - Cocher ☐ payé puis annuler en supprimant l'entrée (×) — vérifier que les virements partent avec et que la case revient.
 - Déplacer une enveloppe (Comptes ou « mise de côté sur » du template) et vérifier le virement.
 
+## Plan (validé le 01/09)
+Evan chasse les bugs manuellement tant qu'il en trouve ; quand ça se tarit, on migre les checks
+(review.mjs + tests de session) vers `node --test` pour consolider — **avant** d'attaquer le design
+et les pages stats. Chaque bug trouvé finit en test automatisé avec son fix.
+
 ## Reportés
 - **6. Suppression de mois** : à brainstormer après tests (échéances avancées, effets de bord).
 - **7. Stats** : exclure virements système et catégories transfert des dépenses (noté pour l'étape stats).
