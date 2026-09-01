@@ -44,7 +44,8 @@ export function getSummary(monthId) {
   const month = get("SELECT * FROM months WHERE id = ?", monthId);
   if (!month) throw httpError(404, "Mois introuvable");
 
-  const accounts = all("SELECT * FROM accounts ORDER BY is_main DESC, name");
+  // Les comptes désactivés disparaissent du bilan (et donc du patrimoine et du prefill qui en dérivent)
+  const accounts = all("SELECT * FROM accounts WHERE is_active = 1 ORDER BY is_main DESC, name");
   const settings = get("SELECT * FROM app_settings WHERE id = 1");
   const snapshots = getSnapshots(monthId);
 

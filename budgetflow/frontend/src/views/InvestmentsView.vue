@@ -30,6 +30,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 const fmtPct = (n) => (n === null || n === undefined ? '—' : (n >= 0 ? '+' : '') + n.toFixed(2) + ' %')
 const gainClass = (n) => (n === null || n === undefined ? 'text-gray-300' : n >= 0 ? 'text-emerald-600' : 'text-red-500')
 const types = computed(() => settings.value?.investmentTypes || [])
+const activeAccounts = computed(() => accounts.value.filter((a) => a.isActive)) // saisies : comptes actifs seulement
 const openAssets = computed(() => assets.value.filter((a) => !a.isClosed))
 const closedAssets = computed(() => assets.value.filter((a) => a.isClosed))
 
@@ -163,7 +164,7 @@ async function deleteMovement(asset, m) {
         <label class="field"><span>Compte hôte</span>
           <select v-model="form.accountId" class="input w-40">
             <option value="">—</option>
-            <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+            <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
         </label>
         <label class="field"><span>Versement mensuel prévu (€)</span><input v-model="form.monthlyDca" type="number" step="0.01" class="input w-28" placeholder="0" /></label>
@@ -224,7 +225,7 @@ async function deleteMovement(asset, m) {
               <input v-model="movementForm.date" type="date" class="input w-34" />
               <select v-model="movementForm.counterpartAccountId" class="input w-28" :title="movementForm.kind === 'versement' ? 'Compte source' : 'Compte destination'">
                 <option value="">— compte</option>
-                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
               <button class="btn-secondary" @click="submitMovement(asset)">Ajouter</button>
             </div>

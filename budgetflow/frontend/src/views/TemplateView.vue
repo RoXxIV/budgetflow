@@ -52,6 +52,7 @@ async function applyToCurrentMonth(line, { ask = true } = {}) {
 // ─── Helpers ─────────────────────────────────────────────
 const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 const themeById = (id) => themes.value.find((t) => t.id === id) || null
+const activeAccounts = computed(() => accounts.value.filter((a) => a.isActive)) // saisies : comptes actifs seulement
 
 // ─── Lignes groupées par catégorie ───────────────────────
 const NO_CATEGORY = { id: null, name: 'Sans catégorie', type: 'depense', color: '#9ca3af' }
@@ -337,7 +338,7 @@ const formCategoryType = computed(() => {
             <label v-if="form.monthlyize" class="field" title="Compte hôte de l'enveloppe : c'est là que les mensualités s'accumulent, et de là que le paiement partira le jour J"><span>Mise de côté sur</span>
               <select v-model="form.monthlyizeAccountId" class="input w-44">
                 <option value="">Compte principal (virtuelle)</option>
-                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </label>
           </template>
@@ -354,14 +355,14 @@ const formCategoryType = computed(() => {
           <label v-if="formCategoryType === 'revenu'" class="field"><span>Compte crédité</span>
             <select v-model="form.toAccountId" class="input w-40">
               <option value="">—</option>
-              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
           </label>
           <template v-else>
             <label class="field"><span class="flex items-center gap-1">Depuis <HelpTip text="Le compte débité par défaut. « Vers » n'apparaît que si l'argent va sur un autre de vos comptes (épargne, virement, provision) ; pour un paiement à un tiers, laissez « extérieur »." /></span>
               <select v-model="form.fromAccountId" class="input w-40">
                 <option value="">— aucun</option>
-                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </label>
             <label class="field"><span>Moyen de paiement</span>
@@ -373,7 +374,7 @@ const formCategoryType = computed(() => {
             <label v-if="showVers" class="field" :title="formCategoryType === 'depense' ? 'Provision : l\'argent part vers un de vos comptes' : 'Compte destination'"><span>Vers</span>
               <select v-model="form.toAccountId" class="input w-44">
                 <option value="">{{ formCategoryType === 'depense' ? '— extérieur (quelqu\'un d\'autre)' : '— compte destination' }}</option>
-                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </label>
           </template>

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import AppModal from '@/components/AppModal.vue'
-import { getAccounts, createAccount, updateAccount, deleteAccount, getNetWorth, getAccountUsage } from '@/api/accounts.js'
+import { getAccounts, createAccount, updateAccount, deleteAccount, setAccountActive, getNetWorth } from '@/api/accounts.js'
 import {
   getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope,
   getContributions, addContribution, removeContribution,
@@ -81,6 +81,10 @@ async function doReallocate(envelope) {
 // Enveloppes sans compte hôte (virtuelles) — les autres sont affichées dans leur compte
 const virtualEnvelopes = computed(() => envelopes.value.filter((e) => !e.accountId))
 
+// Comptes actifs / désactivés (un compte désactivé garde son historique mais sort des saisies et du bilan)
+const activeAccounts = computed(() => accounts.value.filter((a) => a.isActive))
+const inactiveAccounts = computed(() => accounts.value.filter((a) => !a.isActive))
+
 // ─── Helpers ─────────────────────────────────────────────
 const TYPE_LABELS = { courant: 'Courant', epargne: 'Épargne', investissement: 'Investissement', especes: 'Espèces' }
 const TYPE_COLORS = {
@@ -141,28 +145,35 @@ async function submitAccount() {
   } catch (e) { apiError(e) }
 }
 
+// Suppression définitive : seulement pour un compte sans historique (créé par erreur) — sinon le backend refuse
 async function removeAccountConfirm(account) {
-  let u = { envelopes: account.envelopes.length, entries: 0, lines: 0, assets: 0 }
-  try { u = (await getAccountUsage(account.id)).data } catch { /* pas bloquant */ }
-  const parts = []
-  if (u.envelopes) parts.push(`${u.envelopes} enveloppe(s) deviendront virtuelles`)
-  if (u.entries) parts.push(`${u.entries} entrée(s) perdront leur compte`)
-  if (u.lines) parts.push(`${u.lines} ligne(s) perdront leur Depuis/Vers`)
-  if (u.assets) parts.push(`${u.assets} actif(s) perdront leur compte hôte`)
   const ok = await confirmDialog({
-    title: 'Supprimer le compte',
-    message: parts.length ? `« ${account.name} » : ${parts.join(', ')}.\nRien d'autre n'est supprimé, mais les soldes passés ne seront plus calculables pour ce compte.` : `Supprimer le compte « ${account.name} » ?`,
+    title: 'Supprimer définitivement',
+    message: `Supprimer « ${account.name} » ? Possible uniquement pour un compte sans aucun historique (créé par erreur). Sinon, utilisez Désactiver : rien n'est perdu.`,
     confirmLabel: 'Supprimer', danger: true,
   })
   if (!ok) return
-  try { await deleteAccount(account.id); await load() } catch (e) {
+  try { await deleteAccount(account.id); await load() } catch (e) { apiError(e) }
+}
+
+// ─── Désactivation (l'historique reste, réactivable) ─────
+const deactivation = ref(null) // { account, balance, toAccountId } : le compte a un solde à virer d'abord
+
+async function deactivateConfirm(account) {
+  const ok = await confirmDialog({
+    title: 'Désactiver le compte',
+    message: `« ${account.name} » disparaîtra des saisies, du bilan et du patrimoine. Tout l'historique est conservé, et le compte est réactivable ici à tout moment.`,
+    confirmLabel: 'Désactiver',
+  })
+  if (!ok) return
+  try { await setAccountActive(account.id, false); await load() } catch (e) {
     const p = e.response?.data
     if (p?.code === 'ACCOUNT_HAS_BALANCE') {
-      // Le compte a un solde : il faut dire où va l'argent → modal virement puis suppression
-      accountDelete.value = {
+      // Le compte a un solde : il faut dire où va l'argent → modal virement puis désactivation
+      deactivation.value = {
         account, balance: p.balance,
-        toAccountId: accounts.value.find((a) => a.id !== account.id && a.isMain)?.id
-          || accounts.value.find((a) => a.id !== account.id)?.id || '',
+        toAccountId: activeAccounts.value.find((a) => a.id !== account.id && a.isMain)?.id
+          || activeAccounts.value.find((a) => a.id !== account.id)?.id || '',
       }
       return
     }
@@ -170,17 +181,18 @@ async function removeAccountConfirm(account) {
   }
 }
 
-// ─── Suppression d'un compte avec solde : virer avant de supprimer ─
-const accountDelete = ref(null) // { account, balance, toAccountId }
-
-async function confirmAccountDelete() {
-  const d = accountDelete.value
+async function confirmDeactivation() {
+  const d = deactivation.value
   if (!d?.toAccountId) return
   try {
-    await deleteAccount(d.account.id, d.toAccountId)
-    accountDelete.value = null
+    await setAccountActive(d.account.id, false, d.toAccountId)
+    deactivation.value = null
     await load()
   } catch (e) { apiError(e) }
+}
+
+async function reactivate(account) {
+  try { await setAccountActive(account.id, true); await load() } catch (e) { apiError(e) }
 }
 
 // ─── Formulaire enveloppe (ajout / édition) ──────────────
@@ -456,7 +468,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <span class="flex items-center gap-1">Compte hôte (optionnel) <HelpTip text="Où l'argent de l'enveloppe se trouve physiquement. Sans compte, l'enveloppe est virtuelle : l'argent reste sur le compte principal, simplement réservé." /></span>
           <select v-model="envelopeForm.accountId" class="input w-44">
             <option value="">— Aucun (virtuelle)</option>
-            <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+            <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
         </label>
         <label class="field">
@@ -499,25 +511,25 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
       </template>
     </AppModal>
 
-    <!-- ─── Suppression d'un compte avec solde ───────── -->
-    <AppModal :open="!!accountDelete" title="Le compte a encore un solde" @close="accountDelete = null">
-      <div v-if="accountDelete" class="flex flex-col gap-3 text-[13px]">
+    <!-- ─── Désactivation d'un compte avec solde ─────── -->
+    <AppModal :open="!!deactivation" title="Le compte a encore un solde" @close="deactivation = null">
+      <div v-if="deactivation" class="flex flex-col gap-3 text-[13px]">
         <p>
-          « <b>{{ accountDelete.account.name }}</b> » a un solde de <b>{{ fmt(accountDelete.balance) }}</b>.
-          Avant de le supprimer, cet argent doit aller quelque part.
+          « <b>{{ deactivation.account.name }}</b> » a un solde de <b>{{ fmt(deactivation.balance) }}</b>.
+          Avant de le désactiver, cet argent doit aller quelque part.
         </p>
         <label class="field"><span>Virer le solde vers</span>
-          <select v-model="accountDelete.toAccountId" class="input w-48">
-            <option v-for="a in accounts.filter((x) => x.id !== accountDelete.account.id)" :key="a.id" :value="a.id">{{ a.name }}</option>
+          <select v-model="deactivation.toAccountId" class="input w-48">
+            <option v-for="a in activeAccounts.filter((x) => x.id !== deactivation.account.id)" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
         </label>
         <p class="text-[11.5px] text-gray-400">
-          Un virement de {{ fmt(Math.abs(accountDelete.balance)) }} sera enregistré dans le mois en cours, puis le compte sera supprimé.
+          Un virement de {{ fmt(Math.abs(deactivation.balance)) }} sera enregistré dans le mois en cours, puis le compte sera désactivé (réactivable, historique conservé).
         </p>
       </div>
       <template #footer>
-        <button class="btn-primary" :disabled="!accountDelete?.toAccountId" @click="confirmAccountDelete">Virer puis supprimer</button>
-        <button class="btn-secondary" @click="accountDelete = null">Annuler</button>
+        <button class="btn-primary" :disabled="!deactivation?.toAccountId" @click="confirmDeactivation">Virer puis désactiver</button>
+        <button class="btn-secondary" @click="deactivation = null">Annuler</button>
       </template>
     </AppModal>
 
@@ -562,7 +574,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 
     <!-- ─── Comptes ──────────────────────────────────── -->
     <div class="grid grid-cols-2 gap-4">
-      <div v-for="account in accounts" :key="account.id" class="card">
+      <div v-for="account in activeAccounts" :key="account.id" class="card">
         <div class="flex items-center gap-2 mb-1">
           <span class="font-semibold text-[15px]">{{ account.name }}</span>
           <span class="badge" :class="TYPE_COLORS[account.type]">{{ TYPE_LABELS[account.type] }}</span>
@@ -573,7 +585,8 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           </span>
           <div class="ml-auto flex gap-1">
             <button class="icon-btn" title="Modifier" @click="openEditAccount(account)">✎</button>
-            <button class="icon-btn text-red-400 hover:text-red-600" title="Supprimer" @click="removeAccountConfirm(account)">🗑</button>
+            <button class="icon-btn" title="Désactiver — le compte sort des saisies et du bilan, l'historique reste, réactivable" @click="deactivateConfirm(account)">⏻</button>
+            <button class="icon-btn text-red-400 hover:text-red-600" title="Supprimer définitivement (seulement sans historique)" @click="removeAccountConfirm(account)">🗑</button>
           </div>
         </div>
 
@@ -632,6 +645,25 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
         </div>
         <p v-else class="text-xs text-gray-400 mt-2">Aucune enveloppe sur ce compte.</p>
         <button class="link text-xs mt-2" @click="openAddEnvelope(account.id)">+ enveloppe sur ce compte</button>
+      </div>
+    </div>
+
+    <!-- ─── Comptes désactivés ───────────────────────── -->
+    <div v-if="inactiveAccounts.length" class="mt-6">
+      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Comptes désactivés</p>
+      <div class="grid grid-cols-2 gap-4">
+        <div v-for="account in inactiveAccounts" :key="account.id" class="card opacity-60">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-[15px]">{{ account.name }}</span>
+            <span class="badge" :class="TYPE_COLORS[account.type]">{{ TYPE_LABELS[account.type] }}</span>
+            <span class="badge bg-gray-100 text-gray-500">désactivé</span>
+            <div class="ml-auto flex gap-2 items-center">
+              <button class="link text-xs" @click="reactivate(account)">Réactiver</button>
+              <button class="icon-btn text-red-400 hover:text-red-600" title="Supprimer définitivement (seulement sans historique)" @click="removeAccountConfirm(account)">🗑</button>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">Hors saisies, bilan et patrimoine. L'historique est conservé.</p>
+        </div>
       </div>
     </div>
 

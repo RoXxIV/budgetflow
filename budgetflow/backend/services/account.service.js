@@ -10,13 +10,14 @@ function serialize(row, envelopes = []) {
     isMain: !!row.is_main,
     includeInNetWorth: !!row.include_in_net_worth,
     allowOverdraft: !!row.allow_overdraft,
+    isActive: !!row.is_active,
     createdAt: row.created_at,
     envelopes,
   };
 }
 
 export function list() {
-  const accounts = all("SELECT * FROM accounts ORDER BY is_main DESC, name");
+  const accounts = all("SELECT * FROM accounts ORDER BY is_active DESC, is_main DESC, name");
   const envelopes = envelopeService.list();
   return accounts.map((a) => serialize(a, envelopes.filter((e) => e.accountId === a.id)));
 }
@@ -88,7 +89,9 @@ export function update(id, data) {
   });
 }
 
-export function remove(id, { transferToAccountId = null } = {}) {
+// Suppression définitive : réservée à un compte SANS historique (créé par erreur).
+// Dès qu'un compte a des données, la voie propre est la désactivation (setActive) — rien n'est perdu.
+export function remove(id) {
   const existing = get("SELECT * FROM accounts WHERE id = ?", id);
   if (!existing) throw httpError(404, "Compte introuvable");
   const others = get("SELECT COUNT(*) AS n FROM accounts WHERE id != ?", id).n;
@@ -96,15 +99,47 @@ export function remove(id, { transferToAccountId = null } = {}) {
     throw httpError(409, "C'est le compte principal : désignez-en un autre avant de le supprimer");
   }
 
-  // Solde connu et non nul → il faut dire où va l'argent (virement système, puis suppression)
+  const u = usage(id);
+  const snapshots = get("SELECT COUNT(*) AS n FROM account_snapshots WHERE account_id = ?", id).n;
+  const history = u.entries + u.lines + u.assets + u.envelopes + snapshots
+    + get("SELECT COUNT(*) AS n FROM envelopes WHERE account_id = ?", id).n - u.envelopes; // enveloppes clôturées incluses
+  if (history > 0) {
+    const err = httpError(409, `« ${existing.name} » a un historique (entrées, soldes, lignes ou enveloppes) : désactivez-le plutôt, rien ne sera perdu`);
+    err.payload = { code: "ACCOUNT_HAS_HISTORY" };
+    throw err;
+  }
+
+  run("DELETE FROM accounts WHERE id = ?", id);
+  return { message: "Compte supprimé" };
+}
+
+// ─── Désactivation / réactivation (l'historique reste intact) ───
+export function setActive(id, isActive, { transferToAccountId = null } = {}) {
+  const existing = get("SELECT * FROM accounts WHERE id = ?", id);
+  if (!existing) throw httpError(404, "Compte introuvable");
+
+  if (isActive) {
+    run("UPDATE accounts SET is_active = 1 WHERE id = ?", id);
+    return getById(id);
+  }
+
+  if (existing.is_main) {
+    throw httpError(409, "C'est le compte principal : désignez-en un autre avant de le désactiver");
+  }
+  const openEnvelopes = get("SELECT COUNT(*) AS n FROM envelopes WHERE account_id = ? AND closed_at IS NULL", id).n;
+  if (openEnvelopes > 0) {
+    throw httpError(409, `« ${existing.name} » héberge ${openEnvelopes} enveloppe(s) ouverte(s) : clôturez-les ou déplacez-les d'abord`);
+  }
+
+  // Solde connu et non nul → il faut dire où va l'argent (virement système, puis désactivation)
   const balance = currentBalanceCents(id);
-  if (balance !== null && balance !== 0 && others > 0) {
+  if (balance !== null && balance !== 0) {
     if (!transferToAccountId) {
-      const err = httpError(409, `« ${existing.name} » a un solde de ${(balance / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € : indiquez vers quel compte le virer avant suppression`);
+      const err = httpError(409, `« ${existing.name} » a un solde de ${(balance / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € : indiquez vers quel compte le virer avant désactivation`);
       err.payload = { code: "ACCOUNT_HAS_BALANCE", balance: balance / 100 };
       throw err;
     }
-    if (transferToAccountId === id || !get("SELECT id FROM accounts WHERE id = ?", transferToAccountId)) {
+    if (transferToAccountId === id || !get("SELECT id FROM accounts WHERE id = ? AND is_active = 1", transferToAccountId)) {
       throw httpError(400, "Compte destinataire invalide");
     }
     const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1");
@@ -113,14 +148,13 @@ export function remove(id, { transferToAccountId = null } = {}) {
     run(
       `INSERT INTO entries (month_id, label, amount_cents, account_id, to_account_id, source)
        VALUES (?, ?, ?, ?, ?, 'manuelle')`,
-      month.id, `Solde de « ${existing.name} » viré vers « ${target} » avant suppression`,
+      month.id, `Solde de « ${existing.name} » viré vers « ${target} » avant désactivation`,
       Math.abs(balance), balance > 0 ? id : transferToAccountId, balance > 0 ? transferToAccountId : id
     );
   }
 
-  // Les enveloppes hébergées ne sont pas supprimées : account_id passe à NULL (ON DELETE SET NULL)
-  run("DELETE FROM accounts WHERE id = ?", id);
-  return { message: "Compte supprimé" };
+  run("UPDATE accounts SET is_active = 0 WHERE id = ?", id);
+  return getById(id);
 }
 
 // Solde live du compte sur le mois de référence (null si inconnu)

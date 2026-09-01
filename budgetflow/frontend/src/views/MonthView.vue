@@ -212,7 +212,8 @@ async function contributeSuggested(env) {
 // ─── Helpers ─────────────────────────────────────────────
 const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 const themeById = (id) => themes.value.find((t) => t.id === id) || null
-const accountById = (id) => accounts.value.find((a) => a.id === id) || null
+const accountById = (id) => accounts.value.find((a) => a.id === id) || null // liste complète : les entrées passées gardent leur nom
+const activeAccounts = computed(() => accounts.value.filter((a) => a.isActive)) // saisies : comptes actifs seulement
 const entriesForLine = (line) => entriesAll.value.filter((e) => e.lineId === line.id)
 // Virements système rattachés à la ligne (sans ligne ni catégorie : enveloppe → compte prélevé, reste pris ailleurs)
 const transfersForLine = (line) => entriesAll.value.filter((e) => e.relatedLineId === line.id)
@@ -724,7 +725,7 @@ const mainEnvelopesTotal = computed(() => {
         Pré-rempli avec le solde de fin de {{ previousPeriod }} calculé par l'app — corrigez avec le vrai solde de la banque, l'écart s'affiche à titre d'info.
       </p>
       <div class="flex flex-col gap-1.5 mb-4">
-        <div v-for="a in accounts" :key="a.id" class="flex items-center gap-2.5">
+        <div v-for="a in activeAccounts" :key="a.id" class="flex items-center gap-2.5">
           <span class="text-[13px] text-gray-600 w-36 shrink-0">{{ a.name }}</span>
           <input v-model="newMonth.snapshots[a.id]" type="number" step="0.01" class="input w-28" placeholder="—" @keyup.enter="submitCreate" />
           <span v-if="suggestionDelta(a.id) !== null" class="text-[11px]" :class="suggestionDelta(a.id) > 0 ? 'text-emerald-600' : 'text-amber-600'" :title="'Suggéré : ' + fmt(suggested[a.id])">
@@ -791,7 +792,7 @@ const mainEnvelopesTotal = computed(() => {
           <label v-if="lineFormCategoryType === 'revenu'" class="field"><span>Compte crédité</span>
             <select v-model="lineForm.toAccountId" class="input w-40">
               <option value="">—</option>
-              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
           </label>
           <template v-else>
@@ -799,7 +800,7 @@ const mainEnvelopesTotal = computed(() => {
               <select v-model="lineForm.source" class="input w-44">
                 <option value="">— aucun</option>
                 <optgroup label="Mes comptes">
-                  <option v-for="a in accounts" :key="'a' + a.id" :value="'a:' + a.id">{{ a.name }}</option>
+                  <option v-for="a in activeAccounts" :key="'a' + a.id" :value="'a:' + a.id">{{ a.name }}</option>
                 </optgroup>
                 <optgroup v-if="lineModalAdding && !lineForm.isPot && envelopes.length" label="Mes enveloppes">
                   <option v-for="env in envelopes" :key="'e' + env.id" :value="'e:' + env.id">{{ env.name }}{{ env.accountName ? ' (' + env.accountName + ')' : '' }}</option>
@@ -815,7 +816,7 @@ const mainEnvelopesTotal = computed(() => {
             <label v-if="isTransfer" class="field" :title="lineFormCategoryType === 'depense' ? 'Provision : l\'argent part vers un de vos comptes (ex. 70 € / mois vers le compte factures)' : 'Compte destination'"><span>Vers</span>
               <select v-model="lineForm.toAccountId" class="input w-44">
                 <option value="">{{ lineFormCategoryType === 'depense' ? '— extérieur (quelqu\'un d\'autre)' : '— compte destination' }}</option>
-                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </label>
           </template>
@@ -869,7 +870,7 @@ const mainEnvelopesTotal = computed(() => {
           <label v-if="entryLineIsRevenu" class="field"><span>Compte crédité</span>
             <select v-model="entryForm.creditAccountId" class="input w-40">
               <option value="">—</option>
-              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
           </label>
           <template v-else>
@@ -877,7 +878,7 @@ const mainEnvelopesTotal = computed(() => {
               <select v-model="entryForm.source" class="input w-44">
                 <option value="">— aucun</option>
                 <optgroup label="Mes comptes">
-                  <option v-for="a in accounts" :key="'a' + a.id" :value="'a:' + a.id">{{ a.name }}</option>
+                  <option v-for="a in activeAccounts" :key="'a' + a.id" :value="'a:' + a.id">{{ a.name }}</option>
                 </optgroup>
                 <optgroup v-if="!entryModalLine.isPot && envelopes.length" label="Mes enveloppes">
                   <option v-for="env in envelopes" :key="'e' + env.id" :value="'e:' + env.id">{{ env.name }}{{ env.accountName ? ' (' + env.accountName + ')' : '' }}</option>
@@ -893,7 +894,7 @@ const mainEnvelopesTotal = computed(() => {
             <label v-if="entryIsTransfer" class="field" title="Vers un de vos comptes (provision, virement interne) ou extérieur"><span>Vers</span>
               <select v-model="entryForm.toAccountId" class="input w-44">
                 <option value="">— extérieur (quelqu'un d'autre)</option>
-                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </label>
           </template>
@@ -926,7 +927,7 @@ const mainEnvelopesTotal = computed(() => {
         <div class="flex flex-wrap gap-3 items-end">
           <label class="field"><span>Le reste est pris sur</span>
             <select v-model="shortfall.accountId" class="input w-44">
-              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
           </label>
         </div>
@@ -1071,7 +1072,7 @@ const mainEnvelopesTotal = computed(() => {
               <input v-model="contribForm.date" type="date" class="input w-34" />
               <select v-model="contribForm.fromAccountId" class="input w-28" title="Compte source">
                 <option value="">— depuis</option>
-                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
               <span v-if="env.accountName" class="text-gray-300 text-[12px]">→ {{ env.accountName }}</span>
               <input v-model="contribForm.notes" type="text" class="input w-36" placeholder="Note (optionnelle)" @keyup.enter="submitContribution(env)" />
@@ -1133,7 +1134,7 @@ const mainEnvelopesTotal = computed(() => {
               <input v-model="assetMovementForm.date" type="date" class="input w-34" />
               <select v-model="assetMovementForm.counterpartAccountId" class="input w-28" :title="assetMovementForm.kind === 'versement' ? 'Compte source' : 'Compte destination'">
                 <option value="">— compte</option>
-                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
               <span v-if="asset.accountName" class="text-gray-300 text-[12px]">{{ assetMovementForm.kind === 'versement' ? '→ ' + asset.accountName : '← ' + asset.accountName }}</span>
               <button class="btn-secondary" @click="submitAssetMovement(asset)">Ajouter</button>
@@ -1202,7 +1203,7 @@ const mainEnvelopesTotal = computed(() => {
       <div v-if="snapshotsOpen" class="card px-5 py-4 mb-4">
         <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Soldes de début de mois</p>
         <div class="flex flex-wrap gap-3 mb-3">
-          <label v-for="a in accounts" :key="a.id" class="field">
+          <label v-for="a in activeAccounts" :key="a.id" class="field">
             <span>{{ a.name }}</span>
             <input v-model="snapshotEdits[a.id]" type="number" step="0.01" class="input w-28" :disabled="current.isClosed" placeholder="—" />
           </label>
