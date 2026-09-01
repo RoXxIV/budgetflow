@@ -1,5 +1,6 @@
 <script setup>
 import { useRoute } from 'vue-router'
+import DialogHost from '@/components/DialogHost.vue'
 
 const route = useRoute()
 
@@ -34,5 +35,6 @@ const navLinks = [
     <main class="flex-1 px-8 py-6 max-w-5xl w-full mx-auto">
       <router-view />
     </main>
+    <DialogHost />
   </div>
 </template>

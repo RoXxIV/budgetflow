@@ -11,6 +11,8 @@ import {
 import { getEnvelopes, addContribution, removeContribution } from '@/api/envelopes.js'
 import { getMonthCalculators, saveMonthReadings, regularizeCalculator } from '@/api/calculators.js'
 import AppModal from '@/components/AppModal.vue'
+import HelpTip from '@/components/HelpTip.vue'
+import { confirmDialog, apiError } from '@/composables/useDialog.js'
 import { getAssets, addAssetMovement, removeAssetMovement, getMonthAssetMovements, dcaAsset, undcaAsset } from '@/api/assets.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
@@ -130,7 +132,8 @@ async function saveReadings(calc) {
 
 async function regularize(calc) {
   const verb = calc.line?.regularisation ? 'Mettre à jour' : 'Créer'
-  if (!confirm(`${verb} la régularisation de ${fmt(calc.gap)} sur « ${calc.line.label} » ?`)) return
+  const ok = await confirmDialog({ title: `${verb} la régularisation`, message: `Une entrée de ${fmt(calc.gap)} sera posée sur « ${calc.line.label} » (écart entre l'estimé ${fmt(calc.estimate)} et la mensualité ${fmt(calc.line.planned)}).${calc.line?.regularisation ? ' La précédente est remplacée.' : ''}`, confirmLabel: verb })
+  if (!ok) return
   try {
     await regularizeCalculator(current.value.id, calc.id)
     await reload()
@@ -204,10 +207,6 @@ async function contributeSuggested(env) {
     })
     await reload()
   } catch (e) { apiError(e) }
-}
-
-function apiError(e) {
-  alert(e.response?.data?.message || e.message)
 }
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -311,7 +310,12 @@ async function submitCreate() {
 // ─── Clôture ─────────────────────────────────────────────
 async function toggleClosed() {
   const action = current.value.isClosed ? 'Rouvrir' : 'Clôturer'
-  if (!confirm(`${action} ${current.value.name} ?${current.value.isClosed ? '' : ' Les saisies seront verrouillées.'}`)) return
+  const ok = await confirmDialog({
+    title: `${action} ${current.value.name}`,
+    message: current.value.isClosed ? 'Les saisies redeviendront possibles.' : 'Toutes les saisies du mois seront verrouillées (entrées, ☐ payé, contributions datées dans le mois). Vous pourrez rouvrir.',
+    confirmLabel: action,
+  })
+  if (!ok) return
   try {
     const { data } = await setMonthClosed(current.value.id, !current.value.isClosed)
     current.value = data
@@ -619,10 +623,12 @@ async function submitLineForm() {
 
 async function removeLineConfirm(line) {
   const n = entriesForLine(line).length
-  const msg = n
-    ? `Supprimer « ${line.label} » et ses ${n} entrée(s) ?`
-    : `Supprimer la ligne « ${line.label} » de ce mois ?`
-  if (!confirm(msg)) return
+  const ok = await confirmDialog({
+    title: 'Supprimer la ligne',
+    message: n ? `« ${line.label} » et ses ${n} entrée(s) seront supprimées de ce mois.` : `Supprimer la ligne « ${line.label} » de ce mois ?`,
+    confirmLabel: 'Supprimer', danger: true,
+  })
+  if (!ok) return
   try {
     await deleteMonthLine(current.value.id, line.id, n > 0)
     closeLineForm()
@@ -631,7 +637,8 @@ async function removeLineConfirm(line) {
 }
 
 async function pushToTemplate(line) {
-  if (!confirm(`Reporter « ${line.label} » dans le template ? Les prochains mois utiliseront ces valeurs.`)) return
+  const ok = await confirmDialog({ title: 'Reporter dans le template', message: `Les valeurs de « ${line.label} » (prévu, comptes, jour, thème…) deviennent le standard : les prochains mois les utiliseront.`, confirmLabel: 'Reporter' })
+  if (!ok) return
   try {
     await applyLineToTemplate(current.value.id, line.id)
     closeLineForm()
@@ -693,7 +700,10 @@ const mainEnvelopesTotal = computed(() => {
     <div class="flex items-start justify-between mb-5">
       <div>
         <h1 class="text-[22px] font-semibold">Mois</h1>
-        <p class="text-[13px] text-gray-400 mt-0.5">Suivi budgétaire mensuel</p>
+        <p class="text-[13px] text-gray-400 mt-0.5 flex items-center gap-1.5">
+          Suivi budgétaire mensuel
+          <HelpTip wide text="Chaque ligne a un prévu (du template) et un réel (vos entrées). ☐ = prévu pas encore réalisé : cocher crée l'entrée au prévu. Cliquez une ligne pour voir ses entrées, « + entrée » pour en ajouter, ✎ pour modifier la ligne. « + ligne » ajoute une dépense propre à ce mois. Un mois clôturé est verrouillé." />
+        </p>
       </div>
       <div class="flex gap-2 items-center">
         <select
@@ -764,8 +774,8 @@ const mainEnvelopesTotal = computed(() => {
         <div class="flex flex-wrap gap-3 items-end">
           <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-44" placeholder="Hôtel Japon, Canva, Cadeau…" @keyup.enter="submitLineForm" /></label>
           <template v-if="!lineForm.isPot">
-            <label class="field" title="À venir : la ligne se cochera quand ce sera passé"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
-            <label v-if="lineModalAdding" class="field" title="Déjà passé : l'entrée est créée tout de suite"><span>Montant (€)</span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
+            <label class="field"><span class="flex items-center gap-1">Prévu (€) <HelpTip text="À venir : la ligne aura une case ☐ à cocher quand ce sera passé (ex. « on me rend 100 € la semaine prochaine »)." /></span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
+            <label v-if="lineModalAdding" class="field"><span class="flex items-center gap-1">Montant (€) <HelpTip text="Déjà passé : l'entrée est créée tout de suite avec ce montant. Une seule saisie pour une dépense ponctuelle." /></span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
           </template>
           <label v-if="lineModalAdding && !lineForm.isPot && lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
           <label v-else class="field" :title="lineForm.isPot ? 'Jour où vous réglez la cagnotte' : 'Date par défaut du « payé »'"><span>Jour du mois</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
@@ -976,7 +986,7 @@ const mainEnvelopesTotal = computed(() => {
             <span class="text-[20px] font-bold tracking-tight" :class="amountClass(summaryData.tiles.projete)">
               {{ fmtOrDash(summaryData.tiles.projete) }}
             </span>
-            <span class="text-[11.5px] text-gray-400 font-medium">Projeté fin de mois</span>
+            <span class="text-[11.5px] text-gray-400 font-medium flex items-center gap-1">Projeté fin de mois <HelpTip text="Solde actuel + revenus prévus non encaissés − tout ce qui est prévu et pas encore passé (lignes non cochées, mensualités et DCA non versés). Répond à « est-ce que je peux me le permettre ? »." /></span>
             <span class="text-[11px] text-gray-400">si tout le prévu se réalise</span>
           </div>
           <div class="flex flex-col gap-0.5">
@@ -1011,6 +1021,7 @@ const mainEnvelopesTotal = computed(() => {
         <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
           <span class="font-semibold text-[13.5px]">Enveloppes</span>
           <span class="badge bg-violet-50 text-violet-700">épargne</span>
+          <HelpTip text="Vos projets d'épargne. ☐ versé pose la mensualité suggérée en un clic ; cliquez une enveloppe pour voir ou ajouter une contribution. Une dépense « depuis l'enveloppe » (dans une entrée) la fait baisser." />
           <span class="ml-auto text-[12.5px] text-gray-400">ce mois : <span class="font-semibold text-violet-600">{{ fmt(monthContribTotal) }}</span></span>
         </div>
 

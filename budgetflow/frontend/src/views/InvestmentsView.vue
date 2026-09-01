@@ -8,6 +8,8 @@ import {
 import { getAccounts } from '@/api/accounts.js'
 import { getSettings } from '@/api/settings.js'
 import AppModal from '@/components/AppModal.vue'
+import HelpTip from '@/components/HelpTip.vue'
+import { confirmDialog, apiError } from '@/composables/useDialog.js'
 
 // ─── Data ────────────────────────────────────────────────
 const assets = ref([])
@@ -22,7 +24,6 @@ async function load() {
 }
 onMounted(load)
 
-function apiError(e) { alert(e.response?.data?.message || e.message) }
 
 const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
@@ -79,7 +80,8 @@ async function toggleClosed(asset) {
   try { await updateAsset(asset.id, { isClosed: !asset.isClosed }); await load() } catch (e) { apiError(e) }
 }
 async function removeConfirm(asset) {
-  if (!confirm(`Supprimer l'actif « ${asset.name} » ?`)) return
+  const ok = await confirmDialog({ title: "Supprimer l'actif", message: `Supprimer « ${asset.name} » ? (impossible s'il a des mouvements : clôturez-le pour garder l'historique)`, confirmLabel: 'Supprimer', danger: true })
+  if (!ok) return
   try { await deleteAsset(asset.id); await load() } catch (e) { apiError(e) }
 }
 
@@ -133,7 +135,10 @@ async function deleteMovement(asset, m) {
     <div class="flex items-start justify-between mb-5">
       <div>
         <h1 class="text-[22px] font-semibold">Investissements</h1>
-        <p class="text-[13px] text-gray-400 mt-0.5">Actifs, versements, valorisation — la saisie des versements se fait aussi dans le mois</p>
+        <p class="text-[13px] text-gray-400 mt-0.5 flex items-center gap-1.5">
+          Actifs, versements, valorisation
+          <HelpTip wide text="Un actif (ETF, crypto…) est hébergé sur un compte de type investissement. Vous saisissez ses versements (aussi via ☐ versé dans le mois si un DCA mensuel est prévu) et, de temps en temps, sa valeur actuelle. Performance = (valeur + retiré − investi) / investi : un retrait ne fausse pas le pourcentage." />
+        </p>
       </div>
       <button class="btn-primary" @click="openAdd">+ Actif</button>
     </div>

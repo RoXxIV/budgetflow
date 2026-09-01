@@ -5,6 +5,10 @@ import { getCategories, createCategory, updateCategory, reorderCategories, delet
 import { getThemes, createTheme, updateTheme, deleteTheme } from '@/api/themes.js'
 import { getTemplateLines } from '@/api/template.js'
 import { getCalculators, createCalculator, updateCalculator, deleteCalculator, checkFormula } from '@/api/calculators.js'
+import { getCategoryUsage } from '@/api/categories.js'
+import { getThemeUsage, mergeTheme } from '@/api/themes.js'
+import { confirmDialog, apiError, toast } from '@/composables/useDialog.js'
+import HelpTip from '@/components/HelpTip.vue'
 
 // ─── Data ────────────────────────────────────────────────
 const settings = ref(null)
@@ -120,7 +124,8 @@ async function saveCalculator() {
 }
 
 async function removeCalculatorConfirm(calc) {
-  if (!confirm(`Supprimer le calculateur « ${calc.name} » et tous ses relevés ?`)) return
+  const ok = await confirmDialog({ title: 'Supprimer le calculateur', message: `« ${calc.name} » et tous ses relevés mensuels seront supprimés. Les régularisations déjà posées dans les mois restent.`, confirmLabel: 'Supprimer', danger: true })
+  if (!ok) return
   try {
     await deleteCalculator(calc.id)
     calculators.value = (await getCalculators()).data
@@ -129,10 +134,6 @@ async function removeCalculatorConfirm(calc) {
 }
 
 const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.label || null
-
-function apiError(e) {
-  alert(e.response?.data?.message || e.message)
-}
 
 // ─── Toast sauvegarde ────────────────────────────────────
 const saved = ref(false)
@@ -222,9 +223,19 @@ async function moveCategory(index, delta) {
 }
 
 async function removeCategoryConfirm(category) {
-  if (!confirm(`Supprimer la catégorie « ${category.name} » ?`)) return
+  let usage = { templateLines: 0, monthLines: 0 }
+  try { usage = (await getCategoryUsage(category.id)).data } catch { /* pas bloquant */ }
+  const used = usage.templateLines + usage.monthLines
+  const ok = await confirmDialog({
+    title: 'Supprimer la catégorie',
+    message: used
+      ? `« ${category.name} » est utilisée par ${usage.templateLines} ligne(s) du template et ${usage.monthLines} ligne(s) de mois.\nElles ne seront pas supprimées mais deviendront « sans catégorie ».`
+      : `Supprimer la catégorie « ${category.name} » ?`,
+    confirmLabel: 'Supprimer', danger: true,
+  })
+  if (!ok) return
   try {
-    await deleteCategory(category.id)
+    await deleteCategory(category.id, used > 0)
     categories.value = (await getCategories()).data
   } catch (e) { apiError(e) }
 }
@@ -266,9 +277,38 @@ async function saveTheme(theme) {
 }
 
 async function removeThemeConfirm(theme) {
-  if (!confirm(`Supprimer le thème « ${theme.name} » ?`)) return
+  let usage = { lines: 0, entries: 0 }
+  try { usage = (await getThemeUsage(theme.id)).data } catch { /* pas bloquant */ }
+  const used = usage.lines + usage.entries
+  const ok = await confirmDialog({
+    title: 'Supprimer le thème',
+    message: used
+      ? `« ${theme.name} » est utilisé par ${usage.lines} ligne(s) et ${usage.entries} entrée(s).\nElles deviendront « sans thème » — pour garder l'historique, préférez « fusionner dans » un autre thème.`
+      : `Supprimer le thème « ${theme.name} » ?`,
+    confirmLabel: 'Supprimer quand même', danger: true,
+  })
+  if (!ok) return
   try {
-    await deleteTheme(theme.id)
+    await deleteTheme(theme.id, used > 0)
+    themes.value = (await getThemes()).data
+  } catch (e) { apiError(e) }
+}
+
+// Fusion : les lignes et entrées du thème source passent sur la cible, la source disparaît
+const mergeTarget = ref({}) // { [themeId]: targetId }
+async function doMergeTheme(theme) {
+  const targetId = mergeTarget.value[theme.id]
+  if (!targetId) return
+  const target = themes.value.find((t) => t.id === targetId)
+  const ok = await confirmDialog({
+    title: 'Fusionner deux thèmes',
+    message: `Toutes les lignes et entrées de « ${theme.name} » passeront sur « ${target?.name} », puis « ${theme.name} » sera supprimé.`,
+    confirmLabel: 'Fusionner',
+  })
+  if (!ok) { mergeTarget.value[theme.id] = ''; return }
+  try {
+    const { data } = await mergeTheme(theme.id, targetId)
+    toast(data.message, 'success')
     themes.value = (await getThemes()).data
   } catch (e) { apiError(e) }
 }
@@ -289,8 +329,8 @@ async function removeThemeConfirm(theme) {
 
       <!-- ─── Catégories ─────────────────────────────── -->
       <div class="card">
-        <h2 class="section-title">Catégories</h2>
-        <p class="text-xs text-gray-400 mb-3">Les blocs de votre sheet mensuel. Leur type pilote les calculs.</p>
+        <h2 class="section-title flex items-center gap-1.5">Catégories <HelpTip wide text="Les blocs de votre mois (Factures, Courses, Loisirs…). Noms et nombre libres. Le TYPE compte : dépense (comptée dans les dépenses), revenu, épargne (compté comme mis de côté), transfert (bouge les soldes entre vos comptes, jamais compté en dépense)." /></h2>
+        <p class="text-xs text-gray-400 mb-3">Les blocs de votre mois. Leur type pilote les calculs.</p>
 
         <div v-if="!categories.length" class="text-center py-6">
           <p class="text-[13px] text-gray-400 mb-3">Aucune catégorie pour l'instant.</p>
@@ -325,14 +365,16 @@ async function removeThemeConfirm(theme) {
       <div class="flex flex-col gap-5">
         <!-- ─── Thèmes ───────────────────────────────── -->
         <div class="card">
-          <h2 class="section-title">Thèmes</h2>
-          <p class="text-xs text-gray-400 mb-3">
-            Axe d'analyse transversal (0 à N, facultatif). Posés sur les lignes, surchargeables par entrée.
-          </p>
+          <h2 class="section-title flex items-center gap-1.5">Thèmes <HelpTip wide text="Étiquettes d'analyse qui traversent les catégories (« IA » regroupe ChatGPT dans Abonnements et un achat ponctuel ailleurs). Facultatif : sans thème, le champ n'apparaît pas. Posés sur une ligne, modifiables entrée par entrée. Fusionner deux thèmes déplace toutes leurs entrées." /></h2>
+          <p class="text-xs text-gray-400 mb-3">Étiquettes d'analyse, facultatives. Sur les lignes, modifiables par entrée.</p>
 
           <div v-for="theme in themes" :key="theme.id" class="row">
             <input v-model="theme.color" type="color" class="color-input" @change="saveTheme(theme)" />
             <input v-model="theme.name" type="text" class="input flex-1" @change="saveTheme(theme)" />
+            <select v-if="themes.length > 1" v-model="mergeTarget[theme.id]" class="input w-36 text-[12px]" title="Fusionner ce thème dans un autre (les entrées suivent)" @change="doMergeTheme(theme)">
+              <option value="">fusionner dans…</option>
+              <option v-for="t in themes.filter((x) => x.id !== theme.id)" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
             <button class="icon-btn text-red-300 hover:text-red-500" @click="removeThemeConfirm(theme)">🗑</button>
           </div>
           <p v-if="!themes.length" class="text-[13px] text-gray-400 py-2">

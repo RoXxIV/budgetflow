@@ -8,6 +8,8 @@ import { getAccounts } from '@/api/accounts.js'
 import { getSettings } from '@/api/settings.js'
 import { getEnvelopes, updateEnvelope } from '@/api/envelopes.js'
 import AppModal from '@/components/AppModal.vue'
+import HelpTip from '@/components/HelpTip.vue'
+import { confirmDialog, apiError, toast } from '@/composables/useDialog.js'
 
 // ─── Data ────────────────────────────────────────────────
 const lines = ref([])
@@ -37,14 +39,14 @@ onMounted(load)
 // ─── Propagation vers le mois en cours ───────────────────
 async function applyToCurrentMonth(line, { ask = true } = {}) {
   if (!currentMonth.value) return
-  if (ask && !confirm(`Appliquer « ${line.label} » à ${currentMonth.value.name} ? (le réel du mois n'est pas touché)`)) return
+  if (ask) {
+    const ok = await confirmDialog({ title: `Appliquer à ${currentMonth.value.name}`, message: `La ligne « ${line.label} » sera copiée dans ${currentMonth.value.name} (ou sa copie mise à jour). Le réel du mois n'est pas touché.`, confirmLabel: 'Appliquer' })
+    if (!ok) return
+  }
   try {
     await applyTemplateLineToMonth(line.id, currentMonth.value.id)
+    toast(`« ${line.label} » appliquée à ${currentMonth.value.name}`, 'success')
   } catch (e) { apiError(e) }
-}
-
-function apiError(e) {
-  alert(e.response?.data?.message || e.message)
 }
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -190,14 +192,15 @@ function formData() {
 async function submit() {
   if (!form.value.label.trim()) return
   const f = form.value
-  if (Number(f.intervalMonths) > 1 && !f.anchorMonth) { alert("Indiquez le mois d'ancrage pour une ligne non mensuelle."); return }
+  if (Number(f.intervalMonths) > 1 && !f.anchorMonth) { toast("Indiquez le mois d'ancrage pour une ligne non mensuelle.", 'error'); return }
   try {
     let saved
     if (typeof openLineId.value === 'string') {
       saved = (await createTemplateLine(formData())).data
       // Nouvelle ligne : proposer de l'ajouter aussi au mois en cours (sinon elle n'apparaît qu'au prochain mois)
-      if (currentMonth.value && Number(f.intervalMonths) <= 1 && confirm(`Ligne ajoutée au template. L'ajouter aussi à ${currentMonth.value.name} ?`)) {
-        await applyToCurrentMonth(saved, { ask: false })
+      if (currentMonth.value && Number(f.intervalMonths) <= 1) {
+        const also = await confirmDialog({ title: 'Ligne ajoutée au template', message: `L'ajouter aussi à ${currentMonth.value.name} ? Sinon elle n'apparaîtra qu'à partir du prochain mois.`, confirmLabel: `Oui, ajouter à ${currentMonth.value.name}`, cancelLabel: 'Non, template seulement' })
+        if (also) await applyToCurrentMonth(saved, { ask: false })
       }
     } else {
       saved = (await updateTemplateLine(openLineId.value, formData())).data
@@ -219,7 +222,12 @@ async function submit() {
 }
 
 async function removeLineConfirm(line) {
-  if (!confirm(`Supprimer la ligne « ${line.label} » du template ?`)) return
+  const ok = await confirmDialog({
+    title: 'Supprimer du template',
+    message: `« ${line.label} » ne sera plus copiée dans les prochains mois. Les copies déjà présentes dans les mois restent (détachées du template)${line.envelopeId ? ' ; son enveloppe reste ouverte' : ''}.`,
+    confirmLabel: 'Supprimer', danger: true,
+  })
+  if (!ok) return
   try {
     await deleteTemplateLine(line.id)
     if (openLineId.value === line.id) closePanel()
@@ -262,7 +270,10 @@ const formCategoryType = computed(() => {
     <div class="flex items-start justify-between mb-5">
       <div>
         <h1 class="text-[22px] font-semibold">Template</h1>
-        <p class="text-[13px] text-gray-400 mt-0.5">La base dupliquée à chaque nouveau mois</p>
+        <p class="text-[13px] text-gray-400 mt-0.5 flex items-center gap-1.5">
+          La base dupliquée à chaque nouveau mois
+          <HelpTip wide text="Vos lignes récurrentes (loyer, salaire, courses, abonnements…) avec leur montant prévu. À chaque nouveau mois, elles sont copiées ; dans le mois vous saisissez le réel. Une modification ici ne touche que les mois suivants — « Appliquer à <mois> » pour le mois en cours." />
+        </p>
       </div>
       <div class="flex gap-4 text-right">
         <div class="tile"><span class="tile-value text-emerald-600">{{ fmt(totals.revenu) }}</span><span class="tile-label">Revenus prévus</span></div>
@@ -280,8 +291,8 @@ const formCategoryType = computed(() => {
       <div class="flex flex-col gap-4">
         <div class="flex flex-wrap gap-3 items-end">
           <label class="field"><span>Libellé</span><input v-model="form.label" type="text" class="input w-44" placeholder="Loyer, Courses…" @keyup.enter="submit" /></label>
-          <label v-if="!form.isPot" class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submit" /></label>
-          <label class="field" :title="form.isPot ? 'Jour où vous réglez la cagnotte' : 'Date par défaut quand vous cochez « payé » dans le mois'"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
+          <label v-if="!form.isPot" class="field"><span class="flex items-center gap-1">Prévu (€) <HelpTip text="Le montant attendu chaque mois. Dans le mois, une ligne avec un prévu et aucune entrée a une case ☐ : cocher = payé au prévu. Dès qu'une entrée existe, le réel remplace le prévu." /></span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submit" /></label>
+          <label class="field"><span class="flex items-center gap-1">Jour du mois <HelpTip :text="form.isPot ? 'Jour où vous réglez la cagnotte : date par défaut du ☐ payé.' : 'Jour du prélèvement : date par défaut quand vous cochez ☐ payé dans le mois.'" /></span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
           <label v-if="!modalAdding" class="field"><span>Catégorie</span>
             <select v-model="form.categoryId" class="input w-40">
               <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
@@ -297,7 +308,7 @@ const formCategoryType = computed(() => {
 
         <!-- Périodicité et mensualisation -->
         <div v-if="!form.isPot" class="flex flex-wrap gap-3 items-end">
-          <label class="field"><span>Périodicité</span>
+          <label class="field"><span class="flex items-center gap-1">Périodicité <HelpTip text="Chaque mois, ou tous les N mois à partir d'un mois d'ancrage (ex. une fois par an en juillet, tous les 6 mois en mars et septembre). La ligne n'apparaît que les mois du cycle." /></span>
             <select v-model="form.intervalMonths" class="input w-40">
               <option v-for="i in INTERVALS" :key="i.value" :value="i.value">{{ i.label }}</option>
             </select>
@@ -309,7 +320,7 @@ const formCategoryType = computed(() => {
             </select>
           </label>
           <template v-if="Number(form.intervalMonths) > 1">
-            <label class="checkbox self-end" title="Une enveloppe lisse la charge : mensualité suggérée chaque mois, et le ☐ payé sortira de l'enveloppe"><input v-model="form.monthlyize" type="checkbox" /><span>Mensualiser</span></label>
+            <label class="checkbox self-end"><input v-model="form.monthlyize" type="checkbox" /><span>Mensualiser</span><HelpTip wide text="Lisse une charge non mensuelle : une enveloppe du même nom est créée (cible = le montant, échéance = la prochaine occurrence) et suggère chaque mois la part à mettre de côté — ☐ versé dans le mois. Le jour J, ☐ payé sort le montant de l'enveloppe et le cycle repart. L'enveloppe démarre à 0 : les premières mensualités sont plus grosses." /></label>
             <label v-if="form.monthlyize" class="field" title="Compte hôte de l'enveloppe : c'est là que les mensualités s'accumulent, et de là que le paiement partira le jour J"><span>Mise de côté sur</span>
               <select v-model="form.monthlyizeAccountId" class="input w-44">
                 <option value="">Compte principal (virtuelle)</option>
@@ -319,13 +330,11 @@ const formCategoryType = computed(() => {
           </template>
         </div>
         <p v-if="Number(form.intervalMonths) > 1" class="text-[11.5px] text-gray-400 -mt-2">
-          La ligne n'apparaît que les mois du cycle{{ form.anchorMonth ? ' (' + MONTHS[form.anchorMonth - 1] + (Number(form.intervalMonths) < 12 ? ', puis tous les ' + form.intervalMonths + ' mois' : ', chaque année') + ')' : '' }}.
-          <template v-if="form.monthlyize">
-            Mensualisée : l'enveloppe « {{ form.label || '…' }} »
-            <template v-if="modalLine?.envelopeId && envelopeById(modalLine.envelopeId)"> ({{ fmt(envelopeById(modalLine.envelopeId).total) }} / {{ fmt(envelopeById(modalLine.envelopeId).targetAmount) }}, ≈ {{ fmt(envelopeById(modalLine.envelopeId).monthlySuggestion) }}/mois)</template>
-            propose chaque mois la part à mettre de côté{{ modalLine?.envelopeId ? '' : ' — elle démarre à 0' }}, depuis le compte principal vers « mise de côté sur ».
-            Le jour J, la ligne apparaît dans le mois : le ☐ payé sort le montant de l'enveloppe et débite le compte « mise de côté sur » — effet net de « virement vers le compte prélevé, puis prélèvement », ne saisissez pas le virement inverse. « Vers » = où part le paiement (extérieur pour un abonnement).
+          Apparaît {{ form.anchorMonth ? (Number(form.intervalMonths) === 12 ? 'chaque ' + MONTHS[form.anchorMonth - 1] : 'en ' + MONTHS[form.anchorMonth - 1] + ' puis tous les ' + form.intervalMonths + ' mois') : 'les mois du cycle' }}.
+          <template v-if="form.monthlyize && modalLine?.envelopeId && envelopeById(modalLine.envelopeId)">
+            Enveloppe « {{ envelopeById(modalLine.envelopeId).name }} » : {{ fmt(envelopeById(modalLine.envelopeId).total) }} / {{ fmt(envelopeById(modalLine.envelopeId).targetAmount) }}, ≈ {{ fmt(envelopeById(modalLine.envelopeId).monthlySuggestion) }}/mois.
           </template>
+          <template v-else-if="form.monthlyize">L'enveloppe « {{ form.label || '…' }} » sera créée à 0.</template>
         </p>
 
         <div class="flex flex-wrap gap-3 items-end">
@@ -336,7 +345,7 @@ const formCategoryType = computed(() => {
             </select>
           </label>
           <template v-else>
-            <label class="field"><span>Depuis</span>
+            <label class="field"><span class="flex items-center gap-1">Depuis <HelpTip text="Le compte débité par défaut. « Vers » n'apparaît que si l'argent va sur un autre de vos comptes (épargne, virement, provision) ; pour un paiement à un tiers, laissez « extérieur »." /></span>
               <select v-model="form.fromAccountId" class="input w-40">
                 <option value="">— aucun</option>
                 <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
@@ -358,11 +367,11 @@ const formCategoryType = computed(() => {
         </div>
 
         <div v-if="formCategoryType !== 'revenu'" class="flex flex-wrap gap-3 items-end">
-          <label v-if="sharingOn && !form.isPot" class="checkbox" title="Dépense commune (rattachée à une cagnotte)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
+          <label v-if="sharingOn && !form.isPot" class="checkbox"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span><HelpTip text="Dépense commune avec le partenaire d'une cagnotte : elle entre dans le calcul de ce que vous vous devez." /></label>
           <select v-if="sharingOn && !form.isPot && form.isShared && pots.length > 1" v-model="form.potLineId" class="input w-40" title="Cagnotte concernée">
             <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.potPartnerName }}</option>
           </select>
-          <label class="checkbox" title="Partage avec quelqu'un : le prévu de la ligne est calculé chaque mois à partir des ½"><input v-model="form.isPot" type="checkbox" /><span>Cette ligne est une cagnotte</span></label>
+          <label class="checkbox"><input v-model="form.isPot" type="checkbox" /><span>Cette ligne est une cagnotte</span><HelpTip wide text="Une cagnotte égalise des dépenses communes avec quelqu'un (loyer avec votre conjoint, vacances avec un ami). Vous indiquez ce que l'autre paie et votre part ; les lignes et entrées marquées ½ sont les vôtres. Le prévu de la cagnotte est calculé : ce que vous devez envoyer (ou recevoir). ☐ payé le jour du virement." /></label>
           <template v-if="form.isPot">
             <label class="field"><span>Partenaire</span><input v-model="form.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
             <label class="field"><span>Il/elle paie (€/mois)</span><input v-model="form.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>

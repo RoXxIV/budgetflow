@@ -50,10 +50,23 @@ export function reorder(orders) {
   return list();
 }
 
-export function remove(id) {
+// Nombre de lignes (template + mois) rattachées : le garde-fou de suppression s'appuie dessus
+export function usage(id) {
+  return {
+    templateLines: get("SELECT COUNT(*) AS n FROM budget_lines WHERE category_id = ? AND month_id IS NULL", id).n,
+    monthLines: get("SELECT COUNT(*) AS n FROM budget_lines WHERE category_id = ? AND month_id IS NOT NULL", id).n,
+  };
+}
+
+export function remove(id, { force = false } = {}) {
   const existing = get("SELECT * FROM categories WHERE id = ?", id);
   if (!existing) throw httpError(404, "Catégorie introuvable");
-  // Garde-fou à venir quand les lignes existeront (compter les références)
-  run("DELETE FROM categories WHERE id = ?", id);
+  const u = usage(id);
+  if (!force && (u.templateLines + u.monthLines) > 0) {
+    const err = httpError(409, `Cette catégorie est utilisée par ${u.templateLines} ligne(s) du template et ${u.monthLines} ligne(s) de mois : elles deviendront « sans catégorie ».`);
+    err.payload = { code: "IN_USE", ...u };
+    throw err;
+  }
+  run("DELETE FROM categories WHERE id = ?", id); // lignes conservées, category_id → NULL
   return { message: "Catégorie supprimée" };
 }

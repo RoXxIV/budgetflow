@@ -29,10 +29,36 @@ export function update(id, data) {
   return serialize(get("SELECT * FROM themes WHERE id = ?", id));
 }
 
-export function remove(id) {
+export function usage(id) {
+  return {
+    lines: get("SELECT COUNT(*) AS n FROM budget_lines WHERE theme_id = ?", id).n,
+    entries: get("SELECT COUNT(*) AS n FROM entries WHERE theme_id = ?", id).n,
+  };
+}
+
+export function remove(id, { force = false } = {}) {
   const existing = get("SELECT * FROM themes WHERE id = ?", id);
   if (!existing) throw httpError(404, "Thème introuvable");
-  // Garde-fou + fusion viendront avec les entrées (compter les références avant de supprimer)
+  const u = usage(id);
+  if (!force && (u.lines + u.entries) > 0) {
+    const err = httpError(409, `Ce thème est utilisé par ${u.lines} ligne(s) et ${u.entries} entrée(s) : elles deviendront « sans thème ». Fusionnez plutôt.`);
+    err.payload = { code: "IN_USE", ...u };
+    throw err;
+  }
   run("DELETE FROM themes WHERE id = ?", id);
   return { message: "Thème supprimé" };
+}
+
+// Fusion : toutes les références du thème source passent sur la cible, la source disparaît
+export function merge(sourceId, targetId) {
+  const source = get("SELECT * FROM themes WHERE id = ?", sourceId);
+  const target = get("SELECT * FROM themes WHERE id = ?", targetId);
+  if (!source || !target) throw httpError(404, "Thème introuvable");
+  if (source.id === target.id) throw httpError(400, "Même thème");
+  const u = usage(sourceId);
+  run("UPDATE budget_lines SET theme_id = ? WHERE theme_id = ?", targetId, sourceId);
+  run("UPDATE entries SET theme_id = ? WHERE theme_id = ?", targetId, sourceId);
+  run("UPDATE calculators SET theme_id = ? WHERE theme_id = ?", targetId, sourceId);
+  run("DELETE FROM themes WHERE id = ?", sourceId);
+  return { message: `« ${source.name} » fusionné dans « ${target.name} » (${u.lines} ligne(s), ${u.entries} entrée(s))`, moved: u };
 }

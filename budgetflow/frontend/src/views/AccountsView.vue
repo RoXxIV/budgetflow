@@ -1,13 +1,15 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import AppModal from '@/components/AppModal.vue'
-import { getAccounts, createAccount, updateAccount, deleteAccount, getNetWorth } from '@/api/accounts.js'
+import { getAccounts, createAccount, updateAccount, deleteAccount, getNetWorth, getAccountUsage } from '@/api/accounts.js'
 import {
   getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope,
   getContributions, addContribution, removeContribution,
   getRecalibration, recalibrateEnvelope, getAvailability, reallocateEnvelope,
 } from '@/api/envelopes.js'
 import { watch } from 'vue'
+import { confirmDialog, promptDialog, apiError } from '@/composables/useDialog.js'
+import HelpTip from '@/components/HelpTip.vue'
 
 // ─── Data ────────────────────────────────────────────────
 const accounts = ref([])
@@ -42,10 +44,13 @@ async function loadRecalibration(envelope) {
 async function doRecalibrate(envelope) {
   const d = recal.value?.delta
   if (!d) return
-  const notes = prompt(
-    `Poser ${fmt(d)} en contribution d'ajustement sur « ${envelope.name} » pour l'aligner sur le solde de ${recal.value.accountName} (${fmt(recal.value.accountBalance)}).\n\nNote (optionnelle) :`,
-    d < 0 ? 'Sortie non enregistrée' : 'Intérêts / arrondis'
-  )
+  const notes = await promptDialog({
+    title: 'Recaler sur le compte',
+    message: `Poser ${fmt(d)} en contribution d'ajustement sur « ${envelope.name} » pour l'aligner sur le solde de ${recal.value.accountName} (${fmt(recal.value.accountBalance)}). L'historique garde la trace.`,
+    label: 'Note (optionnelle)',
+    defaultValue: d < 0 ? 'Sortie non enregistrée' : 'Intérêts / arrondis',
+    confirmLabel: 'Recaler',
+  })
   if (notes === null) return
   try {
     await addContributionRecal(envelope, notes)
@@ -86,10 +91,6 @@ const TYPE_COLORS = {
 }
 const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 const pct = (e) => (e.effectiveTarget ? Math.min(100, Math.round((e.total / e.effectiveTarget) * 100)) : null)
-
-function apiError(e) {
-  alert(e.response?.data?.message || e.message)
-}
 
 // ─── Formulaire compte (ajout / édition) ─────────────────
 const accountFormOpen = ref(false)
@@ -140,11 +141,19 @@ async function submitAccount() {
 }
 
 async function removeAccountConfirm(account) {
-  const hosted = account.envelopes.length
-  const msg = hosted
-    ? `Supprimer le compte « ${account.name} » ? Ses ${hosted} enveloppe(s) deviendront virtuelles (sans compte).`
-    : `Supprimer le compte « ${account.name} » ?`
-  if (!confirm(msg)) return
+  let u = { envelopes: account.envelopes.length, entries: 0, lines: 0, assets: 0 }
+  try { u = (await getAccountUsage(account.id)).data } catch { /* pas bloquant */ }
+  const parts = []
+  if (u.envelopes) parts.push(`${u.envelopes} enveloppe(s) deviendront virtuelles`)
+  if (u.entries) parts.push(`${u.entries} entrée(s) perdront leur compte`)
+  if (u.lines) parts.push(`${u.lines} ligne(s) perdront leur Depuis/Vers`)
+  if (u.assets) parts.push(`${u.assets} actif(s) perdront leur compte hôte`)
+  const ok = await confirmDialog({
+    title: 'Supprimer le compte',
+    message: parts.length ? `« ${account.name} » : ${parts.join(', ')}.\nRien d'autre n'est supprimé, mais les soldes passés ne seront plus calculables pour ce compte.` : `Supprimer le compte « ${account.name} » ?`,
+    confirmLabel: 'Supprimer', danger: true,
+  })
+  if (!ok) return
   try { await deleteAccount(account.id); await load() } catch (e) { apiError(e) }
 }
 
@@ -226,7 +235,8 @@ async function toggleClosed(envelope) {
 }
 
 async function removeEnvelopeConfirm(envelope) {
-  if (!confirm(`Supprimer l'enveloppe « ${envelope.name} » ?`)) return
+  const ok = await confirmDialog({ title: "Supprimer l'enveloppe", message: `Supprimer « ${envelope.name} » ? (impossible si elle a des contributions : clôturez-la pour garder l'historique)`, confirmLabel: 'Supprimer', danger: true })
+  if (!ok) return
   try { await deleteEnvelope(envelope.id); await load() } catch (e) { apiError(e) }
 }
 
@@ -271,7 +281,10 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
     <div class="flex items-start justify-between mb-6">
       <div>
         <h1 class="text-[22px] font-semibold">Comptes &amp; enveloppes</h1>
-        <p class="text-[13px] text-gray-400 mt-0.5">Vos comptes et vos projets d'épargne</p>
+        <p class="text-[13px] text-gray-400 mt-0.5 flex items-center gap-1.5">
+          Vos comptes bancaires et vos projets d'épargne
+          <HelpTip wide text="Un compte = un vrai compte (courant, livret, PEA…). Une enveloppe = de l'argent réservé pour un projet (Japon, matelas de sécurité…), hébergée sur un compte ou virtuelle. Le solde d'un compte = ses enveloppes + le « hors enveloppes ». Un compte épargne créé avec un solde initial reçoit automatiquement une enveloppe du même nom." />
+        </p>
       </div>
       <div class="flex gap-2">
         <button class="btn-secondary" @click="openAddEnvelope()">+ Enveloppe</button>
@@ -319,15 +332,18 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <label class="checkbox">
             <input v-model="accountForm.multiProjects" type="checkbox" />
             <span>Ce compte sert à plusieurs projets</span>
+            <HelpTip text="Par défaut un compte épargne reçoit une enveloppe du même nom (un livret = un projet). Cochez si ce compte abritera plusieurs enveloppes (ex. « Japon » et « Matelas » sur le même livret) : vous les créerez ensuite." />
           </label>
         </template>
         <label class="checkbox">
           <input v-model="accountForm.isMain" type="checkbox" />
           <span>Compte principal</span>
+          <HelpTip text="Le compte de vos dépenses courantes : proposé par défaut à chaque saisie, et c'est son solde que le bilan du mois suit (« Solde actuel », projeté)." />
         </label>
         <label class="checkbox">
           <input v-model="accountForm.includeInNetWorth" type="checkbox" />
           <span>Inclus dans le patrimoine</span>
+          <HelpTip text="Décochez pour un compte qui n'est pas vraiment à vous (compte joint, compte pro…) : il sera suivi mais exclu du total du patrimoine." />
         </label>
       </div>
       <p v-if="!editingAccountId && accountForm.type === 'epargne' && !accountForm.multiProjects" class="text-xs text-gray-400 mt-2">
@@ -347,14 +363,14 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <input v-model="envelopeForm.name" type="text" class="input w-48" placeholder="Japon, Matelas…" @keyup.enter="submitEnvelope" />
         </label>
         <label class="field">
-          <span>Compte hôte (optionnel)</span>
+          <span class="flex items-center gap-1">Compte hôte (optionnel) <HelpTip text="Où l'argent de l'enveloppe se trouve physiquement. Sans compte, l'enveloppe est virtuelle : l'argent reste sur le compte principal, simplement réservé." /></span>
           <select v-model="envelopeForm.accountId" class="input w-44">
             <option value="">— Aucun (virtuelle)</option>
             <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
         </label>
         <label class="field">
-          <span>Cible (optionnelle)</span>
+          <span class="flex items-center gap-1">Cible (optionnelle) <HelpTip text="Le montant à atteindre. Avec une échéance, l'app suggère chaque mois la part à mettre de côté pour y arriver à temps." /></span>
           <input v-model="envelopeForm.targetAmount" type="number" step="0.01" class="input w-32" placeholder="4500" />
         </label>
         <label class="field">

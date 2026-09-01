@@ -89,7 +89,22 @@ export function update(id, data) {
 export function remove(id) {
   const existing = get("SELECT * FROM accounts WHERE id = ?", id);
   if (!existing) throw httpError(404, "Compte introuvable");
+  const others = get("SELECT COUNT(*) AS n FROM accounts WHERE id != ?", id).n;
+  if (existing.is_main && others > 0) {
+    throw httpError(409, "C'est le compte principal : désignez-en un autre avant de le supprimer");
+  }
   // Les enveloppes hébergées ne sont pas supprimées : account_id passe à NULL (ON DELETE SET NULL)
   run("DELETE FROM accounts WHERE id = ?", id);
   return { message: "Compte supprimé" };
+}
+
+// Ce que la suppression d'un compte laisse derrière elle (pour la confirmation)
+export function usage(id) {
+  if (!get("SELECT id FROM accounts WHERE id = ?", id)) throw httpError(404, "Compte introuvable");
+  return {
+    envelopes: get("SELECT COUNT(*) AS n FROM envelopes WHERE account_id = ? AND closed_at IS NULL", id).n,
+    entries: get("SELECT COUNT(*) AS n FROM entries WHERE account_id = ? OR to_account_id = ?", id, id).n,
+    lines: get("SELECT COUNT(*) AS n FROM budget_lines WHERE from_account_id = ? OR to_account_id = ?", id, id).n,
+    assets: get("SELECT COUNT(*) AS n FROM assets WHERE account_id = ?", id).n,
+  };
 }
