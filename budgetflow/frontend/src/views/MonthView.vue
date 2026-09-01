@@ -9,6 +9,7 @@ import {
   createMonthLine, updateMonthLine, deleteMonthLine, applyLineToTemplate,
 } from '@/api/months.js'
 import { getEnvelopes, addContribution, removeContribution } from '@/api/envelopes.js'
+import { getMonthCalculators, saveMonthReadings, regularizeCalculator } from '@/api/calculators.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
 import { getAccounts } from '@/api/accounts.js'
@@ -45,11 +46,13 @@ const showAccounts = ref(false)
 const envelopes = ref([])          // enveloppes ouvertes
 const monthContribs = ref([])      // contributions datées dans le mois
 
+const calculators = ref([])        // état des calculateurs sur ce mois (relevés, estimé, écart)
+
 async function openMonth(month) {
   current.value = month
-  const [lRes, eRes, sRes, sumRes, envRes, mcRes] = await Promise.all([
+  const [lRes, eRes, sRes, sumRes, envRes, mcRes, calcRes] = await Promise.all([
     getMonthLines(month.id), getMonthEntries(month.id), getMonthSnapshots(month.id), getMonthSummary(month.id),
-    getEnvelopes(), getMonthEnvelopeContributions(month.id),
+    getEnvelopes(), getMonthEnvelopeContributions(month.id), getMonthCalculators(month.id),
   ])
   lines.value = lRes.data
   entriesAll.value = eRes.data
@@ -57,19 +60,41 @@ async function openMonth(month) {
   summaryData.value = sumRes.data
   envelopes.value = envRes.data.filter((e) => !e.isClosed)
   monthContribs.value = mcRes.data
+  calculators.value = calcRes.data
 }
 
 async function reload() {
-  const [lRes, eRes, sumRes, envRes, mcRes] = await Promise.all([
+  const [lRes, eRes, sumRes, envRes, mcRes, calcRes] = await Promise.all([
     getMonthLines(current.value.id), getMonthEntries(current.value.id), getMonthSummary(current.value.id),
-    getEnvelopes(), getMonthEnvelopeContributions(current.value.id),
+    getEnvelopes(), getMonthEnvelopeContributions(current.value.id), getMonthCalculators(current.value.id),
   ])
   lines.value = lRes.data
   entriesAll.value = eRes.data
   summaryData.value = sumRes.data
   envelopes.value = envRes.data.filter((e) => !e.isClosed)
   monthContribs.value = mcRes.data
+  calculators.value = calcRes.data
 }
+
+// ─── Calculateurs : saisie des relevés, régularisation ───
+async function saveReadings(calc) {
+  try {
+    const readings = calc.readings.map((r) => ({ defId: r.defId, previous: r.previous, current: r.current }))
+    const { data } = await saveMonthReadings(current.value.id, calc.id, readings)
+    Object.assign(calc, data)
+  } catch (e) { apiError(e) }
+}
+
+async function regularize(calc) {
+  const verb = calc.line?.regularisation ? 'Mettre à jour' : 'Créer'
+  if (!confirm(`${verb} la régularisation de ${fmt(calc.gap)} sur « ${calc.line.label} » ?`)) return
+  try {
+    await regularizeCalculator(current.value.id, calc.id)
+    await reload()
+  } catch (e) { apiError(e) }
+}
+
+const fmtNum = (n) => (n === null || n === undefined ? '—' : Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 2 }))
 
 // ─── Cagnottes (partage) : les ½ n'existent que s'il y a au moins une cagnotte dans le mois ─
 const pots = computed(() => lines.value.filter((l) => l.isPot))
@@ -601,6 +626,62 @@ const mainEnvelopesTotal = computed(() => {
               <input v-model="contribForm.notes" type="text" class="input w-36" placeholder="Note (optionnelle)" @keyup.enter="submitContribution(env)" />
               <button class="btn-secondary" @click="submitContribution(env)">Ajouter</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── Calculateurs ─────────────────────────── -->
+      <div v-if="calculators.length" class="card p-0 overflow-hidden mb-4">
+        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
+          <span class="font-semibold text-[13.5px]">Calculateurs</span>
+          <span class="badge bg-cyan-50 text-cyan-700">relevés du mois</span>
+        </div>
+        <div v-for="calc in calculators" :key="calc.id" class="px-4 py-3 border-b border-stone-50 flex flex-wrap items-end gap-x-5 gap-y-2">
+          <span class="text-[13px] font-medium w-28 shrink-0 self-center">{{ calc.name }}</span>
+
+          <!-- Relevés -->
+          <div v-for="r in calc.readings" :key="r.defId" class="flex items-end gap-1.5">
+            <label class="field">
+              <span>{{ r.label || r.symbol }}<span v-if="r.unit" class="text-gray-300"> · {{ r.unit }}</span></span>
+              <span class="flex items-center gap-1">
+                <template v-if="r.kind === 'index'">
+                  <input v-model="r.previous" type="number" step="any" class="input w-24 text-gray-400" :disabled="current.isClosed" title="Index de début (reporté du mois précédent)" @change="saveReadings(calc)" />
+                  <span class="text-gray-300 text-[12px]">→</span>
+                </template>
+                <input v-model="r.current" type="number" step="any" class="input w-24" :disabled="current.isClosed" :title="r.kind === 'index' ? 'Index de fin' : 'Valeur du mois'" @change="saveReadings(calc)" />
+              </span>
+            </label>
+            <span v-if="r.kind === 'index' && r.consumption !== null" class="text-[11px] text-gray-400 pb-2">= {{ fmtNum(r.consumption) }}</span>
+          </div>
+
+          <!-- Résultat -->
+          <div class="ml-auto flex items-center gap-4 self-center">
+            <span v-if="calc.error" class="text-[12px] text-red-500">{{ calc.error }}</span>
+            <template v-else>
+              <span class="text-right">
+                <span class="block text-[15px] font-bold" :class="calc.estimate === null ? 'text-gray-300' : 'text-gray-900'">{{ calc.estimate === null ? '—' : fmt(calc.estimate) }}</span>
+                <span class="block text-[10.5px] text-gray-400">estimé</span>
+              </span>
+              <template v-if="calc.line">
+                <span class="text-right">
+                  <span class="block text-[13px] font-semibold text-gray-500">{{ fmt(calc.line.planned) }}</span>
+                  <span class="block text-[10.5px] text-gray-400 truncate max-w-28">{{ calc.line.label }}</span>
+                </span>
+                <span class="text-right">
+                  <span class="block text-[13px] font-semibold" :class="calc.gap === null ? 'text-gray-300' : calc.gap > 0 ? 'text-red-500' : 'text-emerald-600'">
+                    {{ calc.gap === null ? '—' : (calc.gap > 0 ? '+' : '') + fmt(calc.gap) }}
+                  </span>
+                  <span class="block text-[10.5px] text-gray-400">écart</span>
+                </span>
+                <button
+                  v-if="!current.isClosed && calc.gap !== null && Math.abs(calc.gap) >= 0.01 && Math.abs((calc.line.regularisation || 0) - calc.gap) >= 0.01"
+                  class="btn-secondary"
+                  :title="calc.line.regularisation ? 'Régularisation déjà posée : ' + fmt(calc.line.regularisation) : ''"
+                  @click="regularize(calc)"
+                >{{ calc.line.regularisation ? 'Mettre à jour' : 'Régulariser' }}</button>
+                <span v-else-if="calc.line.regularisation" class="text-[11px] text-emerald-600">✓ régularisé</span>
+              </template>
+            </template>
           </div>
         </div>
       </div>

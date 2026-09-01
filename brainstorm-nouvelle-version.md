@@ -111,7 +111,7 @@ Objet défini par l'utilisateur en trois blocs, dans l'esprit des formules Notio
 - **Rattachement optionnel** à une ligne du template → le sheet montre *estimé / mensualité / écart* et un bouton **« créer la régularisation »** qui ajoute l'écart en entrée sur une ligne au choix, avec un thème dédié et le ½ si partagé.
 - Exemples couverts : EDF (HP/HC), essence (odomètre × conso × prix), eau (m³), garde d'enfant à l'heure…
 - **Mensuel uniquement en v1** : un relevé bimestriel se laisse vide un mois sur deux.
-- Implémentation : évaluateur arithmétique côté backend (~100 lignes), aucun `eval`, testé unitairement.
+- Implémentation (01/09/2026, migration 010) : évaluateur arithmétique maison `backend/lib/formula.js` (tokenizer + descente récursive, aucun `eval`, erreurs lisibles avec suggestion de symbole), tables `calculators` / `calculator_params` / `calculator_reading_defs` / `calculator_readings`. Les relevés du mois sont créés à la volée avec report de l'index de fin du mois précédent. **La régularisation est posée sur la ligne rattachée elle-même** (entrée `source = regularisation`, thème du calculateur ou de la ligne, ½ et cagnotte hérités de la ligne), remplacée à chaque nouvelle régularisation — pas de « ligne au choix » en v1. Preset « Exemple : électricité HP/HC » dans les Paramètres (pré-remplissage, pas un module en dur).
 
 Vue sheet (bloc « Calculateurs ») :
 

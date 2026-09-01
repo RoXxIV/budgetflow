@@ -1,21 +1,134 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getSettings, updateSettings } from '@/api/settings.js'
 import { getCategories, createCategory, updateCategory, reorderCategories, deleteCategory } from '@/api/categories.js'
 import { getThemes, createTheme, updateTheme, deleteTheme } from '@/api/themes.js'
+import { getTemplateLines } from '@/api/template.js'
+import { getCalculators, createCalculator, updateCalculator, deleteCalculator, checkFormula } from '@/api/calculators.js'
 
 // ─── Data ────────────────────────────────────────────────
 const settings = ref(null)
 const categories = ref([])
 const themes = ref([])
+const templateLines = ref([])
+const calculators = ref([])
 
 async function load() {
-  const [setRes, catRes, themeRes] = await Promise.all([getSettings(), getCategories(), getThemes()])
+  const [setRes, catRes, themeRes, tlRes, calcRes] = await Promise.all([
+    getSettings(), getCategories(), getThemes(), getTemplateLines(), getCalculators(),
+  ])
   settings.value = setRes.data
   categories.value = catRes.data
   themes.value = themeRes.data
+  templateLines.value = tlRes.data
+  calculators.value = calcRes.data
 }
 onMounted(load)
+
+// ─── Calculateurs ────────────────────────────────────────
+// Un calculateur = paramètres (constantes) + relevés (saisis chaque mois) + formule sur ces symboles.
+const calcForm = ref(null)      // éditeur ouvert (null = fermé)
+const calcCheck = ref(null)     // résultat du test de formule { ok, value | error }
+let calcCheckTimer = null
+
+function emptyCalculator() {
+  return { id: null, name: '', formula: '', lineId: '', themeId: '', params: [], readings: [] }
+}
+
+// Preset : pas un module EDF en dur, juste un exemple pré-rempli que l'utilisateur adapte
+function exampleCalculator() {
+  return {
+    id: null,
+    name: 'Électricité',
+    formula: '(hp × prixHP + hc × prixHC) × (1 + tva / 100) + abo',
+    lineId: '',
+    themeId: '',
+    params: [
+      { symbol: 'prixHP', label: 'Prix heure pleine', value: 0.27, unit: '€/kWh' },
+      { symbol: 'prixHC', label: 'Prix heure creuse', value: 0.20, unit: '€/kWh' },
+      { symbol: 'abo', label: 'Abonnement', value: 12.5, unit: '€' },
+      { symbol: 'tva', label: 'TVA', value: 20, unit: '%' },
+    ],
+    readings: [
+      { symbol: 'hp', label: 'Heures pleines', kind: 'index', unit: 'kWh' },
+      { symbol: 'hc', label: 'Heures creuses', kind: 'index', unit: 'kWh' },
+    ],
+  }
+}
+
+function openCalculator(calc) {
+  calcForm.value = calc ? JSON.parse(JSON.stringify({ ...calc, lineId: calc.lineId || '', themeId: calc.themeId || '' })) : emptyCalculator()
+  calcCheck.value = null
+  scheduleCheck()
+}
+function openExample() {
+  calcForm.value = exampleCalculator()
+  calcCheck.value = null
+  scheduleCheck()
+}
+function closeCalculator() {
+  calcForm.value = null
+}
+
+function addParam() { calcForm.value.params.push({ symbol: '', label: '', value: 0, unit: '' }) }
+function addReading() { calcForm.value.readings.push({ symbol: '', label: '', kind: 'index', unit: '' }) }
+
+const calcSymbols = computed(() => {
+  if (!calcForm.value) return []
+  return [
+    ...calcForm.value.params.map((p) => ({ symbol: p.symbol, value: p.value, kind: 'param' })),
+    ...calcForm.value.readings.map((r) => ({ symbol: r.symbol, value: 1, kind: r.kind })),
+  ].filter((s) => s.symbol)
+})
+
+// Insère un symbole cliqué dans la formule
+function insertSymbol(symbol) {
+  const f = calcForm.value
+  f.formula = (f.formula || '').trimEnd() + (f.formula ? ' ' : '') + symbol + ' '
+  scheduleCheck()
+}
+
+function scheduleCheck() {
+  clearTimeout(calcCheckTimer)
+  calcCheckTimer = setTimeout(async () => {
+    if (!calcForm.value) return
+    if (!calcForm.value.formula.trim()) { calcCheck.value = null; return }
+    try {
+      calcCheck.value = (await checkFormula(calcForm.value.formula, calcSymbols.value)).data
+    } catch (e) { calcCheck.value = { ok: false, error: e.message } }
+  }, 300)
+}
+
+async function saveCalculator() {
+  const f = calcForm.value
+  if (!f.name.trim()) return
+  const data = {
+    name: f.name,
+    formula: f.formula,
+    lineId: f.lineId || null,
+    themeId: f.themeId || null,
+    params: f.params.filter((p) => p.symbol.trim()).map((p) => ({ ...p, symbol: p.symbol.trim(), value: Number(p.value) || 0 })),
+    readings: f.readings.filter((r) => r.symbol.trim()).map((r) => ({ ...r, symbol: r.symbol.trim() })),
+  }
+  try {
+    if (f.id) await updateCalculator(f.id, data)
+    else await createCalculator(data)
+    calculators.value = (await getCalculators()).data
+    calcForm.value = null
+    flashSaved()
+  } catch (e) { apiError(e) }
+}
+
+async function removeCalculatorConfirm(calc) {
+  if (!confirm(`Supprimer le calculateur « ${calc.name} » et tous ses relevés ?`)) return
+  try {
+    await deleteCalculator(calc.id)
+    calculators.value = (await getCalculators()).data
+    if (calcForm.value?.id === calc.id) calcForm.value = null
+  } catch (e) { apiError(e) }
+}
+
+const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.label || null
 
 function apiError(e) {
   alert(e.response?.data?.message || e.message)
@@ -245,6 +358,101 @@ async function removeThemeConfirm(theme) {
             </div>
           </div>
           <button class="btn-primary" @click="saveGeneral">Sauvegarder</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Calculateurs ───────────────────────────── -->
+    <div class="card mt-5">
+      <div class="flex items-center gap-3 mb-1">
+        <h2 class="section-title mb-0">Calculateurs</h2>
+        <div class="ml-auto flex gap-2">
+          <button class="btn-secondary" @click="openExample">Exemple : électricité HP/HC</button>
+          <button class="btn-primary" @click="openCalculator(null)">+ Calculateur</button>
+        </div>
+      </div>
+      <p class="text-xs text-gray-400 mb-3">
+        Un calculateur estime une facture à partir de <b>paramètres</b> (prix, abonnement…), de <b>relevés</b> saisis chaque mois
+        (index de compteur ou valeur) et d'une <b>formule</b> qui les combine. Rattaché à une ligne du template, il affiche l'écart
+        avec la mensualité et propose la régularisation.
+      </p>
+
+      <div v-for="calc in calculators" :key="calc.id" class="row">
+        <span class="text-[13px] font-medium">{{ calc.name }}</span>
+        <code class="text-[11.5px] text-gray-500 bg-stone-50 rounded px-1.5 py-0.5 truncate max-w-md">{{ calc.formula || '—' }}</code>
+        <span v-if="calc.lineId" class="text-[11px] text-gray-400">→ {{ templateLineLabel(calc.lineId) || 'ligne supprimée' }}</span>
+        <span class="ml-auto flex gap-1">
+          <button class="icon-btn" title="Modifier" @click="openCalculator(calc)">✎</button>
+          <button class="icon-btn text-red-300 hover:text-red-500" title="Supprimer" @click="removeCalculatorConfirm(calc)">🗑</button>
+        </span>
+      </div>
+      <p v-if="!calculators.length && !calcForm" class="text-[13px] text-gray-400 py-2">Aucun calculateur.</p>
+
+      <!-- Éditeur -->
+      <div v-if="calcForm" class="mt-3 border-t border-stone-100 pt-4 flex flex-col gap-4">
+        <div class="flex flex-wrap gap-4 items-end">
+          <label class="field"><span>Nom</span><input v-model="calcForm.name" type="text" class="input w-44" placeholder="Électricité, Eau, Essence…" /></label>
+          <label class="field">
+            <span>Ligne du template (mensualité)</span>
+            <select v-model="calcForm.lineId" class="input w-44">
+              <option value="">— aucune (estimation seule)</option>
+              <option v-for="l in templateLines" :key="l.id" :value="l.id">{{ l.label }}</option>
+            </select>
+          </label>
+          <label v-if="themes.length" class="field">
+            <span>Thème de la régularisation</span>
+            <select v-model="calcForm.themeId" class="input w-40">
+              <option value="">— celui de la ligne</option>
+              <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="grid grid-cols-2 gap-5">
+          <!-- Paramètres -->
+          <div>
+            <p class="text-xs font-semibold text-gray-500 mb-1.5">Paramètres <span class="font-normal text-gray-400">— constants d'un mois à l'autre</span></p>
+            <div v-for="(p, i) in calcForm.params" :key="'p' + i" class="row">
+              <input v-model="p.symbol" type="text" class="input w-24 font-mono text-[12px]" placeholder="symbole" @input="scheduleCheck" />
+              <input v-model="p.label" type="text" class="input flex-1" placeholder="Libellé" />
+              <input v-model="p.value" type="number" step="any" class="input w-20" @input="scheduleCheck" />
+              <input v-model="p.unit" type="text" class="input w-16" placeholder="unité" />
+              <button class="icon-btn text-red-300 hover:text-red-500" @click="calcForm.params.splice(i, 1); scheduleCheck()">×</button>
+            </div>
+            <button class="link text-xs" @click="addParam">+ paramètre</button>
+          </div>
+          <!-- Relevés -->
+          <div>
+            <p class="text-xs font-semibold text-gray-500 mb-1.5">Relevés <span class="font-normal text-gray-400">— saisis chaque mois</span></p>
+            <div v-for="(r, i) in calcForm.readings" :key="'r' + i" class="row">
+              <input v-model="r.symbol" type="text" class="input w-24 font-mono text-[12px]" placeholder="symbole" @input="scheduleCheck" />
+              <input v-model="r.label" type="text" class="input flex-1" placeholder="Libellé" />
+              <select v-model="r.kind" class="input w-24" title="index : la valeur du mois = index de fin − index de début (report automatique)">
+                <option value="index">index</option>
+                <option value="valeur">valeur</option>
+              </select>
+              <input v-model="r.unit" type="text" class="input w-16" placeholder="unité" />
+              <button class="icon-btn text-red-300 hover:text-red-500" @click="calcForm.readings.splice(i, 1); scheduleCheck()">×</button>
+            </div>
+            <button class="link text-xs" @click="addReading">+ relevé</button>
+          </div>
+        </div>
+
+        <!-- Formule -->
+        <div>
+          <p class="text-xs font-semibold text-gray-500 mb-1.5">Formule <span class="font-normal text-gray-400">— + − × ÷ et parenthèses sur les symboles ci-dessus</span></p>
+          <div class="flex flex-wrap gap-1 mb-1.5">
+            <button v-for="s in calcSymbols" :key="s.symbol" class="chip cursor-pointer hover:bg-violet-50" :class="s.kind === 'param' ? 'text-gray-600' : 'text-violet-700 bg-violet-50'" @click="insertSymbol(s.symbol)">{{ s.symbol }}</button>
+          </div>
+          <input v-model="calcForm.formula" type="text" class="input w-full font-mono" placeholder="(hp × prixHP + hc × prixHC) × (1 + tva / 100) + abo" @input="scheduleCheck" />
+          <p v-if="calcCheck" class="text-[12px] mt-1" :class="calcCheck.ok ? 'text-emerald-600' : 'text-red-500'">
+            {{ calcCheck.ok ? '✓ Formule valide' + (calcCheck.value != null ? ' — avec les paramètres actuels et 1 par relevé : ' + calcCheck.value.toFixed(2) : '') : '✗ ' + calcCheck.error }}
+          </p>
+        </div>
+
+        <div class="flex gap-2">
+          <button class="btn-primary" @click="saveCalculator">{{ calcForm.id ? 'Sauver' : 'Créer' }}</button>
+          <button class="btn-secondary" @click="closeCalculator">Annuler</button>
         </div>
       </div>
     </div>
