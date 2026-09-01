@@ -49,7 +49,8 @@ const work = () => {
       first = false;
       if (delta === 0) { console.log(`  ${m.period}  cumul ${eur(fromCents(cumul)).padStart(11)}  = solde`); continue; }
       console.log(`  ${m.period}  cumul ${eur(fromCents(cumul)).padStart(11)}  solde ${eur(fromCents(snap.balance_cents)).padStart(11)}  → ${kind.padEnd(10)} ${delta > 0 ? "+" : ""}${eur(fromCents(delta))}`);
-      simulated += delta;
+      // En simulation on accumule en mémoire ; en réel l'ajustement inséré sera relu depuis la base
+      if (dry) simulated += delta;
       if (!dry) {
         run(
           "INSERT INTO envelope_contributions (envelope_id, amount_cents, date, kind, notes) VALUES (?, ?, ?, ?, ?)",
