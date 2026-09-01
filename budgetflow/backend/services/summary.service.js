@@ -124,7 +124,8 @@ export function getSummary(monthId) {
   const accountRows = accounts.map((a) => {
     const start = snapshotByAccount[a.id] ?? null;
     const d = fromCents(delta[a.id] || 0);
-    const current = start === null && d === 0 ? null : (start ?? 0) + d;
+    // Arrondi au centime : les additions en euros accumulent des erreurs flottantes
+    const current = start === null && d === 0 ? null : Math.round(((start ?? 0) + d) * 100) / 100;
     const envelopesTotal = fromCents(envelopesByAccount[a.id] || 0);
     return {
       accountId: a.id,
@@ -135,14 +136,14 @@ export function getSummary(monthId) {
       start,
       current,
       envelopesTotal,
-      unallocated: current !== null && envelopesByAccount[a.id] !== undefined ? current - envelopesTotal : null,
+      unallocated: current !== null && envelopesByAccount[a.id] !== undefined ? Math.round((current - envelopesTotal) * 100) / 100 : null,
     };
   });
 
   // ─── Tuiles ─────────────────────────────────────────────
   const main = accountRows.find((a) => a.isMain) || null;
   const disponible = main && main.current !== null
-    ? main.current - (envelopesByAccount[main.accountId] ? fromCents(envelopesByAccount[main.accountId]) : 0)
+    ? Math.round((main.current - (envelopesByAccount[main.accountId] ? fromCents(envelopesByAccount[main.accountId]) : 0)) * 100) / 100
     : null;
 
   // Périmètre compte principal : from/to absent = compte principal par défaut
@@ -182,7 +183,7 @@ export function getSummary(monthId) {
   }
 
   const projete = disponible !== null
-    ? disponible + fromCents(revenusRestants - prevusRestants)
+    ? Math.round((disponible + fromCents(revenusRestants - prevusRestants)) * 100) / 100
     : null;
 
   // ─── Mis de côté / objectif ─────────────────────────────
