@@ -323,7 +323,8 @@ async function submitLineForm() {
           amount,
           date: f.entryDate,
           themeId: f.themeId || null,
-          accountId: f.fromAccountId || null,
+          // Revenu : le compte de l'entrée est celui qui est crédité (« Vers »)
+          accountId: (lineFormCategoryType.value === 'revenu' ? f.toAccountId : f.fromAccountId) || null,
           toAccountId: lineHasDestination(line) ? (f.toAccountId || null) : null,
           isShared: f.isShared,
         })
@@ -532,6 +533,9 @@ const mainEnvelopesTotal = computed(() => {
             <span class="ml-auto shrink-0 text-right">
               <span class="text-[13px] font-semibold">{{ fmt(env.total) }}</span>
               <span v-if="env.targetAmount" class="text-[11px] text-gray-400"> / {{ fmt(env.targetAmount) }}</span>
+              <span v-if="env.targetAmount" class="block text-[10.5px]" :class="env.total >= env.targetAmount ? 'text-emerald-600' : 'text-gray-400'">
+                {{ env.total >= env.targetAmount ? 'cible atteinte' : 'reste ' + fmt(env.targetAmount - env.total) }}
+              </span>
             </span>
           </div>
           <div v-if="env.targetAmount" class="px-4 pb-1.5 -mt-1">

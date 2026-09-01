@@ -31,11 +31,15 @@ export function create(monthId, data) {
     const line = get("SELECT * FROM budget_lines WHERE id = ? AND month_id = ?", data.lineId, monthId);
     if (!line) throw httpError(400, "Ligne inconnue sur ce mois");
   }
+  // Une entrée sans compte ne bougerait aucun solde : repli sur le compte principal
+  let accountId = data.accountId ?? null;
+  if (!accountId) accountId = get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
+
   const { lastInsertRowid: id } = run(
     `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, source, notes)
      VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?)`,
     monthId, data.lineId ?? null, data.label ?? null, cents, data.date ?? null,
-    data.accountId ?? null, data.toAccountId ?? null, data.paymentMethod ?? null, data.themeId ?? null,
+    accountId, data.toAccountId ?? null, data.paymentMethod ?? null, data.themeId ?? null,
     data.isShared ? 1 : 0, data.source ?? "manuelle", data.notes ?? null
   );
   return serialize(get("SELECT * FROM entries WHERE id = ?", id));
