@@ -136,8 +136,16 @@ Première version (module global dans les Paramètres : partenaire, « paie dire
 - v1 : un partenaire par cagnotte (part ajustable : 33 % à trois), pas de dette cumulée entre mois. Le cas d'Evan : ligne « Loyer — Marion » dans Virements, Marion paie 630, part 50 %, ses factures communes en ½.
 - Plus de réglages Partage dans `app_settings` (table reconstruite en migration 009).
 
-### 10. Abonnements
+### 10. Abonnements → périodicité et mensualisation (révisé le 01/09/2026)
 
+L'onglet Abonnements de l'ancienne app (échéances, prix effort, économies) était un outil de tracking en test : **écarté**. Ce qui touche à l'argent est traité sur la ligne du template :
+
+- **Périodicité « tous les N mois, ancrée sur un mois »** (`interval_months`, `anchor_month`, migration 013) : 1 = mensuel (défaut), 12 + juillet = chaque juillet, 6 + mars = mars et septembre (l'eau). La ligne n'est copiée dans un mois que si le mois tombe sur le cycle ; le template affiche la prochaine échéance. Pas d'hebdomadaire.
+- **Mensualiser** (ligne non mensuelle) : crée une **enveloppe liée** (nom = libellé, cible = prévu, échéance = prochaine occurrence, hébergée sur le compte principal → virtuelle, ou un compte choisi). Sa mensualité suggérée = (cible − total) / mois restants, donc elle **s'adapte** (enveloppe à 0 aujourd'hui → 8 €/mois pour Strava jusqu'en juillet). Dans le mois : **☐ versé** sur l'enveloppe pose la contribution suggérée en un clic ; le projeté compte la mensualité tant qu'elle n'est pas versée.
+- **Le mois de l'échéance** : la ligne apparaît, ☐ payé crée l'entrée *depuis l'enveloppe* (compte hôte débité), **sans** entamer la cible (le cycle se renouvelle) : total → 0, échéance +N mois, mensualité qui repart. Montant réel différent du prévu → l'enveloppe absorbe l'écart, le cycle suivant se recale seul.
+- Cas d'Evan : Strava 79,99 € (juillet), N26 118,80 € (janvier), enveloppes à 0 → 8 €/mois et 29,70 €/mois. L'eau (420 € tous les 6 mois) peut remplacer la provision manuelle vers N26 Facture.
+
+Ancienne formulation (pour mémoire) :
 - **Un abonnement = une ligne fixe du template marquée « abonnement »**, pas un objet à part. Le marquage débloque : périodicité (hebdo / mensuel / annuel), jour de prélèvement, prix effort. Plus de doublon Netflix.
 - L'onglet Abonnements est une **vue** : la liste et les totaux théoriques (coût mensuel lissé, annuel, scénario d'économies) viennent du template ; les faits (payé, montant réel, utilisations) viennent des mois.
 

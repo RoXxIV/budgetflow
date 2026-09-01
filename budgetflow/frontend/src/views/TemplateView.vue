@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getTemplateLines, createTemplateLine, updateTemplateLine, reorderTemplateLines, deleteTemplateLine, applyTemplateLineToMonth } from '@/api/template.js'
+import { getTemplateLines, createTemplateLine, updateTemplateLine, reorderTemplateLines, deleteTemplateLine, applyTemplateLineToMonth, monthlyizeTemplateLine } from '@/api/template.js'
 import { getCurrentMonth } from '@/api/months.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
@@ -94,8 +94,22 @@ function defaultForm(category) {
     potPartnerName: '',
     potPartnerPaid: '',
     potMyShare: 50,
+    intervalMonths: 1,       // périodicité : tous les N mois
+    anchorMonth: '',         // mois d'ancrage (si N > 1)
+    monthlyize: false,       // mensualiser : enveloppe liée qui lisse la charge
+    monthlyizeAccountId: '', // où l'argent attend (vide = compte principal, enveloppe virtuelle)
   }
 }
+
+const INTERVALS = [
+  { value: 1, label: 'Chaque mois' },
+  { value: 2, label: 'Tous les 2 mois' },
+  { value: 3, label: 'Tous les 3 mois' },
+  { value: 6, label: 'Tous les 6 mois' },
+  { value: 12, label: 'Une fois par an' },
+]
+const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']
+const fmtDue = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '')
 
 // Modal de ligne (ajout et édition) — même composant que dans le Mois
 const modalLine = ref(null)       // ligne en édition (null = ajout)
@@ -134,6 +148,10 @@ function openEdit(line) {
     potPartnerName: line.potPartnerName || '',
     potPartnerPaid: line.potPartnerPaid ?? '',
     potMyShare: line.potMyShare ?? 50,
+    intervalMonths: line.intervalMonths || 1,
+    anchorMonth: line.anchorMonth || '',
+    monthlyize: !!line.envelopeId,
+    monthlyizeAccountId: '',
   }
 }
 
@@ -160,20 +178,30 @@ function formData() {
     potPartnerName: f.isPot ? (f.potPartnerName || null) : null,
     potPartnerPaid: f.isPot && f.potPartnerPaid !== '' ? parseFloat(f.potPartnerPaid) : 0,
     potMyShare: f.isPot ? (Number(f.potMyShare) || 50) : 50,
+    intervalMonths: Number(f.intervalMonths) || 1,
+    anchorMonth: Number(f.intervalMonths) > 1 ? (Number(f.anchorMonth) || null) : null,
   }
 }
 
 async function submit() {
   if (!form.value.label.trim()) return
+  const f = form.value
+  if (Number(f.intervalMonths) > 1 && !f.anchorMonth) { alert("Indiquez le mois d'ancrage pour une ligne non mensuelle."); return }
   try {
+    let saved
     if (typeof openLineId.value === 'string') {
-      const { data: created } = await createTemplateLine(formData())
+      saved = (await createTemplateLine(formData())).data
       // Nouvelle ligne : proposer de l'ajouter aussi au mois en cours (sinon elle n'apparaît qu'au prochain mois)
-      if (currentMonth.value && confirm(`Ligne ajoutée au template. L'ajouter aussi à ${currentMonth.value.name} ?`)) {
-        await applyToCurrentMonth(created, { ask: false })
+      if (currentMonth.value && Number(f.intervalMonths) <= 1 && confirm(`Ligne ajoutée au template. L'ajouter aussi à ${currentMonth.value.name} ?`)) {
+        await applyToCurrentMonth(saved, { ask: false })
       }
     } else {
-      await updateTemplateLine(openLineId.value, formData())
+      saved = (await updateTemplateLine(openLineId.value, formData())).data
+    }
+    // Mensualisation : enveloppe liée créée / déliée selon la case
+    const wantMonthly = Number(f.intervalMonths) > 1 && f.monthlyize
+    if (wantMonthly !== !!saved.envelopeId) {
+      await monthlyizeTemplateLine(saved.id, wantMonthly, f.monthlyizeAccountId || null)
     }
     closePanel()
     lines.value = (await getTemplateLines()).data
@@ -257,6 +285,34 @@ const formCategoryType = computed(() => {
           </label>
         </div>
 
+        <!-- Périodicité et mensualisation -->
+        <div v-if="!form.isPot" class="flex flex-wrap gap-3 items-end">
+          <label class="field"><span>Périodicité</span>
+            <select v-model="form.intervalMonths" class="input w-40">
+              <option v-for="i in INTERVALS" :key="i.value" :value="i.value">{{ i.label }}</option>
+            </select>
+          </label>
+          <label v-if="Number(form.intervalMonths) > 1" class="field"><span>Mois d'ancrage</span>
+            <select v-model="form.anchorMonth" class="input w-36">
+              <option value="">—</option>
+              <option v-for="(m, i) in MONTHS" :key="i" :value="i + 1">{{ m }}</option>
+            </select>
+          </label>
+          <template v-if="Number(form.intervalMonths) > 1">
+            <label class="checkbox self-end" title="Une enveloppe lisse la charge : mensualité suggérée chaque mois, et le ☐ payé sortira de l'enveloppe"><input v-model="form.monthlyize" type="checkbox" /><span>Mensualiser</span></label>
+            <label v-if="form.monthlyize && !modalLine?.envelopeId" class="field"><span>Où l'argent attend</span>
+              <select v-model="form.monthlyizeAccountId" class="input w-44">
+                <option value="">Compte principal (virtuelle)</option>
+                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+            </label>
+          </template>
+        </div>
+        <p v-if="Number(form.intervalMonths) > 1" class="text-[11.5px] text-gray-400 -mt-2">
+          La ligne n'apparaît que les mois du cycle{{ form.anchorMonth ? ' (' + MONTHS[form.anchorMonth - 1] + (Number(form.intervalMonths) < 12 ? ', puis tous les ' + form.intervalMonths + ' mois' : ', chaque année') + ')' : '' }}.
+          <template v-if="form.monthlyize">Mensualisée : l'enveloppe « {{ form.label || '…' }} » propose chaque mois la part à mettre de côté pour être prêt le jour J{{ modalLine?.envelopeId ? '' : ' — elle démarre à 0' }}.</template>
+        </p>
+
         <div class="flex flex-wrap gap-3 items-end">
           <label v-if="formCategoryType === 'revenu'" class="field"><span>Compte crédité</span>
             <select v-model="form.toAccountId" class="input w-40">
@@ -338,6 +394,10 @@ const formCategoryType = computed(() => {
             <div class="line-row" :class="{ 'line-row--pot': line.isPot }" @click="openEdit(line)">
               <span class="text-[13px] font-medium truncate">{{ line.label }}</span>
               <span v-if="line.recurringDay" class="badge bg-blue-50 text-blue-600" title="Jour du mois (date par défaut du « payé »)">le {{ line.recurringDay }}</span>
+              <span v-if="line.intervalMonths > 1" class="badge bg-cyan-50 text-cyan-700" :title="'N\'apparaît que les mois du cycle · prochaine échéance ' + fmtDue(line.nextDue)">
+                {{ line.intervalMonths === 12 ? 'annuel' : 'tous les ' + line.intervalMonths + ' mois' }} · {{ fmtDue(line.nextDue) }}
+              </span>
+              <span v-if="line.envelopeId" class="badge bg-violet-50 text-violet-700" title="Mensualisée : une enveloppe lisse la charge, le ☐ payé en sortira">mensualisée</span>
               <span v-if="line.isPot" class="badge bg-amber-50 text-amber-600" title="Cagnotte : le prévu est calculé chaque mois">cagnotte · {{ line.potPartnerName || '?' }} paie {{ fmt(line.potPartnerPaid) }}</span>
               <span v-if="sharingOn && line.isShared && !line.isPot" class="badge bg-amber-50 text-amber-600" :title="'Cagnotte : ' + (pots.find((p) => p.id === line.potLineId) || pots[0]).label">
                 ½{{ pots.length > 1 ? ' ' + ((pots.find((p) => p.id === line.potLineId) || pots[0]).potPartnerName || '') : '' }}

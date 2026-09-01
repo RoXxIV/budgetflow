@@ -2,6 +2,7 @@ import { all, get, run, toCents, fromCents, httpError } from "../db/index.js";
 import { assertOpen } from "./month.service.js";
 import * as pots from "./pot.service.js";
 import { syncEntryExpense } from "./envelope.service.js";
+import { nextDueDate } from "./budgetLine.service.js";
 
 function serialize(row) {
   return {
@@ -42,6 +43,10 @@ export function create(monthId, data) {
   if (!accountId) accountId = get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
   // ½ : cagnotte explicite, sinon celle de la ligne, sinon la cagnotte par défaut (NULL)
   const potLineId = data.potLineId !== undefined ? (data.potLineId || null) : (line?.pot_line_id ?? null);
+  // Ligne mensualisée : par défaut l'entrée sort de son enveloppe, sans entamer la cible (le cycle se renouvelle)
+  const recurringEnvelope = line?.envelope_id && data.envelopeId === undefined;
+  const envelopeId = recurringEnvelope ? line.envelope_id : (data.envelopeId || null);
+  const inTarget = recurringEnvelope ? 0 : (data.envelopeInTarget === false ? 0 : 1);
 
   const { lastInsertRowid: id } = run(
     `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, pot_line_id, source, notes, envelope_id, envelope_in_target)
@@ -49,12 +54,24 @@ export function create(monthId, data) {
     monthId, data.lineId ?? null, data.label ?? null, cents, data.date ?? null,
     accountId, data.toAccountId ?? null, data.paymentMethod ?? null, data.themeId ?? null,
     data.isShared ? 1 : 0, potLineId, data.source ?? "manuelle", data.notes ?? null,
-    data.envelopeId || null, data.envelopeInTarget === false ? 0 : 1
+    envelopeId, inTarget
   );
   const row = get("SELECT * FROM entries WHERE id = ?", id);
   syncEntryExpense(row);
+  // La boucle se referme : l'échéance de l'enveloppe avance au cycle suivant
+  if (line?.envelope_id && envelopeId === line.envelope_id && (line.interval_months || 1) > 1) {
+    const next = nextDueDate(line, row.date.substring(0, 7)); // occurrence courante…
+    const after = nextDueDate(line, periodPlus(row.date.substring(0, 7), 1)); // …puis la suivante
+    run("UPDATE envelopes SET deadline = ? WHERE id = ?", after || next, line.envelope_id);
+  }
   return serialize(row);
 }
+
+const periodPlus = (period, n) => {
+  const [y, m] = period.split("-").map(Number);
+  const idx = y * 12 + (m - 1) + n;
+  return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`;
+};
 
 export function update(id, data) {
   const existing = get("SELECT * FROM entries WHERE id = ?", id);
@@ -117,11 +134,13 @@ export function pay(monthId, lineId) {
     ? `${month.period}-${String(line.recurring_day).padStart(2, "0")}`
     : null;
 
+  // Ligne mensualisée : l'argent sort de là où l'enveloppe l'a mis de côté (compte hôte, sinon principal)
+  const envelopeAccount = line.envelope_id ? get("SELECT account_id FROM envelopes WHERE id = ?", line.envelope_id)?.account_id : null;
   return create(monthId, {
     lineId,
     amount: fromCents(amountCents),
     date: day,
-    accountId: line.from_account_id ?? line.to_account_id ?? null,
+    accountId: envelopeAccount ?? line.from_account_id ?? line.to_account_id ?? null,
     toAccountId: line.from_account_id ? line.to_account_id : null, // les deux si la ligne est un mouvement entre comptes
     paymentMethod: line.payment_method,
     themeId: line.theme_id,

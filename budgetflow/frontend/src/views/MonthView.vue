@@ -191,6 +191,21 @@ async function deleteContribution(c) {
   try { await removeContribution(c.envelopeId, c.id); await reload() } catch (e) { apiError(e) }
 }
 
+// ☐ versé : contribution de la mensualité suggérée, depuis le compte principal (virtuelle si c'est aussi l'hôte)
+async function contributeSuggested(env) {
+  if (contribsForEnvelope(env).some((c) => c.kind === 'normale')) return
+  const today = new Date().toISOString().substring(0, 10)
+  try {
+    await addContribution(env.id, {
+      amount: env.monthlySuggestion,
+      date: today.startsWith(current.value.period) ? today : `${current.value.period}-01`,
+      fromAccountId: accounts.value.find((a) => a.isMain)?.id || null,
+      notes: 'Mensualité',
+    })
+    await reload()
+  } catch (e) { apiError(e) }
+}
+
 function apiError(e) {
   alert(e.response?.data?.message || e.message)
 }
@@ -952,6 +967,16 @@ const mainEnvelopesTotal = computed(() => {
 
         <div v-for="env in envelopes" :key="env.id">
           <div class="line-row" @click="toggleEnvelope(env)">
+            <!-- ☐ versé : la mensualité suggérée en un clic (même geste que ☐ payé) -->
+            <input
+              v-if="env.monthlySuggestion > 0 && !current.isClosed"
+              type="checkbox"
+              class="shrink-0 accent-violet-600 cursor-pointer"
+              :checked="contribsForEnvelope(env).some((c) => c.kind === 'normale')"
+              :disabled="contribsForEnvelope(env).some((c) => c.kind === 'normale')"
+              :title="'Verser la mensualité suggérée : ' + fmt(env.monthlySuggestion)"
+              @click.stop="contributeSuggested(env)"
+            />
             <span class="text-[13px] font-medium truncate">{{ env.name }}</span>
             <span v-if="env.accountName" class="badge bg-stone-100 text-gray-500">{{ env.accountName }}</span>
             <span v-if="contribsForEnvelope(env).length" class="badge bg-violet-50 text-violet-700">

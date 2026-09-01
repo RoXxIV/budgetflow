@@ -1,6 +1,7 @@
 import { all, get, fromCents, httpError } from "../db/index.js";
 import { getSnapshots } from "./month.service.js";
 import * as pots from "./pot.service.js";
+import * as envelopesModule from "./envelope.service.js";
 
 /**
  * Patrimoine total : comptes inclus, au solde live du mois en cours ; pour un compte investissement
@@ -167,6 +168,18 @@ export function getSummary(monthId) {
     if (a.monthly_dca_cents && !dcaDone.has(a.id)) dcaRestants += a.monthly_dca_cents;
   }
   prevusRestants += dcaRestants;
+
+  // Mensualités des lignes mensualisées (enveloppe liée) non encore versées ce mois : présumées versées
+  const contributedThisMonth = new Set(contributions.filter((c) => c.kind === "normale").map((c) => c.envelope_id));
+  const linkedEnvelopeIds = all("SELECT DISTINCT envelope_id FROM budget_lines WHERE month_id IS NULL AND envelope_id IS NOT NULL").map((r) => r.envelope_id);
+  if (linkedEnvelopeIds.length) {
+    const { list: listEnvelopes } = envelopesModule;
+    for (const e of listEnvelopes()) {
+      if (linkedEnvelopeIds.includes(e.id) && !e.isClosed && e.monthlySuggestion && !contributedThisMonth.has(e.id)) {
+        prevusRestants += Math.round(e.monthlySuggestion * 100);
+      }
+    }
+  }
 
   const projete = disponible !== null
     ? disponible + fromCents(revenusRestants - prevusRestants)

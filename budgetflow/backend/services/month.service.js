@@ -139,19 +139,23 @@ export function create({ period, snapshots = [], envelopes = [] }) {
     const { lastInsertRowid: monthId } = run("INSERT INTO months (period) VALUES (?)", period);
 
     // Duplication des lignes du template (ordre conservé, origine tracée)
-    const templateLines = all("SELECT * FROM budget_lines WHERE month_id IS NULL ORDER BY sort_order, id");
+    // Seules les lignes dont le cycle tombe sur ce mois sont copiées (mensuelles : toujours)
+    const templateLines = all("SELECT * FROM budget_lines WHERE month_id IS NULL ORDER BY sort_order, id")
+      .filter((line) => budgetLines.cycleMatches(line, period));
     const newIdByTemplateId = {};
     for (const line of templateLines) {
       const { lastInsertRowid } = run(
         `INSERT INTO budget_lines
           (month_id, template_line_id, label, category_id, theme_id, planned_amount_cents,
            from_account_id, to_account_id, payment_method, is_shared, recurring_day, sort_order, notes,
-           is_pot, pot_partner_name, pot_partner_paid_cents, pot_my_share)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           is_pot, pot_partner_name, pot_partner_paid_cents, pot_my_share,
+           interval_months, anchor_month, envelope_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         monthId, line.id, line.label, line.category_id, line.theme_id,
         line.planned_amount_cents, line.from_account_id, line.to_account_id,
         line.payment_method, line.is_shared, line.recurring_day, line.sort_order, line.notes,
-        line.is_pot, line.pot_partner_name, line.pot_partner_paid_cents, line.pot_my_share
+        line.is_pot, line.pot_partner_name, line.pot_partner_paid_cents, line.pot_my_share,
+        line.interval_months || 1, line.anchor_month, line.envelope_id
       );
       newIdByTemplateId[line.id] = Number(lastInsertRowid);
     }
