@@ -14,6 +14,9 @@ Réécriture propre et configurable de BudgetFlow. Les décisions fonctionnelles
 
 ## Lancer en dev
 
+Le plus simple : double-cliquer sur `dev.cmd` (ouvre les deux serveurs dans deux fenêtres
+et le navigateur sur http://localhost:5174). Sinon à la main :
+
 ```sh
 # Terminal 1
 cd budgetflow/backend && npm run dev

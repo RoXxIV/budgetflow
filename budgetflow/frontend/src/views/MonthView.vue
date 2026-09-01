@@ -289,7 +289,7 @@ function openAddLine(category) {
     toAccountId: '',
     isShared: false,
     recurringDay: '',
-    potLineId: '',
+    potLineId: pots.value[0]?.id || '',
     isPot: false,
     potPartnerName: '',
     potPartnerPaid: '',
@@ -308,7 +308,7 @@ function openEditLine(line) {
     toAccountId: line.toAccountId || '',
     isShared: line.isShared,
     recurringDay: line.recurringDay || '',
-    potLineId: line.potLineId || '',
+    potLineId: line.potLineId || pots.value[0]?.id || '',
     isPot: line.isPot,
     potPartnerName: line.potPartnerName || '',
     potPartnerPaid: line.potPartnerPaid ?? '',
@@ -631,7 +631,7 @@ const mainEnvelopesTotal = computed(() => {
 
             <!-- Lignes -->
             <div v-for="line in group.lines" :key="line.id">
-              <div class="line-row" @click="toggleEntries(line)">
+              <div class="line-row" :class="{ 'line-row--pot': line.isPot }" @click="toggleEntries(line)">
                 <!-- ☐ payé : prévu sans entrée → cocher crée l'entrée au prévu -->
                 <input
                   v-if="showCheckbox(line)"
@@ -647,7 +647,9 @@ const mainEnvelopesTotal = computed(() => {
                 </span>
                 <span v-if="line.isPot" class="badge bg-amber-50 text-amber-600" title="Cagnotte : le prévu est calculé à partir des ½">cagnotte · {{ line.pot?.partnerName }}</span>
                 <span v-if="line.recurringDay && !isPaid(line)" class="badge bg-blue-50 text-blue-600">le {{ line.recurringDay }}</span>
-                <span v-if="sharingOn && line.isShared && !line.isPot" class="badge bg-amber-50 text-amber-600" :title="pots.length > 1 ? 'Cagnotte : ' + (potById(line.potLineId)?.label || pots[0].label) : 'Partagé'">½</span>
+                <span v-if="sharingOn && line.isShared && !line.isPot" class="badge bg-amber-50 text-amber-600" :title="'Cagnotte : ' + (potById(line.potLineId) || pots[0]).label">
+                  ½{{ pots.length > 1 ? ' ' + ((potById(line.potLineId) || pots[0]).pot?.partnerName || '') : '' }}
+                </span>
 
                 <!-- Montant : le réel remplace le prévu (cagnotte : « à envoyer » calculé) -->
                 <span class="ml-auto shrink-0 text-right">
@@ -703,8 +705,7 @@ const mainEnvelopesTotal = computed(() => {
                   </label>
                   <label v-if="sharingOn && !lineForm.isPot && lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (rattachée à une cagnotte)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
                   <select v-if="sharingOn && !lineForm.isPot && lineForm.isShared && pots.length > 1" v-model="lineForm.potLineId" class="input w-36 self-end" title="Cagnotte concernée">
-                    <option value="">— cagnotte par défaut</option>
-                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }}</option>
+                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
                   </select>
                   <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Partage avec quelqu'un : le prévu de la ligne est calculé à partir des ½"><input v-model="lineForm.isPot" type="checkbox" /><span>Cagnotte</span></label>
                   <template v-if="lineForm.isPot">
@@ -739,7 +740,9 @@ const mainEnvelopesTotal = computed(() => {
                   <span class="font-medium w-20 shrink-0">{{ fmt(e.amount) }}</span>
                   <span v-if="e.source === 'paye'" class="badge bg-blue-50 text-blue-600">payé</span>
                   <span v-if="themeById(e.themeId)" class="badge" :style="{ background: themeById(e.themeId).color + '22', color: themeById(e.themeId).color }">{{ themeById(e.themeId).name }}</span>
-                  <span v-if="sharingOn && e.isShared" class="badge bg-amber-50 text-amber-600">½</span>
+                  <span v-if="sharingOn && e.isShared" class="badge bg-amber-50 text-amber-600" :title="'Cagnotte : ' + (potById(e.potLineId) || pots[0]).label">
+                    ½{{ pots.length > 1 ? ' ' + ((potById(e.potLineId) || pots[0]).pot?.partnerName || '') : '' }}
+                  </span>
                   <span class="text-gray-400 truncate">{{ e.label }}</span>
                   <span v-if="accountById(e.accountId) || accountById(e.toAccountId)" class="text-gray-300 text-[11px] ml-auto shrink-0">
                     {{ accountById(e.accountId)?.name || '?' }}<template v-if="accountById(e.toAccountId)"> → {{ accountById(e.toAccountId).name }}</template>
@@ -770,7 +773,7 @@ const mainEnvelopesTotal = computed(() => {
                   </template>
                   <label v-if="sharingOn && !line.isPot" class="checkbox" title="Dépense commune (rattachée à une cagnotte)"><input v-model="entryForm.isShared" type="checkbox" /><span>½</span></label>
                   <select v-if="sharingOn && !line.isPot && entryForm.isShared && pots.length > 1" v-model="entryForm.potLineId" class="input w-32" title="Cagnotte concernée">
-                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }}</option>
+                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
                   </select>
                   <button class="btn-secondary" @click="submitEntry(line)">Ajouter</button>
                 </div>
@@ -807,8 +810,7 @@ const mainEnvelopesTotal = computed(() => {
                 </label>
                 <label v-if="sharingOn && !lineForm.isPot && lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (rattachée à une cagnotte)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
                   <select v-if="sharingOn && !lineForm.isPot && lineForm.isShared && pots.length > 1" v-model="lineForm.potLineId" class="input w-36 self-end" title="Cagnotte concernée">
-                    <option value="">— cagnotte par défaut</option>
-                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }}</option>
+                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.pot?.partnerName }}</option>
                   </select>
                   <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Partage avec quelqu'un : le prévu de la ligne est calculé à partir des ½"><input v-model="lineForm.isPot" type="checkbox" /><span>Cagnotte</span></label>
                   <template v-if="lineForm.isPot">
@@ -836,6 +838,7 @@ const mainEnvelopesTotal = computed(() => {
 .card { @apply bg-white rounded-xl border border-stone-200; }
 .badge { @apply text-[10.5px] font-semibold px-1.5 py-px rounded-full shrink-0; }
 .line-row { @apply flex items-center gap-2 px-4 py-2 border-b border-stone-50 cursor-pointer hover:bg-stone-50; }
+.line-row--pot { @apply bg-amber-50/60 hover:bg-amber-50 border-l-2 border-l-amber-400; }
 .edit-panel { @apply px-4 py-3 bg-stone-50 border-b border-stone-100; }
 .field { @apply flex flex-col gap-1 text-[11px] font-medium text-gray-500; }
 .input { @apply py-1.5 px-2 border border-stone-200 rounded-md text-[13px] text-gray-900 bg-white outline-none focus:border-violet-400 disabled:opacity-50; }
