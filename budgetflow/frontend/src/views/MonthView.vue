@@ -466,7 +466,8 @@ const sourceAccountId = computed(() => {
   if (sourceEnvelope.value) return sourceEnvelope.value.accountId || accounts.value.find((a) => a.isMain)?.id || null
   return null
 })
-// Virement : moyen de paiement « virement », catégorie à destination (épargne, transfert), ou ligne qui a déjà un « Vers »
+// « Vers » : moyen de paiement « virement » (provision vers un de mes comptes, ou « extérieur »),
+// catégorie à destination (épargne, transfert), ou ligne qui a déjà un « Vers »
 const isTransfer = computed(() =>
   /virement/i.test(lineForm.value.paymentMethod || '')
   || ['epargne', 'transfert'].includes(lineFormCategoryType.value)
@@ -752,9 +753,9 @@ const mainEnvelopesTotal = computed(() => {
                 <option v-for="m in settings?.paymentMethods || ['CB']" :key="m" :value="m">{{ m }}</option>
               </select>
             </label>
-            <label v-if="isTransfer" class="field"><span>Vers</span>
-              <select v-model="lineForm.toAccountId" class="input w-40">
-                <option value="">— compte destination</option>
+            <label v-if="isTransfer" class="field" :title="lineFormCategoryType === 'depense' ? 'Provision : l\'argent part vers un de vos comptes (ex. 70 € / mois vers le compte factures)' : 'Compte destination'"><span>Vers</span>
+              <select v-model="lineForm.toAccountId" class="input w-44">
+                <option value="">{{ lineFormCategoryType === 'depense' ? '— extérieur (quelqu\'un d\'autre)' : '— compte destination' }}</option>
                 <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </label>
