@@ -3,7 +3,7 @@ import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js
 // Une saisie datée dans un mois clôturé est refusée
 function assertPeriodOpen(date) {
   const month = get("SELECT * FROM months WHERE period = ?", String(date).substring(0, 7));
-  if (month?.closed_at) throw httpError(409, `Le mois ${month.period} est clôturé`);
+  if (month?.closed_at) throw httpError(409, `La date ${String(date).substring(0, 10)} tombe dans ${month.period}, un mois clôturé : changez la date, ou rouvrez ce mois pour y saisir`);
 }
 
 const mainAccountId = () => get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;

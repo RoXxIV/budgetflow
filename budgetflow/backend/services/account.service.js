@@ -130,6 +130,11 @@ export function setActive(id, isActive, { transferToAccountId = null } = {}) {
   if (openEnvelopes > 0) {
     throw httpError(409, `« ${existing.name} » héberge ${openEnvelopes} enveloppe(s) ouverte(s) : clôturez-les ou déplacez-les d'abord`);
   }
+  // Un actif ouvert sur un compte désactivé rendrait ses versements invisibles au bilan
+  const openAssets = get("SELECT COUNT(*) AS n FROM assets WHERE account_id = ? AND closed_at IS NULL", id).n;
+  if (openAssets > 0) {
+    throw httpError(409, `« ${existing.name} » héberge ${openAssets} actif(s) ouvert(s) (investissements) : clôturez-les ou changez leur compte hôte d'abord`);
+  }
 
   // Solde connu et non nul → il faut dire où va l'argent (virement système, puis désactivation)
   const balance = currentBalanceCents(id);
