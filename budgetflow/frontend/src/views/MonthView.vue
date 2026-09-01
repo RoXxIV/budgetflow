@@ -74,6 +74,7 @@ async function reload() {
 // ─── Cagnottes (partage) : les ½ n'existent que s'il y a au moins une cagnotte dans le mois ─
 const pots = computed(() => lines.value.filter((l) => l.isPot))
 const sharingOn = computed(() => pots.value.length > 0)
+const potById = (id) => pots.value.find((p) => p.id === id) || null
 
 function potStatus(line) {
   const p = line.pot
