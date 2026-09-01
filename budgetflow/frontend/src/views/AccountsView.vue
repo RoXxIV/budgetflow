@@ -69,6 +69,8 @@ const pct = (e) => (e.effectiveTarget ? Math.min(100, Math.round((e.total / e.ef
 const accountFormOpen = ref(false)
 const editingAccountId = ref(null)
 const accountForm = ref(defaultAccountForm())
+// Le compte principal ne se décoche pas : le rôle se transfère en cochant un autre compte
+const isEditingMain = computed(() => !!editingAccountId.value && !!accounts.value.find((a) => a.id === editingAccountId.value)?.isMain)
 
 function defaultAccountForm() {
   return { name: '', type: 'courant', isMain: false, includeInNetWorth: true, allowOverdraft: false, multiProjects: false, initialBalance: '' }
@@ -404,10 +406,11 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
             <HelpTip text="Par défaut un compte épargne reçoit une enveloppe du même nom (un livret = un projet). Cochez si ce compte abritera plusieurs enveloppes (ex. « Japon » et « Matelas » sur le même livret) : vous les créerez ensuite." />
           </label>
         </template>
-        <label class="checkbox">
-          <input v-model="accountForm.isMain" type="checkbox" />
+        <label class="checkbox" :class="{ 'opacity-60': isEditingMain }">
+          <input v-model="accountForm.isMain" type="checkbox" :disabled="isEditingMain" />
           <span>Compte principal</span>
-          <HelpTip text="Le compte de vos dépenses courantes : proposé par défaut à chaque saisie, et c'est son solde que le bilan du mois suit (« Solde actuel », projeté)." />
+          <HelpTip wide text="Le compte de vos dépenses courantes : proposé par défaut à chaque saisie, et c'est son solde que le bilan du mois suit. Il y en a toujours exactement un — pour le changer, cochez cette case sur un autre compte (le rôle se transfère). Les lignes du template gardent leur « Depuis » : rien n'est modifié automatiquement." />
+          <span v-if="isEditingMain" class="text-[11px] text-gray-400">(se transfère en cochant un autre compte)</span>
         </label>
         <label class="checkbox">
           <input v-model="accountForm.includeInNetWorth" type="checkbox" />

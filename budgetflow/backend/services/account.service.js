@@ -75,6 +75,10 @@ export function update(id, data) {
       throw httpError(409, `Un compte « ${name} » existe déjà`);
     }
 
+    // Toujours exactement un compte principal : le rôle se transfère (cocher ailleurs), il ne se décoche pas
+    if (data.isMain === false && existing.is_main) {
+      throw httpError(409, "Il faut toujours un compte principal : cochez « Compte principal » sur un autre compte pour lui transférer le rôle");
+    }
     if (data.isMain === true) run("UPDATE accounts SET is_main = 0");
     const isMain = data.isMain !== undefined ? (data.isMain ? 1 : 0) : existing.is_main;
     const type = data.type !== undefined ? data.type : existing.type;
