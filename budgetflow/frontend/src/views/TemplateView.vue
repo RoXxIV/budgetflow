@@ -6,6 +6,7 @@ import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
 import { getAccounts } from '@/api/accounts.js'
 import { getSettings } from '@/api/settings.js'
+import AppModal from '@/components/AppModal.vue'
 
 // ─── Data ────────────────────────────────────────────────
 const lines = ref([])
@@ -96,13 +97,27 @@ function defaultForm(category) {
   }
 }
 
+// Modal de ligne (ajout et édition) — même composant que dans le Mois
+const modalLine = ref(null)       // ligne en édition (null = ajout)
+const modalCategory = ref(null)   // catégorie du « + ligne »
+const modalOpen = computed(() => openLineId.value !== null)
+const modalAdding = computed(() => typeof openLineId.value === 'string')
+// « Vers » : catégorie à destination, virement (provision vers un de mes comptes / extérieur), ou ligne qui en a déjà un
+const showVers = computed(() =>
+  formCategoryType.value !== 'depense' || /virement/i.test(form.value.paymentMethod || '') || !!form.value.toAccountId
+)
+
 function openAdd(category) {
   openLineId.value = `new-${category.id}`
+  modalLine.value = null
+  modalCategory.value = category
   form.value = defaultForm(category)
 }
 
 function openEdit(line) {
   openLineId.value = line.id
+  modalLine.value = line
+  modalCategory.value = categories.value.find((c) => c.id === line.categoryId) || null
   form.value = {
     label: line.label,
     plannedAmount: line.plannedAmount ?? '',
@@ -124,6 +139,7 @@ function openEdit(line) {
 
 function closePanel() {
   openLineId.value = null
+  modalLine.value = null
 }
 
 function formData() {
@@ -221,6 +237,78 @@ const formCategoryType = computed(() => {
       </div>
     </div>
 
+    <!-- ─── Ligne du template (modal : ajout et édition) ── -->
+    <AppModal :open="modalOpen" :title="modalAdding ? 'Nouvelle ligne — ' + (modalCategory?.name || '') : 'Modifier « ' + (modalLine?.label || '') + ' »'" wide @close="closePanel">
+      <div class="flex flex-col gap-4">
+        <div class="flex flex-wrap gap-3 items-end">
+          <label class="field"><span>Libellé</span><input v-model="form.label" type="text" class="input w-44" placeholder="Loyer, Courses…" @keyup.enter="submit" /></label>
+          <label v-if="!form.isPot" class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submit" /></label>
+          <label class="field" :title="form.isPot ? 'Jour où vous réglez la cagnotte' : 'Date par défaut quand vous cochez « payé » dans le mois'"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
+          <label v-if="!modalAdding" class="field"><span>Catégorie</span>
+            <select v-model="form.categoryId" class="input w-40">
+              <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+            </select>
+          </label>
+          <label v-if="themes.length" class="field"><span>Thème</span>
+            <select v-model="form.themeId" class="input w-32">
+              <option value="">—</option>
+              <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="flex flex-wrap gap-3 items-end">
+          <label v-if="formCategoryType === 'revenu'" class="field"><span>Compte crédité</span>
+            <select v-model="form.toAccountId" class="input w-40">
+              <option value="">—</option>
+              <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+            </select>
+          </label>
+          <template v-else>
+            <label class="field"><span>Depuis</span>
+              <select v-model="form.fromAccountId" class="input w-40">
+                <option value="">— aucun</option>
+                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+            </label>
+            <label class="field"><span>Moyen de paiement</span>
+              <select v-model="form.paymentMethod" class="input w-32">
+                <option value="">—</option>
+                <option v-for="m in settings?.paymentMethods || []" :key="m" :value="m">{{ m }}</option>
+              </select>
+            </label>
+            <label v-if="showVers" class="field" :title="formCategoryType === 'depense' ? 'Provision : l\'argent part vers un de vos comptes' : 'Compte destination'"><span>Vers</span>
+              <select v-model="form.toAccountId" class="input w-44">
+                <option value="">{{ formCategoryType === 'depense' ? '— extérieur (quelqu\'un d\'autre)' : '— compte destination' }}</option>
+                <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+              </select>
+            </label>
+          </template>
+        </div>
+
+        <div v-if="formCategoryType !== 'revenu'" class="flex flex-wrap gap-3 items-end">
+          <label v-if="sharingOn && !form.isPot" class="checkbox" title="Dépense commune (rattachée à une cagnotte)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
+          <select v-if="sharingOn && !form.isPot && form.isShared && pots.length > 1" v-model="form.potLineId" class="input w-40" title="Cagnotte concernée">
+            <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.potPartnerName }}</option>
+          </select>
+          <label class="checkbox" title="Partage avec quelqu'un : le prévu de la ligne est calculé chaque mois à partir des ½"><input v-model="form.isPot" type="checkbox" /><span>Cette ligne est une cagnotte</span></label>
+          <template v-if="form.isPot">
+            <label class="field"><span>Partenaire</span><input v-model="form.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
+            <label class="field"><span>Il/elle paie (€/mois)</span><input v-model="form.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>
+            <label class="field"><span>Ma part (%)</span><input v-model="form.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
+          </template>
+        </div>
+      </div>
+      <template #footer>
+        <button class="btn-primary" @click="submit">{{ modalAdding ? 'Ajouter' : 'Sauver' }}</button>
+        <button class="btn-secondary" @click="closePanel">Annuler</button>
+        <template v-if="!modalAdding && modalLine">
+          <button v-if="currentMonth" class="link text-xs" title="Copie ou met à jour cette ligne dans le mois en cours (sauvez d'abord vos modifications)" @click="applyToCurrentMonth(modalLine)">Appliquer à {{ currentMonth.name }}</button>
+          <button class="btn-danger ml-auto" @click="removeLineConfirm(modalLine)">Supprimer</button>
+        </template>
+      </template>
+    </AppModal>
+
     <!-- ─── Aucune catégorie ─────────────────────────── -->
     <div v-if="!categories.length" class="text-center py-16 text-gray-400">
       <p class="mb-3">Créez d'abord vos catégories dans les Paramètres.</p>
@@ -247,7 +335,7 @@ const formCategoryType = computed(() => {
 
           <!-- Lignes -->
           <div v-for="(line, i) in group.lines" :key="line.id">
-            <div class="line-row" :class="{ 'line-row--pot': line.isPot }" @click="openLineId === line.id ? closePanel() : openEdit(line)">
+            <div class="line-row" :class="{ 'line-row--pot': line.isPot }" @click="openEdit(line)">
               <span class="text-[13px] font-medium truncate">{{ line.label }}</span>
               <span v-if="line.recurringDay" class="badge bg-blue-50 text-blue-600" title="Jour du mois (date par défaut du « payé »)">le {{ line.recurringDay }}</span>
               <span v-if="line.isPot" class="badge bg-amber-50 text-amber-600" title="Cagnotte : le prévu est calculé chaque mois">cagnotte · {{ line.potPartnerName || '?' }} paie {{ fmt(line.potPartnerPaid) }}</span>
@@ -264,106 +352,10 @@ const formCategoryType = computed(() => {
               </span>
             </div>
 
-            <!-- Panneau d'édition -->
-            <div v-if="openLineId === line.id" class="edit-panel">
-              <div class="flex flex-wrap gap-3">
-                <label class="field"><span>Libellé</span><input v-model="form.label" type="text" class="input w-44" /></label>
-                <label v-if="!form.isPot" class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" /></label>
-                <label class="field" title="Date par défaut quand vous cochez « payé » dans le mois"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
-                <label class="field"><span>Catégorie</span>
-                  <select v-model="form.categoryId" class="input w-36">
-                    <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
-                  </select>
-                </label>
-                <label v-if="themes.length" class="field"><span>Thème</span>
-                  <select v-model="form.themeId" class="input w-32">
-                    <option value="">—</option>
-                    <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
-                  </select>
-                </label>
-                <label v-if="formCategoryType !== 'revenu'" class="field"><span>Depuis</span>
-                  <select v-model="form.fromAccountId" class="input w-32">
-                    <option value="">—</option>
-                    <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                  </select>
-                </label>
-                <label v-if="formCategoryType !== 'depense'" class="field"><span>Vers</span>
-                  <select v-model="form.toAccountId" class="input w-32">
-                    <option value="">—</option>
-                    <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                  </select>
-                </label>
-                <label v-if="formCategoryType !== 'revenu'" class="field"><span>Paiement</span>
-                  <select v-model="form.paymentMethod" class="input w-28">
-                    <option value="">—</option>
-                    <option v-for="m in settings?.paymentMethods || []" :key="m" :value="m">{{ m }}</option>
-                  </select>
-                </label>
-                <label v-if="sharingOn && !form.isPot && formCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (rattachée à une cagnotte)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
-                <select v-if="sharingOn && !form.isPot && form.isShared && pots.length > 1" v-model="form.potLineId" class="input w-36 self-end" title="Cagnotte concernée">
-                  <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.potPartnerName }}</option>
-                </select>
-                <label v-if="formCategoryType !== 'revenu'" class="checkbox self-end" title="Partage avec quelqu'un : le prévu de la ligne est calculé chaque mois à partir des ½"><input v-model="form.isPot" type="checkbox" /><span>Cagnotte</span></label>
-                <template v-if="form.isPot">
-                  <label class="field"><span>Partenaire</span><input v-model="form.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
-                  <label class="field"><span>Il/elle paie (€/mois)</span><input v-model="form.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>
-                  <label class="field"><span>Ma part (%)</span><input v-model="form.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
-                </template>
-              </div>
-              <div class="flex gap-2 mt-3 items-center">
-                <button class="btn-primary" @click="submit">{{ typeof openLineId === 'string' ? 'Ajouter' : 'Sauver' }}</button>
-                <button class="btn-secondary" @click="closePanel">Annuler</button>
-                <button v-if="currentMonth" class="link text-xs" title="Copie ou met à jour cette ligne dans le mois en cours (sauvez d'abord vos modifications)" @click="applyToCurrentMonth(line)">
-                  Appliquer à {{ currentMonth.name }}
-                </button>
-                <button v-if="typeof openLineId !== 'string'" class="btn-danger ml-auto" @click="removeLineConfirm(line)">Supprimer</button>
-              </div>
-            </div>
           </div>
 
-          <p v-if="!group.lines.length && openLineId !== `new-${group.category.id}`" class="text-xs text-gray-400 px-4 py-2.5">Aucune ligne.</p>
-
-          <!-- Ajout -->
-          <div v-if="openLineId === `new-${group.category.id}`" class="edit-panel">
-            <div class="flex flex-wrap gap-3">
-              <label class="field"><span>Libellé</span><input v-model="form.label" type="text" class="input w-44" placeholder="Loyer, Courses…" @keyup.enter="submit" /></label>
-              <label v-if="!form.isPot" class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submit" /></label>
-              <label class="field" title="Date par défaut quand vous cochez « payé » dans le mois"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
-              <label v-if="themes.length" class="field"><span>Thème</span>
-                <select v-model="form.themeId" class="input w-32">
-                  <option value="">—</option>
-                  <option v-for="t in themes" :key="t.id" :value="t.id">{{ t.name }}</option>
-                </select>
-              </label>
-              <label v-if="formCategoryType !== 'revenu'" class="field"><span>Depuis</span>
-                <select v-model="form.fromAccountId" class="input w-32">
-                  <option value="">—</option>
-                  <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                </select>
-              </label>
-              <label v-if="formCategoryType !== 'depense'" class="field"><span>Vers</span>
-                <select v-model="form.toAccountId" class="input w-32">
-                  <option value="">—</option>
-                  <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                </select>
-              </label>
-              <label v-if="sharingOn && !form.isPot && formCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (rattachée à une cagnotte)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
-                <select v-if="sharingOn && !form.isPot && form.isShared && pots.length > 1" v-model="form.potLineId" class="input w-36 self-end" title="Cagnotte concernée">
-                  <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }} · {{ p.potPartnerName }}</option>
-                </select>
-                <label v-if="formCategoryType !== 'revenu'" class="checkbox self-end" title="Partage avec quelqu'un : le prévu de la ligne est calculé chaque mois à partir des ½"><input v-model="form.isPot" type="checkbox" /><span>Cagnotte</span></label>
-                <template v-if="form.isPot">
-                  <label class="field"><span>Partenaire</span><input v-model="form.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
-                  <label class="field"><span>Il/elle paie (€/mois)</span><input v-model="form.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>
-                  <label class="field"><span>Ma part (%)</span><input v-model="form.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
-                </template>
-            </div>
-            <div class="flex gap-2 mt-3">
-              <button class="btn-primary" @click="submit">Ajouter</button>
-              <button class="btn-secondary" @click="closePanel">Annuler</button>
-            </div>
-          </div>
-          <button v-else class="link text-xs px-4 py-2 block" @click="openAdd(group.category)">+ ligne</button>
+          <p v-if="!group.lines.length" class="text-xs text-gray-400 px-4 py-2.5">Aucune ligne.</p>
+          <button class="link text-xs px-4 py-2 block" @click="openAdd(group.category)">+ ligne</button>
         </div>
       </div>
     </div>
