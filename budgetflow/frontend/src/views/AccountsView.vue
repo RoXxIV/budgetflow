@@ -5,10 +5,10 @@ import { getAccounts, createAccount, updateAccount, deleteAccount, setAccountAct
 import {
   getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope, closeEnvelopeInto,
   getContributions, addContribution, removeContribution,
-  getRecalibration, recalibrateEnvelope, getAvailability, reallocateEnvelope,
+  getAvailability, reallocateEnvelope,
 } from '@/api/envelopes.js'
 import { watch } from 'vue'
-import { confirmDialog, promptDialog, apiError } from '@/composables/useDialog.js'
+import { confirmDialog, apiError } from '@/composables/useDialog.js'
 import HelpTip from '@/components/HelpTip.vue'
 
 // ─── Data ────────────────────────────────────────────────
@@ -31,37 +31,6 @@ async function load() {
 onMounted(load)
 
 const netWorthOf = (accountId) => netWorth.value?.accounts.find((a) => a.accountId === accountId) || null
-
-// ─── Recalage d'une enveloppe sur le solde réel du compte ─
-const recal = ref(null) // aperçu { accountBalance, envelopesTotal, delta } de l'enveloppe ouverte
-
-async function loadRecalibration(envelope) {
-  recal.value = null
-  if (!envelope.accountId || envelope.isClosed) return
-  try { recal.value = (await getRecalibration(envelope.id)).data } catch { recal.value = null }
-}
-
-async function doRecalibrate(envelope) {
-  const d = recal.value?.delta
-  if (!d) return
-  const notes = await promptDialog({
-    title: 'Recaler sur le compte',
-    message: `Poser ${fmt(d)} en contribution d'ajustement sur « ${envelope.name} » pour l'aligner sur le solde de ${recal.value.accountName} (${fmt(recal.value.accountBalance)}). L'historique garde la trace.`,
-    label: 'Note (optionnelle)',
-    defaultValue: d < 0 ? 'Sortie non enregistrée' : 'Intérêts / arrondis',
-    confirmLabel: 'Recaler',
-  })
-  if (notes === null) return
-  try {
-    await addContributionRecal(envelope, notes)
-  } catch (e) { apiError(e) }
-}
-async function addContributionRecal(envelope, notes) {
-  await recalibrateEnvelope(envelope.id, notes || null)
-  contributions.value = (await getContributions(envelope.id)).data
-  await load()
-  await loadRecalibration(envelope)
-}
 
 // ─── Réaffectation entre enveloppes d'un même compte ─────
 const reallocForm = ref({ toEnvelopeId: '', amount: '' })
@@ -351,7 +320,6 @@ async function toggleContribs(envelope) {
   openEnvelopeId.value = envelope.id
   contribForm.value = { amount: '', date: new Date().toISOString().substring(0, 10), notes: '' }
   contributions.value = (await getContributions(envelope.id)).data
-  await loadRecalibration(envelope)
 }
 
 async function submitContribution(envelope) {
@@ -613,11 +581,6 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 
             <!-- Contributions dépliées -->
             <div v-if="openEnvelopeId === envelope.id" class="mt-3 border-t border-stone-100 pt-3">
-              <!-- Recalage : l'enveloppe vs le solde réel du compte -->
-              <div v-if="recal && recal.delta" class="flex items-center gap-2 text-[12px] mb-2 px-2.5 py-2 rounded-lg" :class="recal.delta < 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'">
-                <span>{{ recal.accountName }} : {{ fmt(recal.accountBalance) }} · enveloppes {{ fmt(recal.envelopesTotal) }} · écart <b>{{ recal.delta > 0 ? '+' : '' }}{{ fmt(recal.delta) }}</b></span>
-                <button class="ml-auto btn-secondary" title="Contribution d'ajustement tracée, l'historique reste" @click.stop="doRecalibrate(envelope)">Recaler sur le compte</button>
-              </div>
               <div v-for="c in contributions" :key="c.id" class="flex items-center gap-2 text-[12.5px] py-1">
                 <span class="text-gray-400 w-20 shrink-0">{{ c.date }}</span>
                 <span :class="c.amount >= 0 ? 'text-emerald-600' : 'text-red-500'" class="font-medium w-24">{{ fmt(c.amount) }}</span>
