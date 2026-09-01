@@ -22,6 +22,12 @@ Evan chasse les bugs manuellement tant qu'il en trouve ; quand ça se tarit, on 
 (review.mjs + tests de session) vers `node --test` pour consolider — **avant** d'attaquer le design
 et les pages stats. Chaque bug trouvé finit en test automatisé avec son fix.
 
+**02/09** — la page Comptes est couverte : `backend/tests/comptes.test.mjs` (18 tests, `npm test`
+depuis backend/). Bug-hunt Claude au passage, 3 corrigés : déplacement/création d'enveloppe vers un
+compte désactivé (l'argent sortait du bilan), montant initial négatif accepté, renommage synchronisé
+enveloppe→compte qui contournait l'unicité des noms. Reste à migrer : mois/☐/dates, template,
+cagnottes, calculateurs, investissements (checks de review.mjs).
+
 ## Reportés
 - **6. Suppression de mois** : à brainstormer après tests (échéances avancées, effets de bord).
 - **7. Stats** : exclure virements système et catégories transfert des dépenses (noté pour l'étape stats).
