@@ -1,5 +1,6 @@
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 import * as budgetLines from "./budgetLine.service.js";
+import * as pots from "./pot.service.js";
 
 const MONTH_NAMES = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
@@ -48,11 +49,21 @@ export function getLines(monthId) {
      FROM budget_lines bl WHERE bl.month_id = ? ORDER BY bl.sort_order, bl.id`,
     monthId
   );
-  return rows.map((r) => ({
-    ...budgetLines.serialize(r),
-    actualAmount: fromCents(r.actual_cents),
-    entryCount: r.entry_count,
-  }));
+  // Cagnottes : le prévu affiché est le « à envoyer » calculé
+  const potById = Object.fromEntries(pots.computeAll(monthId).map((p) => [p.id, p]));
+  return rows.map((r) => {
+    const line = {
+      ...budgetLines.serialize(r),
+      actualAmount: fromCents(r.actual_cents),
+      entryCount: r.entry_count,
+    };
+    if (r.is_pot && potById[r.id]) {
+      const { toSendCents, ...pot } = potById[r.id];
+      line.pot = pot;
+      line.plannedAmount = pot.toSend;
+    }
+    return line;
+  });
 }
 
 // ─── Snapshots ────────────────────────────────────────────
@@ -107,16 +118,26 @@ export function create({ period, snapshots = [] }) {
 
     // Duplication des lignes du template (ordre conservé, origine tracée)
     const templateLines = all("SELECT * FROM budget_lines WHERE month_id IS NULL ORDER BY sort_order, id");
+    const newIdByTemplateId = {};
     for (const line of templateLines) {
-      run(
+      const { lastInsertRowid } = run(
         `INSERT INTO budget_lines
           (month_id, template_line_id, label, category_id, theme_id, planned_amount_cents,
-           from_account_id, to_account_id, payment_method, is_shared, recurring_day, sort_order, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           from_account_id, to_account_id, payment_method, is_shared, recurring_day, sort_order, notes,
+           is_pot, pot_partner_name, pot_partner_paid_cents, pot_my_share)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         monthId, line.id, line.label, line.category_id, line.theme_id,
         line.planned_amount_cents, line.from_account_id, line.to_account_id,
-        line.payment_method, line.is_shared, line.recurring_day, line.sort_order, line.notes
+        line.payment_method, line.is_shared, line.recurring_day, line.sort_order, line.notes,
+        line.is_pot, line.pot_partner_name, line.pot_partner_paid_cents, line.pot_my_share
       );
+      newIdByTemplateId[line.id] = Number(lastInsertRowid);
+    }
+    // Rattachement ½ → cagnotte : on pointe vers la COPIE de la cagnotte dans ce mois
+    for (const line of templateLines) {
+      if (line.pot_line_id && newIdByTemplateId[line.pot_line_id]) {
+        run("UPDATE budget_lines SET pot_line_id = ? WHERE id = ?", newIdByTemplateId[line.pot_line_id], newIdByTemplateId[line.id]);
+      }
     }
 
     for (const s of snapshots) {

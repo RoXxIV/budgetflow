@@ -17,6 +17,12 @@ export function serialize(row) {
     recurringDay: row.recurring_day,
     sortOrder: row.sort_order,
     notes: row.notes,
+    // Cagnotte (partage) : le prévu est calculé à partir des ½ rattachés
+    isPot: !!row.is_pot,
+    potPartnerName: row.pot_partner_name,
+    potPartnerPaid: fromCents(row.pot_partner_paid_cents ?? 0),
+    potMyShare: row.pot_my_share ?? 50,
+    potLineId: row.pot_line_id, // cagnotte par défaut des ½ de cette ligne
   };
 }
 
@@ -46,14 +52,17 @@ export function create(monthId, data) {
   const { lastInsertRowid: id } = run(
     `INSERT INTO budget_lines
       (month_id, template_line_id, label, category_id, theme_id, planned_amount_cents,
-       from_account_id, to_account_id, payment_method, is_shared, recurring_day, sort_order, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       from_account_id, to_account_id, payment_method, is_shared, recurring_day, sort_order, notes,
+       is_pot, pot_partner_name, pot_partner_paid_cents, pot_my_share, pot_line_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     monthId, data.templateLineId ?? null, label,
     data.categoryId ?? null, data.themeId ?? null,
-    toCents(data.plannedAmount) ?? 0,
+    data.isPot ? 0 : (toCents(data.plannedAmount) ?? 0),
     data.fromAccountId ?? null, data.toAccountId ?? null,
     data.paymentMethod ?? null, data.isShared ? 1 : 0,
-    data.recurringDay ?? null, max + 1, data.notes ?? null
+    data.recurringDay ?? null, max + 1, data.notes ?? null,
+    data.isPot ? 1 : 0, data.potPartnerName ?? null, toCents(data.potPartnerPaid) ?? 0,
+    data.potMyShare ?? 50, data.potLineId ?? null
   );
   return getById(Number(id));
 }
@@ -68,20 +77,28 @@ export function update(id, data) {
   const val = (key, dbKey, transform = (v) => v) =>
     data[key] !== undefined ? transform(data[key]) : existing[dbKey];
 
+  const isPot = data.isPot !== undefined ? (data.isPot ? 1 : 0) : existing.is_pot;
   run(
     `UPDATE budget_lines SET label = ?, category_id = ?, theme_id = ?,
        planned_amount_cents = ?, from_account_id = ?, to_account_id = ?, payment_method = ?,
-       is_shared = ?, recurring_day = ?, notes = ? WHERE id = ?`,
+       is_shared = ?, recurring_day = ?, notes = ?,
+       is_pot = ?, pot_partner_name = ?, pot_partner_paid_cents = ?, pot_my_share = ?, pot_line_id = ?
+     WHERE id = ?`,
     label,
     val("categoryId", "category_id"),
     val("themeId", "theme_id"),
-    val("plannedAmount", "planned_amount_cents", toCents),
+    isPot ? 0 : val("plannedAmount", "planned_amount_cents", toCents),
     val("fromAccountId", "from_account_id"),
     val("toAccountId", "to_account_id"),
     val("paymentMethod", "payment_method"),
     val("isShared", "is_shared", (v) => (v ? 1 : 0)),
     val("recurringDay", "recurring_day"),
     val("notes", "notes"),
+    isPot,
+    val("potPartnerName", "pot_partner_name"),
+    val("potPartnerPaid", "pot_partner_paid_cents", (v) => toCents(v) ?? 0),
+    val("potMyShare", "pot_my_share"),
+    val("potLineId", "pot_line_id"),
     id
   );
   return getById(id);
@@ -119,10 +136,12 @@ export function applyToTemplate(id) {
   run(
     `UPDATE budget_lines SET label = ?, category_id = ?, theme_id = ?,
        planned_amount_cents = ?, from_account_id = ?, to_account_id = ?, payment_method = ?,
-       is_shared = ?, recurring_day = ? WHERE id = ?`,
+       is_shared = ?, recurring_day = ?,
+       is_pot = ?, pot_partner_name = ?, pot_partner_paid_cents = ?, pot_my_share = ? WHERE id = ?`,
     line.label, line.category_id, line.theme_id,
     line.planned_amount_cents, line.from_account_id, line.to_account_id, line.payment_method,
-    line.is_shared, line.recurring_day, template.id
+    line.is_shared, line.recurring_day,
+    line.is_pot, line.pot_partner_name, line.pot_partner_paid_cents, line.pot_my_share, template.id
   );
   return getById(template.id);
 }

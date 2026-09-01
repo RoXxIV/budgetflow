@@ -6,7 +6,6 @@ export const createMonth = (data) => api.post('/months', data)
 export const getMonth = (id) => api.get(`/months/${id}`)
 export const getMonthSummary = (id) => api.get(`/months/${id}/summary`)
 export const getMonthEnvelopeContributions = (id) => api.get(`/months/${id}/envelope-contributions`)
-export const applySharing = (id) => api.post(`/months/${id}/sharing/apply`)
 export const setMonthClosed = (id, isClosed) => api.put(`/months/${id}`, { isClosed })
 export const deleteMonth = (id) => api.delete(`/months/${id}`)
 

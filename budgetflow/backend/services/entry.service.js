@@ -1,11 +1,13 @@
 import { all, get, run, toCents, fromCents, httpError } from "../db/index.js";
 import { assertOpen } from "./month.service.js";
+import * as pots from "./pot.service.js";
 
 function serialize(row) {
   return {
     id: row.id,
     monthId: row.month_id,
     lineId: row.line_id,
+    potLineId: row.pot_line_id,
     label: row.label,
     amount: fromCents(row.amount_cents),
     date: row.date,
@@ -27,20 +29,23 @@ export function create(monthId, data) {
   assertOpen(monthId);
   const cents = toCents(data.amount);
   if (!cents) throw httpError(400, "Montant requis");
+  let line = null;
   if (data.lineId) {
-    const line = get("SELECT * FROM budget_lines WHERE id = ? AND month_id = ?", data.lineId, monthId);
+    line = get("SELECT * FROM budget_lines WHERE id = ? AND month_id = ?", data.lineId, monthId);
     if (!line) throw httpError(400, "Ligne inconnue sur ce mois");
   }
   // Une entrée sans compte ne bougerait aucun solde : repli sur le compte principal
   let accountId = data.accountId ?? null;
   if (!accountId) accountId = get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
+  // ½ : cagnotte explicite, sinon celle de la ligne, sinon la cagnotte par défaut (NULL)
+  const potLineId = data.potLineId !== undefined ? (data.potLineId || null) : (line?.pot_line_id ?? null);
 
   const { lastInsertRowid: id } = run(
-    `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, source, notes)
-     VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, pot_line_id, source, notes)
+     VALUES (?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?)`,
     monthId, data.lineId ?? null, data.label ?? null, cents, data.date ?? null,
     accountId, data.toAccountId ?? null, data.paymentMethod ?? null, data.themeId ?? null,
-    data.isShared ? 1 : 0, data.source ?? "manuelle", data.notes ?? null
+    data.isShared ? 1 : 0, potLineId, data.source ?? "manuelle", data.notes ?? null
   );
   return serialize(get("SELECT * FROM entries WHERE id = ?", id));
 }
@@ -57,11 +62,12 @@ export function update(id, data) {
 
   run(
     `UPDATE entries SET label = ?, amount_cents = ?, date = ?, account_id = ?, to_account_id = ?,
-       payment_method = ?, theme_id = ?, is_shared = ?, notes = ? WHERE id = ?`,
+       payment_method = ?, theme_id = ?, is_shared = ?, pot_line_id = ?, notes = ? WHERE id = ?`,
     val("label", "label"), cents, val("date", "date"),
     val("accountId", "account_id"), val("toAccountId", "to_account_id"),
     val("paymentMethod", "payment_method"),
     val("themeId", "theme_id"), val("isShared", "is_shared", (v) => (v ? 1 : 0)),
+    val("potLineId", "pot_line_id", (v) => v || null),
     val("notes", "notes"), id
   );
   return serialize(get("SELECT * FROM entries WHERE id = ?", id));
@@ -80,7 +86,16 @@ export function pay(monthId, lineId) {
   const month = assertOpen(monthId);
   const line = get("SELECT * FROM budget_lines WHERE id = ? AND month_id = ?", lineId, monthId);
   if (!line) throw httpError(404, "Ligne introuvable sur ce mois");
-  if (!line.planned_amount_cents) throw httpError(400, "Le montant prévu de la ligne est vide");
+
+  // Cagnotte : le montant est le « à envoyer » calculé (négatif = le partenaire me doit)
+  let amountCents = line.planned_amount_cents;
+  if (line.is_pot) {
+    const potList = pots.listPots(monthId);
+    amountCents = pots.compute(monthId, line, potList[0]?.id ?? null).toSendCents;
+    if (!amountCents) throw httpError(400, "Rien à régler sur cette cagnotte");
+  } else if (!amountCents) {
+    throw httpError(400, "Le montant prévu de la ligne est vide");
+  }
 
   // « ☐ payé » n'existe que sur une ligne sans entrée : le réel remplace le prévu ensuite
   const count = get("SELECT COUNT(*) AS n FROM entries WHERE line_id = ?", lineId).n;
@@ -92,7 +107,7 @@ export function pay(monthId, lineId) {
 
   return create(monthId, {
     lineId,
-    amount: fromCents(line.planned_amount_cents),
+    amount: fromCents(amountCents),
     date: day,
     accountId: line.from_account_id ?? line.to_account_id ?? null,
     toAccountId: line.from_account_id ? line.to_account_id : null, // les deux si la ligne est un mouvement entre comptes

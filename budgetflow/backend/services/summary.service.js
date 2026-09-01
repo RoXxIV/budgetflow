@@ -1,6 +1,6 @@
 import { all, get, fromCents, httpError } from "../db/index.js";
 import { getSnapshots } from "./month.service.js";
-import * as sharing from "./sharing.service.js";
+import * as pots from "./pot.service.js";
 
 /**
  * Bilan d'un mois — toute la logique de calcul vit ici (le front n'additionne rien).
@@ -107,14 +107,17 @@ export function getSummary(monthId) {
   // Périmètre compte principal : from/to absent = compte principal par défaut
   const isMainOrNull = (id) => !main || !id || id === main.accountId;
   // Le réel remplace le prévu : seules les lignes SANS entrée comptent pour leur prévu
+  // Une cagnotte compte pour son « à envoyer » calculé (négatif = rentrée d'argent)
+  const potById = Object.fromEntries(pots.computeAll(monthId).map((p) => [p.id, p]));
   let prevusRestants = 0;   // sorties prévues non encore réalisées
   let revenusRestants = 0;  // revenus prévus non encore encaissés
   for (const l of lines) {
     if (l.entry_count > 0) continue;
+    const plannedCents = l.is_pot ? (potById[l.id]?.toSendCents || 0) : l.planned_amount_cents;
     if (l.category_type === "revenu") {
-      if (isMainOrNull(l.to_account_id)) revenusRestants += l.planned_amount_cents;
+      if (isMainOrNull(l.to_account_id)) revenusRestants += plannedCents;
     } else if (isMainOrNull(l.from_account_id)) {
-      prevusRestants += l.planned_amount_cents;
+      prevusRestants += plannedCents;
     }
   }
   const projete = disponible !== null
@@ -151,6 +154,5 @@ export function getSummary(monthId) {
     },
     mainAccount: main ? { id: main.accountId, name: main.name } : null,
     accounts: accountRows,
-    sharing: sharing.compute(monthId, settings), // null si le module est désactivé
   };
 }

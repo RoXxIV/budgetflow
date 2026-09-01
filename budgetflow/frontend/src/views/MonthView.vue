@@ -5,7 +5,7 @@ import {
   getMonthLines, payLine, unpayLine,
   getMonthSnapshots, upsertMonthSnapshots,
   getMonthEntries, createEntry, deleteEntry,
-  getMonthSummary, getMonthEnvelopeContributions, applySharing,
+  getMonthSummary, getMonthEnvelopeContributions,
   createMonthLine, updateMonthLine, deleteMonthLine, applyLineToTemplate,
 } from '@/api/months.js'
 import { getEnvelopes, addContribution, removeContribution } from '@/api/envelopes.js'
@@ -71,15 +71,16 @@ async function reload() {
   monthContribs.value = mcRes.data
 }
 
-// ─── Partage (module optionnel : les ½ n'existent que s'il est actif) ─
-const sharingOn = computed(() => !!settings.value?.sharing?.enabled)
-const showSharingDetail = ref(false)
+// ─── Cagnottes (partage) : les ½ n'existent que s'il y a au moins une cagnotte dans le mois ─
+const pots = computed(() => lines.value.filter((l) => l.isPot))
+const sharingOn = computed(() => pots.value.length > 0)
 
-async function doApplySharing() {
-  const s = summaryData.value?.sharing
-  if (!s) return
-  if (!confirm(`Poser ${fmt(s.toSend)} sur « ${s.targetLine?.label} » pour ${s.partnerName} ?`)) return
-  try { await applySharing(current.value.id); await reload() } catch (e) { apiError(e) }
+function potStatus(line) {
+  const p = line.pot
+  if (!p) return ''
+  if (p.toSend > 0) return `à envoyer à ${p.partnerName}`
+  if (p.toSend < 0) return `${p.partnerName} vous doit`
+  return 'équilibré'
 }
 
 // ─── Enveloppes (contribution rapide depuis le mois) ─────
@@ -237,6 +238,7 @@ function toggleEntries(line) {
       : (line.fromAccountId || line.toAccountId || accounts.value.find((a) => a.isMain)?.id || ''),
     toAccountId: lineHasDestination(line) ? (line.toAccountId || '') : '',
     isShared: line.isShared,
+    potLineId: line.potLineId || pots.value[0]?.id || '',
   }
 }
 
@@ -253,6 +255,7 @@ async function submitEntry(line) {
       accountId: f.accountId || null,
       toAccountId: f.toAccountId || null,
       isShared: f.isShared,
+      potLineId: f.isShared ? (f.potLineId || null) : null,
     })
     entryForm.value = { ...f, amount: '', label: '' }
     await reload()
@@ -285,6 +288,11 @@ function openAddLine(category) {
     toAccountId: '',
     isShared: false,
     recurringDay: '',
+    potLineId: '',
+    isPot: false,
+    potPartnerName: '',
+    potPartnerPaid: '',
+    potMyShare: 50,
   }
 }
 
@@ -292,13 +300,18 @@ function openEditLine(line) {
   lineFormId.value = line.id
   lineForm.value = {
     label: line.label,
-    plannedAmount: line.plannedAmount ?? '',
+    plannedAmount: line.isPot ? '' : (line.plannedAmount ?? ''),
     categoryId: line.categoryId,
     themeId: line.themeId || '',
     fromAccountId: line.fromAccountId || '',
     toAccountId: line.toAccountId || '',
     isShared: line.isShared,
     recurringDay: line.recurringDay || '',
+    potLineId: line.potLineId || '',
+    isPot: line.isPot,
+    potPartnerName: line.potPartnerName || '',
+    potPartnerPaid: line.potPartnerPaid ?? '',
+    potMyShare: line.potMyShare ?? 50,
   }
 }
 
@@ -317,6 +330,11 @@ function lineFormData() {
     toAccountId: f.toAccountId || null,
     isShared: f.isShared,
     recurringDay: f.recurringDay === '' ? null : Number(f.recurringDay),
+    potLineId: f.isShared ? (f.potLineId || null) : null,
+    isPot: !!f.isPot,
+    potPartnerName: f.isPot ? (f.potPartnerName || null) : null,
+    potPartnerPaid: f.isPot && f.potPartnerPaid !== '' ? parseFloat(f.potPartnerPaid) : 0,
+    potMyShare: f.isPot ? (Number(f.potMyShare) || 50) : 50,
   }
 }
 
@@ -376,8 +394,12 @@ function overBudget(line) {
   return line.plannedAmount > 0 && line.actualAmount > line.plannedAmount
 }
 function showCheckbox(line) {
-  if (!(line.plannedAmount > 0)) return false
   const entries = entriesForLine(line)
+  if (line.isPot) {
+    // Cagnotte : à cocher dès qu'il y a quelque chose à régler (dans un sens ou l'autre)
+    return entries.length === 0 ? line.pot?.toSend !== 0 : (entries.length === 1 && entries[0].source === 'paye')
+  }
+  if (!(line.plannedAmount > 0)) return false
   return entries.length === 0 || (entries.length === 1 && entries[0].source === 'paye')
 }
 
@@ -523,44 +545,6 @@ const mainEnvelopesTotal = computed(() => {
         </div>
       </div>
 
-      <!-- ─── Partage ──────────────────────────────── -->
-      <div v-if="summaryData?.sharing" class="card px-5 py-3.5 mb-4">
-        <div class="flex items-center gap-3 flex-wrap">
-          <span class="badge bg-amber-50 text-amber-600">½</span>
-          <span class="text-[13.5px]">
-            <template v-if="summaryData.sharing.toSend > 0">
-              À envoyer à <span class="font-semibold">{{ summaryData.sharing.partnerName }}</span> :
-              <span class="text-[17px] font-bold text-amber-600">{{ fmt(summaryData.sharing.toSend) }}</span>
-            </template>
-            <template v-else-if="summaryData.sharing.toSend < 0">
-              <span class="font-semibold">{{ summaryData.sharing.partnerName }}</span> vous doit :
-              <span class="text-[17px] font-bold text-emerald-600">{{ fmt(-summaryData.sharing.toSend) }}</span>
-            </template>
-            <template v-else>Rien à égaliser avec {{ summaryData.sharing.partnerName }} ce mois</template>
-          </span>
-          <span v-if="summaryData.sharing.targetLine?.applied" class="text-[11.5px] text-gray-400">
-            posé : {{ fmt(summaryData.sharing.targetLine.applied) }} sur « {{ summaryData.sharing.targetLine.label }} »
-            <span v-if="Math.abs(summaryData.sharing.targetLine.applied - summaryData.sharing.toSend) >= 0.01" class="text-amber-500">· à mettre à jour</span>
-          </span>
-          <span class="ml-auto flex gap-3 items-center">
-            <button class="link text-xs" @click="showSharingDetail = !showSharingDetail">{{ showSharingDetail ? '▲' : '▼' }} détail</button>
-            <button
-              v-if="!current.isClosed && summaryData.sharing.toSend > 0"
-              class="btn-primary"
-              :disabled="!summaryData.sharing.targetLine"
-              :title="summaryData.sharing.targetLine ? '' : 'Choisir une ligne cible dans Paramètres › Partage'"
-              @click="doApplySharing"
-            >Appliquer</button>
-          </span>
-        </div>
-        <div v-if="showSharingDetail" class="mt-2.5 text-[12.5px] text-gray-500 grid grid-cols-2 gap-x-6 gap-y-1 max-w-xl">
-          <span>Payé par moi en commun (½)</span><span class="text-right font-medium text-gray-700">{{ fmt(summaryData.sharing.sharedByMe) }}<span v-if="summaryData.sharing.sharedPlanned" class="text-gray-400 font-normal"> dont {{ fmt(summaryData.sharing.sharedPlanned) }} prévu</span></span>
-          <span>Payé par {{ summaryData.sharing.partnerName }}</span><span class="text-right font-medium text-gray-700">{{ fmt(summaryData.sharing.partnerPaid) }}<span class="text-gray-400 font-normal"> ({{ summaryData.sharing.partnerPayments.map((p) => p.label).join(', ') || '—' }})</span></span>
-          <span>Total commun</span><span class="text-right font-medium text-gray-700">{{ fmt(summaryData.sharing.total) }}</span>
-          <span>Ma part ({{ summaryData.sharing.myShare }} %)</span><span class="text-right font-medium text-gray-700">{{ fmt(summaryData.sharing.myPart) }}</span>
-        </div>
-      </div>
-
       <!-- ─── Enveloppes ───────────────────────────── -->
       <div v-if="envelopes.length" class="card p-0 overflow-hidden mb-4">
         <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
@@ -660,15 +644,24 @@ const mainEnvelopesTotal = computed(() => {
                 <span class="text-[13px] font-medium truncate" :class="{ 'text-gray-400': !isPaid(line) }">
                   {{ line.label }}
                 </span>
+                <span v-if="line.isPot" class="badge bg-amber-50 text-amber-600" title="Cagnotte : le prévu est calculé à partir des ½">cagnotte · {{ line.pot?.partnerName }}</span>
                 <span v-if="line.recurringDay && !isPaid(line)" class="badge bg-blue-50 text-blue-600">le {{ line.recurringDay }}</span>
-                <span v-if="sharingOn && line.isShared" class="badge bg-amber-50 text-amber-600">½</span>
+                <span v-if="sharingOn && line.isShared && !line.isPot" class="badge bg-amber-50 text-amber-600" :title="pots.length > 1 ? 'Cagnotte : ' + (potById(line.potLineId)?.label || pots[0].label) : 'Partagé'">½</span>
 
-                <!-- Montant : le réel remplace le prévu -->
+                <!-- Montant : le réel remplace le prévu (cagnotte : « à envoyer » calculé) -->
                 <span class="ml-auto shrink-0 text-right">
-                  <span class="text-[13px] font-semibold" :class="!isPaid(line) ? 'text-gray-400' : overBudget(line) ? 'text-red-500' : ''">
-                    {{ fmt(isPaid(line) ? line.actualAmount : line.plannedAmount) }}
-                  </span>
-                  <span v-if="isPaid(line) && line.plannedAmount > 0 && line.actualAmount !== line.plannedAmount" class="text-[11px] text-gray-400"> / {{ fmt(line.plannedAmount) }} prévu</span>
+                  <template v-if="line.isPot && !isPaid(line) && line.pot">
+                    <span class="text-[11px] text-gray-400 mr-1">{{ potStatus(line) }}</span>
+                    <span class="text-[13px] font-semibold" :class="line.pot.toSend > 0 ? 'text-amber-600' : line.pot.toSend < 0 ? 'text-emerald-600' : 'text-gray-400'">
+                      {{ fmt(Math.abs(line.pot.toSend)) }}
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span class="text-[13px] font-semibold" :class="!isPaid(line) ? 'text-gray-400' : overBudget(line) ? 'text-red-500' : ''">
+                      {{ fmt(isPaid(line) ? line.actualAmount : line.plannedAmount) }}
+                    </span>
+                    <span v-if="isPaid(line) && line.plannedAmount > 0 && line.actualAmount !== line.plannedAmount" class="text-[11px] text-gray-400"> / {{ fmt(line.plannedAmount) }} prévu</span>
+                  </template>
                 </span>
                 <button
                   v-if="!current.isClosed"
@@ -682,7 +675,7 @@ const mainEnvelopesTotal = computed(() => {
               <div v-if="lineFormId === line.id" class="edit-panel">
                 <div class="flex flex-wrap gap-3">
                   <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-40" /></label>
-                  <label class="field"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" /></label>
+                  <label v-if="!lineForm.isPot" class="field"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" /></label>
                   <label class="field" title="Date par défaut du « payé »"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" placeholder="—" /></label>
                   <label class="field"><span>Catégorie</span>
                     <select v-model="lineForm.categoryId" class="input w-34">
@@ -707,7 +700,17 @@ const mainEnvelopesTotal = computed(() => {
                       <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                     </select>
                   </label>
-                  <label v-if="sharingOn && lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (module Partage)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
+                  <label v-if="sharingOn && !lineForm.isPot && lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (rattachée à une cagnotte)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
+                  <select v-if="sharingOn && !lineForm.isPot && lineForm.isShared && pots.length > 1" v-model="lineForm.potLineId" class="input w-36 self-end" title="Cagnotte concernée">
+                    <option value="">— cagnotte par défaut</option>
+                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }}</option>
+                  </select>
+                  <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Partage avec quelqu'un : le prévu de la ligne est calculé à partir des ½"><input v-model="lineForm.isPot" type="checkbox" /><span>Cagnotte</span></label>
+                  <template v-if="lineForm.isPot">
+                    <label class="field"><span>Partenaire</span><input v-model="lineForm.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
+                    <label class="field"><span>Il/elle a payé (€)</span><input v-model="lineForm.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>
+                    <label class="field"><span>Ma part (%)</span><input v-model="lineForm.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
+                  </template>
                 </div>
                 <div class="flex gap-2 mt-3 items-center">
                   <button class="btn-primary" @click="submitLineForm">Sauver</button>
@@ -722,6 +725,14 @@ const mainEnvelopesTotal = computed(() => {
 
               <!-- Entrées dépliées -->
               <div v-if="openEntriesLineId === line.id" class="edit-panel">
+                <!-- Cagnotte : le détail du calcul -->
+                <div v-if="line.isPot && line.pot" class="text-[12px] text-gray-500 grid grid-cols-2 gap-x-6 gap-y-0.5 max-w-md mb-2 pb-2 border-b border-stone-200">
+                  <span>Payé par moi en commun (½)</span><span class="text-right font-medium text-gray-700">{{ fmt(line.pot.sharedByMe) }}<span v-if="line.pot.sharedPlanned" class="text-gray-400 font-normal"> dont {{ fmt(line.pot.sharedPlanned) }} prévu</span></span>
+                  <span>Payé par {{ line.pot.partnerName }}</span><span class="text-right font-medium text-gray-700">{{ fmt(line.pot.partnerPaid) }}</span>
+                  <span>Total commun</span><span class="text-right font-medium text-gray-700">{{ fmt(line.pot.total) }}</span>
+                  <span>Ma part ({{ line.pot.myShare }} %)</span><span class="text-right font-medium text-gray-700">{{ fmt(line.pot.myPart) }}</span>
+                  <span class="font-medium text-gray-700">{{ potStatus(line) }}</span><span class="text-right font-semibold" :class="line.pot.toSend > 0 ? 'text-amber-600' : 'text-emerald-600'">{{ fmt(Math.abs(line.pot.toSend)) }}</span>
+                </div>
                 <div v-for="e in entriesForLine(line)" :key="e.id" class="flex items-center gap-2 text-[12.5px] py-1">
                   <span class="text-gray-400 w-20 shrink-0">{{ e.date }}</span>
                   <span class="font-medium w-20 shrink-0">{{ fmt(e.amount) }}</span>
@@ -756,7 +767,10 @@ const mainEnvelopesTotal = computed(() => {
                       <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                     </select>
                   </template>
-                  <label v-if="sharingOn" class="checkbox" title="Dépense commune (module Partage)"><input v-model="entryForm.isShared" type="checkbox" /><span>½</span></label>
+                  <label v-if="sharingOn && !line.isPot" class="checkbox" title="Dépense commune (rattachée à une cagnotte)"><input v-model="entryForm.isShared" type="checkbox" /><span>½</span></label>
+                  <select v-if="sharingOn && !line.isPot && entryForm.isShared && pots.length > 1" v-model="entryForm.potLineId" class="input w-32" title="Cagnotte concernée">
+                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }}</option>
+                  </select>
                   <button class="btn-secondary" @click="submitEntry(line)">Ajouter</button>
                 </div>
               </div>
@@ -768,9 +782,9 @@ const mainEnvelopesTotal = computed(() => {
             <div v-if="lineFormId === `new-${group.category.id}`" class="edit-panel">
               <div class="flex flex-wrap gap-3">
                 <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-40" placeholder="Canva, Cadeau…" @keyup.enter="submitLineForm" /></label>
-                <label class="field" title="À venir : la ligne se cochera quand ce sera passé"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
-                <label class="field" title="Déjà passé : l'entrée est créée tout de suite"><span>Montant (€)</span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
-                <label v-if="lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
+                <label v-if="!lineForm.isPot" class="field" title="À venir : la ligne se cochera quand ce sera passé"><span>Prévu (€)</span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
+                <label v-if="!lineForm.isPot" class="field" title="Déjà passé : l'entrée est créée tout de suite"><span>Montant (€)</span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
+                <label v-if="!lineForm.isPot && lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
                 <label v-else class="field" title="Date par défaut du « payé »"><span>Jour</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-16" placeholder="—" /></label>
                 <label v-if="themes.length" class="field"><span>Thème</span>
                   <select v-model="lineForm.themeId" class="input w-28">
@@ -790,7 +804,17 @@ const mainEnvelopesTotal = computed(() => {
                     <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                   </select>
                 </label>
-                <label v-if="sharingOn && lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (module Partage)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
+                <label v-if="sharingOn && !lineForm.isPot && lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (rattachée à une cagnotte)"><input v-model="lineForm.isShared" type="checkbox" /><span>Partagé ½</span></label>
+                  <select v-if="sharingOn && !lineForm.isPot && lineForm.isShared && pots.length > 1" v-model="lineForm.potLineId" class="input w-36 self-end" title="Cagnotte concernée">
+                    <option value="">— cagnotte par défaut</option>
+                    <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }}</option>
+                  </select>
+                  <label v-if="lineFormCategoryType !== 'revenu'" class="checkbox self-end" title="Partage avec quelqu'un : le prévu de la ligne est calculé à partir des ½"><input v-model="lineForm.isPot" type="checkbox" /><span>Cagnotte</span></label>
+                  <template v-if="lineForm.isPot">
+                    <label class="field"><span>Partenaire</span><input v-model="lineForm.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
+                    <label class="field"><span>Il/elle a payé (€)</span><input v-model="lineForm.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>
+                    <label class="field"><span>Ma part (%)</span><input v-model="lineForm.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
+                  </template>
               </div>
               <div class="flex gap-2 mt-3">
                 <button class="btn-primary" @click="submitLineForm">Ajouter</button>

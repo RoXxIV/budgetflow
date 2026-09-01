@@ -75,6 +75,11 @@ function defaultForm(category) {
     isShared: false,
     recurringDay: '',
     notes: '',
+    potLineId: '',
+    isPot: false,
+    potPartnerName: '',
+    potPartnerPaid: '',
+    potMyShare: 50,
   }
 }
 
@@ -96,6 +101,11 @@ function openEdit(line) {
     isShared: line.isShared,
     recurringDay: line.recurringDay || '',
     notes: line.notes || '',
+    potLineId: line.potLineId || '',
+    isPot: line.isPot,
+    potPartnerName: line.potPartnerName || '',
+    potPartnerPaid: line.potPartnerPaid ?? '',
+    potMyShare: line.potMyShare ?? 50,
   }
 }
 
@@ -116,6 +126,11 @@ function formData() {
     isShared: f.isShared,
     recurringDay: f.recurringDay === '' ? null : Number(f.recurringDay),
     notes: f.notes || null,
+    potLineId: f.isShared ? (f.potLineId || null) : null,
+    isPot: !!f.isPot,
+    potPartnerName: f.isPot ? (f.potPartnerName || null) : null,
+    potPartnerPaid: f.isPot && f.potPartnerPaid !== '' ? parseFloat(f.potPartnerPaid) : 0,
+    potMyShare: f.isPot ? (Number(f.potMyShare) || 50) : 50,
   }
 }
 
@@ -156,8 +171,9 @@ async function moveLine(group, index, delta) {
   } catch (e) { apiError(e) }
 }
 
-// Les ½ n'existent que si le module Partage est actif
-const sharingOn = computed(() => !!settings.value?.sharing?.enabled)
+// Cagnottes du template : les ½ n'existent que s'il y en a au moins une
+const pots = computed(() => lines.value.filter((l) => l.isPot))
+const sharingOn = computed(() => pots.value.length > 0)
 
 // Le type de la catégorie du formulaire (adapte les champs affichés)
 const formCategoryType = computed(() => {
@@ -214,11 +230,12 @@ const formCategoryType = computed(() => {
             <div class="line-row" @click="openLineId === line.id ? closePanel() : openEdit(line)">
               <span class="text-[13px] font-medium truncate">{{ line.label }}</span>
               <span v-if="line.recurringDay" class="badge bg-blue-50 text-blue-600" title="Jour du mois (date par défaut du « payé »)">le {{ line.recurringDay }}</span>
-              <span v-if="sharingOn && line.isShared" class="badge bg-amber-50 text-amber-600" title="Partagé">½</span>
+              <span v-if="line.isPot" class="badge bg-amber-50 text-amber-600" title="Cagnotte : le prévu est calculé chaque mois">cagnotte · {{ line.potPartnerName || '?' }} paie {{ fmt(line.potPartnerPaid) }}</span>
+              <span v-if="sharingOn && line.isShared && !line.isPot" class="badge bg-amber-50 text-amber-600" title="Partagé">½</span>
               <span v-if="themeById(line.themeId)" class="badge" :style="{ background: themeById(line.themeId).color + '22', color: themeById(line.themeId).color }">
                 {{ themeById(line.themeId).name }}
               </span>
-              <span class="ml-auto text-[13px] font-semibold shrink-0">{{ fmt(line.plannedAmount) }}</span>
+              <span class="ml-auto text-[13px] font-semibold shrink-0" :class="{ 'text-gray-400 font-normal text-[11px]': line.isPot }">{{ line.isPot ? 'calculé' : fmt(line.plannedAmount) }}</span>
               <span class="flex flex-col shrink-0" @click.stop>
                 <button class="order-btn" :disabled="i === 0" @click="moveLine(group, i, -1)">▲</button>
                 <button class="order-btn" :disabled="i === group.lines.length - 1" @click="moveLine(group, i, 1)">▼</button>
@@ -229,7 +246,7 @@ const formCategoryType = computed(() => {
             <div v-if="openLineId === line.id" class="edit-panel">
               <div class="flex flex-wrap gap-3">
                 <label class="field"><span>Libellé</span><input v-model="form.label" type="text" class="input w-44" /></label>
-                <label class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" /></label>
+                <label v-if="!form.isPot" class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" /></label>
                 <label class="field" title="Date par défaut quand vous cochez « payé » dans le mois"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
                 <label class="field"><span>Catégorie</span>
                   <select v-model="form.categoryId" class="input w-36">
@@ -260,7 +277,17 @@ const formCategoryType = computed(() => {
                     <option v-for="m in settings?.paymentMethods || []" :key="m" :value="m">{{ m }}</option>
                   </select>
                 </label>
-                <label v-if="sharingOn && formCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (module Partage)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
+                <label v-if="sharingOn && !form.isPot && formCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (rattachée à une cagnotte)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
+                <select v-if="sharingOn && !form.isPot && form.isShared && pots.length > 1" v-model="form.potLineId" class="input w-36 self-end" title="Cagnotte concernée">
+                  <option value="">— cagnotte par défaut</option>
+                  <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }}</option>
+                </select>
+                <label v-if="formCategoryType !== 'revenu'" class="checkbox self-end" title="Partage avec quelqu'un : le prévu de la ligne est calculé chaque mois à partir des ½"><input v-model="form.isPot" type="checkbox" /><span>Cagnotte</span></label>
+                <template v-if="form.isPot">
+                  <label class="field"><span>Partenaire</span><input v-model="form.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
+                  <label class="field"><span>Il/elle paie (€/mois)</span><input v-model="form.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>
+                  <label class="field"><span>Ma part (%)</span><input v-model="form.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
+                </template>
               </div>
               <div class="flex gap-2 mt-3">
                 <button class="btn-primary" @click="submit">{{ typeof openLineId === 'string' ? 'Ajouter' : 'Sauver' }}</button>
@@ -276,7 +303,7 @@ const formCategoryType = computed(() => {
           <div v-if="openLineId === `new-${group.category.id}`" class="edit-panel">
             <div class="flex flex-wrap gap-3">
               <label class="field"><span>Libellé</span><input v-model="form.label" type="text" class="input w-44" placeholder="Loyer, Courses…" @keyup.enter="submit" /></label>
-              <label class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submit" /></label>
+              <label v-if="!form.isPot" class="field"><span>Prévu (€)</span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submit" /></label>
               <label class="field" title="Date par défaut quand vous cochez « payé » dans le mois"><span>Jour du mois</span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
               <label v-if="themes.length" class="field"><span>Thème</span>
                 <select v-model="form.themeId" class="input w-32">
@@ -296,7 +323,17 @@ const formCategoryType = computed(() => {
                   <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
                 </select>
               </label>
-              <label v-if="sharingOn && formCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (module Partage)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
+              <label v-if="sharingOn && !form.isPot && formCategoryType !== 'revenu'" class="checkbox self-end" title="Dépense commune (rattachée à une cagnotte)"><input v-model="form.isShared" type="checkbox" /><span>Partagé ½</span></label>
+                <select v-if="sharingOn && !form.isPot && form.isShared && pots.length > 1" v-model="form.potLineId" class="input w-36 self-end" title="Cagnotte concernée">
+                  <option value="">— cagnotte par défaut</option>
+                  <option v-for="p in pots" :key="p.id" :value="p.id">{{ p.label }}</option>
+                </select>
+                <label v-if="formCategoryType !== 'revenu'" class="checkbox self-end" title="Partage avec quelqu'un : le prévu de la ligne est calculé chaque mois à partir des ½"><input v-model="form.isPot" type="checkbox" /><span>Cagnotte</span></label>
+                <template v-if="form.isPot">
+                  <label class="field"><span>Partenaire</span><input v-model="form.potPartnerName" type="text" class="input w-28" placeholder="Prénom" /></label>
+                  <label class="field"><span>Il/elle paie (€/mois)</span><input v-model="form.potPartnerPaid" type="number" step="0.01" class="input w-24" placeholder="0" /></label>
+                  <label class="field"><span>Ma part (%)</span><input v-model="form.potMyShare" type="number" min="0" max="100" class="input w-16" /></label>
+                </template>
             </div>
             <div class="flex gap-2 mt-3">
               <button class="btn-primary" @click="submit">Ajouter</button>

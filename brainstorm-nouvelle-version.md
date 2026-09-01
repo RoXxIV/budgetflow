@@ -121,19 +121,17 @@ Vue sheet (bloc « Calculateurs ») :
 | Essence | km : 84 120 → **85 010** | 890 km | **107,03 €** | 120,00 € | −12,97 € | — |
 | Eau | m³ : 1 204 → **1 211** | 7 m³ | **36,70 €** | — | — | — |
 
-### 9. Partage (généralisation du loyer)
+### 9. Cagnottes (partage — révisé le 01/09/2026, « une sorte de Lydia »)
 
-Cas général vu d'un seul côté : des dépenses communes payées par l'un ou l'autre, égalisées chaque mois. Le module ne montre **qu'un seul chiffre** : *à envoyer* (ou *à recevoir*), le détail est dépliable.
+Première version (module global dans les Paramètres : partenaire, « paie directement », ligne cible) jugée confuse à l'usage — deux endroits pour une idée. Remplacée par : **une cagnotte EST une ligne du budget**.
 
-- Configuration (module optionnel, absent si non configuré) :
-  - **nom du partenaire** (un seul en v1)
-  - **ce qu'il paie directement chaque mois** : liste libellé + montant (« Loyer 780 € », « Internet 30 € ») — remplace `partnerRentAmount`, permet plusieurs postes
-  - **ma part** : 50 % par défaut, modifiable
-  - **ligne cible** du virement (catégorie *transfert*, donc exclue des stats)
-- Le flag ½ par entrée devient **« partagé »**, hérité par défaut de la ligne du template. La régularisation d'un calculateur est partagée si sa ligne l'est.
-- Calcul : total commun = entrées partagées + montants payés directement par le partenaire ; ma part = total × mon % ; à envoyer = ma part − ce que j'ai payé en partagé. Négatif = il me doit.
-- Dans le sheet : « **À envoyer à Camille : 213,40 €** [appliquer] » → crée l'entrée sur la ligne cible.
-- Hors périmètre : dette cumulée sur plusieurs mois (chaque mois est soldé indépendamment), plusieurs partenaires / groupes.
+- Une ligne peut être marquée **Cagnotte**, dans le template (présente chaque mois, ex. « Loyer — Marion ») ou ajoutée dans un mois (ex. « Vacances — Tom »). Elle porte : **partenaire**, **ce qu'il/elle a payé** (une valeur, modifiable dans le mois), **ma part en %**.
+- Les entrées marquées **½** s'y rattachent. Une seule cagnotte dans le mois → rattachement implicite ; plusieurs → un select « quelle cagnotte ? » apparaît à côté du ½ (défaut : celle du template / la première).
+- **Le prévu de la cagnotte est calculé, jamais saisi** : à envoyer = (Σ mes ½ rattachés + payé par le partenaire) × ma part − Σ mes ½. Les lignes ½ sans entrée comptent pour leur prévu (même règle que le projeté). Négatif = le partenaire me doit.
+- Affichage sur la ligne : « à envoyer à Marion **70 €** » / « Tom vous doit 40 € » / « équilibré », détail dépliable (payé par moi, payé par l'autre, total, ma part). **☐ payé** enregistre le virement au montant calculé (entrée négative si c'est une rentrée). Le projeté compte le « à envoyer » tant que ce n'est pas payé.
+- Aucune cagnotte → aucun ½ nulle part (Template, mois, entrées). Le bouton « Cagnotte » du formulaire de ligne est le seul point d'entrée.
+- v1 : un partenaire par cagnotte (part ajustable : 33 % à trois), pas de dette cumulée entre mois. Le cas d'Evan : ligne « Loyer — Marion » dans Virements, Marion paie 630, part 50 %, ses factures communes en ½.
+- Plus de réglages Partage dans `app_settings` (table reconstruite en migration 009).
 
 ### 10. Abonnements
 
