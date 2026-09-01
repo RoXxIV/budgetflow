@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   getMonths, getMonthPrefill, createMonth, setMonthClosed,
-  getMonthLines, payLine, unpayLine,
+  getMonthLines, payLine,
   getMonthSnapshots, upsertMonthSnapshots,
   getMonthEntries, createEntry, updateEntry, deleteEntry,
   getMonthSummary, getMonthEnvelopeContributions,
@@ -220,7 +220,6 @@ const lineCategoryType = (line) => categories.value.find((c) => c.id === line.ca
 // La ligne est un mouvement entre comptes (transfert, épargne, ou Vers configuré dans le template)
 const lineHasDestination = (line) => ['epargne', 'transfert'].includes(lineCategoryType(line)) || !!line.toAccountId
 const isPaid = (line) => entriesForLine(line).length > 0
-const hasPayEntry = (line) => entriesForLine(line).some((e) => e.source === 'paye')
 
 // ─── Groupes par catégorie ───────────────────────────────
 const NO_CATEGORY = { id: null, name: 'Sans catégorie', type: 'depense', color: '#9ca3af' }
@@ -328,10 +327,9 @@ async function toggleClosed() {
 const shortfall = ref(null) // { line, envelopeName, available, missing, amount, accountId }
 
 async function togglePaid(line) {
+  if (isPaid(line)) return // ☐ à sens unique : dès qu'une entrée existe, on gère les entrées elles-mêmes (×)
   try {
-    if (!isPaid(line)) await payLine(current.value.id, line.id)
-    else if (hasPayEntry(line) && entriesForLine(line).every((e) => e.source === 'paye')) await unpayLine(current.value.id, line.id)
-    else { openEntriesLineId.value = line.id; return } // entrées manuelles → gérer dans le déroulé
+    await payLine(current.value.id, line.id)
     await reload()
   } catch (e) {
     const p = e.response?.data
@@ -647,19 +645,15 @@ async function pushToTemplate(line) {
 
 // ─── Affichage réel / prévu ──────────────────────────────
 // Le réel remplace le prévu dès qu'il existe ; la case ☐ n'apparaît que sur une ligne
-// avec un prévu et aucune entrée (ou la seule entrée « payé », pour pouvoir décocher).
+// avec un prévu et AUCUNE entrée (à sens unique : pour annuler, supprimez les entrées avec ×,
+// la case revient alors si le prévu reste).
 function overBudget(line) {
   return line.plannedAmount > 0 && line.actualAmount > line.plannedAmount
 }
 function showCheckbox(line) {
-  const entries = entriesForLine(line)
-  const onlyPaid = entries.length > 0 && entries.every((e) => e.source === 'paye')
-  if (line.isPot) {
-    // Cagnotte : à cocher dès qu'il y a quelque chose à régler (dans un sens ou l'autre)
-    return entries.length === 0 ? line.pot?.toSend !== 0 : onlyPaid
-  }
-  if (!(line.plannedAmount > 0)) return false
-  return entries.length === 0 || onlyPaid
+  if (entriesForLine(line).length > 0) return false
+  if (line.isPot) return line.pot?.toSend !== 0 // cagnotte : dès qu'il y a quelque chose à régler
+  return line.plannedAmount > 0
 }
 
 // ─── Snapshots (édition) ─────────────────────────────────
@@ -939,7 +933,7 @@ const mainEnvelopesTotal = computed(() => {
         <p class="text-[11.5px] text-gray-400">
           Comme la banque le montre : le paiement de {{ fmt(shortfall.amount) }} depuis {{ accountById(shortfall.line.fromAccountId)?.name || 'le compte principal' }},
           un virement de {{ fmt(shortfall.available) }} depuis l'enveloppe (elle tombe à 0)<template v-if="shortfall.accountId && shortfall.accountId !== (shortfall.line.fromAccountId || accounts.find((a) => a.isMain)?.id)">, et un virement de {{ fmt(shortfall.missing) }} depuis {{ accountById(shortfall.accountId)?.name }}</template>.
-          L'échéance avance d'un cycle et la mensualité repart. Décocher annule tout.
+          L'échéance avance d'un cycle et la mensualité repart. Supprimer l'entrée (×) annule tout.
         </p>
       </div>
       <template #footer>
@@ -1010,7 +1004,8 @@ const mainEnvelopesTotal = computed(() => {
               <span class="font-semibold" :class="amountClass(a.current)">{{ fmtOrDash(a.current) }}</span>
             </p>
             <p v-if="a.envelopesTotal" class="text-[10.5px] text-gray-400">
-              enveloppes {{ fmt(a.envelopesTotal) }} · hors enveloppes {{ fmtOrDash(a.unallocated) }}
+              enveloppes {{ fmt(a.envelopesTotal) }} · hors enveloppes
+              <span :class="{ 'text-amber-600 font-semibold': a.unallocated < 0 }" :title="a.unallocated < 0 ? 'Négatif : les enveloppes réservent plus que le solde (découvert autorisé)' : ''">{{ fmtOrDash(a.unallocated) }}</span>
             </p>
           </div>
         </div>
@@ -1237,7 +1232,7 @@ const mainEnvelopesTotal = computed(() => {
                   class="shrink-0 accent-violet-600 cursor-pointer"
                   :checked="isPaid(line)"
                   :disabled="current.isClosed"
-                  :title="isPaid(line) ? 'Payé — décocher retire l\'entrée' : 'Marquer payé au montant prévu'"
+                  title="Marquer payé au montant prévu (pour annuler ensuite : supprimez l'entrée ×)"
                   @click.stop="togglePaid(line)"
                 />
                 <span class="text-[13px] font-medium truncate" :class="{ 'text-gray-400': !isPaid(line) }">
@@ -1307,6 +1302,7 @@ const mainEnvelopesTotal = computed(() => {
                   <span class="badge bg-stone-100 text-gray-500">virement</span>
                   <span class="font-medium">{{ fmt(t.amount) }}</span>
                   <span class="truncate">{{ t.label }}</span>
+                  <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0 ml-auto" title="Supprimer ce virement (le mouvement entre comptes est annulé)" @click="removeEntry(t)">×</button>
                 </div>
                 <button v-if="!current.isClosed" class="btn-secondary mt-2" @click="openAddEntry(line)">+ entrée</button>
               </div>

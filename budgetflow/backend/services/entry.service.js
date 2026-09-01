@@ -108,6 +108,19 @@ export function remove(id) {
   if (!existing) throw httpError(404, "Entrée introuvable");
   assertOpen(existing.month_id);
   run("DELETE FROM entries WHERE id = ?", id);
+  // Dernière entrée d'une ligne supprimée → ses virements système n'ont plus de raison d'être,
+  // et l'échéance d'une ligne mensualisée revient au cycle courant (la case ☐ réapparaît si un prévu reste)
+  if (existing.line_id) {
+    const left = get("SELECT COUNT(*) AS n FROM entries WHERE line_id = ?", existing.line_id).n;
+    if (left === 0) {
+      run("DELETE FROM entries WHERE related_line_id = ?", existing.line_id);
+      const line = get("SELECT * FROM budget_lines WHERE id = ?", existing.line_id);
+      if (line?.envelope_id && (line.interval_months || 1) > 1) {
+        const month = get("SELECT * FROM months WHERE id = ?", existing.month_id);
+        run("UPDATE envelopes SET deadline = ? WHERE id = ?", nextDueDate(line, month.period), line.envelope_id);
+      }
+    }
+  }
   return { message: "Entrée supprimée" };
 }
 

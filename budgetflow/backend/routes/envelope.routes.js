@@ -13,7 +13,10 @@ router.get("/availability/:accountId", wrap((req, res) => res.json(service.avail
 router.get("/:id", wrap((req, res) => res.json(service.getById(Number(req.params.id)))));
 router.post("/", wrap((req, res) => res.status(201).json(service.create(req.body))));
 router.put("/:id", wrap((req, res) => res.json(service.update(Number(req.params.id), req.body))));
-router.delete("/:id", wrap((req, res) => res.json(service.remove(Number(req.params.id)))));
+router.delete("/:id", wrap((req, res) => res.json(service.remove(Number(req.params.id), {
+  mode: req.query.mode || null,
+  toEnvelopeId: req.query.toEnvelope ? Number(req.query.toEnvelope) : null,
+}))));
 
 router.post("/:id/reallocate", wrap((req, res) => res.status(201).json(service.reallocate(Number(req.params.id), req.body || {}))));
 router.get("/:id/recalibration", wrap((req, res) => res.json(service.recalibrationPreview(Number(req.params.id)))));

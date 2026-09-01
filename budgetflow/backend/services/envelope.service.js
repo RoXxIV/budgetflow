@@ -82,13 +82,16 @@ export function availability(accountId) {
     balance,
     envelopesTotal,
     available: balance === null ? null : Math.round((balance - envelopesTotal) * 100) / 100,
+    allowOverdraft: !!account.allow_overdraft,
     monthPeriod: month?.period ?? null,
   };
 }
 
-// Refuse un ajout virtuel qui dépasserait le disponible hors enveloppes (solde connu uniquement)
+// Refuse un ajout virtuel qui dépasserait le disponible hors enveloppes (solde connu uniquement).
+// Un compte à découvert autorisé n'est pas bloqué : son hors-enveloppes peut être négatif (affiché en ambre).
 function assertAvailable(accountId, cents, what = "Le montant") {
   if (!accountId || !cents || cents <= 0) return;
+  if (get("SELECT allow_overdraft FROM accounts WHERE id = ?", accountId)?.allow_overdraft) return;
   const a = availability(accountId);
   if (a.available === null) return; // solde inconnu : pas de contrôle possible
   if (cents > toCents(a.available)) {
@@ -173,6 +176,28 @@ export function update(id, data) {
     run("UPDATE envelopes SET name = ?, account_id = ?, target_amount_cents = ?, deadline = ?, closed_at = ? WHERE id = ?",
       name, accountId, target, deadline, closedAt, id);
 
+    // Changement de compte hôte avec de l'argent dedans : l'argent doit physiquement suivre
+    // → virement système ancien hôte → nouvel hôte (une enveloppe virtuelle « attend » sur le compte principal)
+    if (data.accountId !== undefined && (accountId || null) !== existing.account_id) {
+      const total = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ?", id).s;
+      if (total > 0) {
+        const mainId = get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
+        const oldHost = existing.account_id ?? mainId;
+        const newHost = accountId ?? mainId;
+        if (oldHost && newHost && oldHost !== newHost) {
+          const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1");
+          if (!month) throw httpError(409, "Aucun mois ouvert pour enregistrer le virement de déplacement de l'enveloppe");
+          const accName = (aid) => get("SELECT name FROM accounts WHERE id = ?", aid)?.name || "?";
+          run(
+            `INSERT INTO entries (month_id, label, amount_cents, account_id, to_account_id, source)
+             VALUES (?, ?, ?, ?, ?, 'manuelle')`,
+            month.id, `Enveloppe « ${name} » déplacée : ${accName(oldHost)} → ${accName(newHost)}`,
+            total, oldHost, newHost
+          );
+        }
+      }
+    }
+
     // Renommage synchronisé inverse : l'enveloppe est seule sur son compte et portait son nom
     if (name !== existing.name && existing.account_id) {
       const account = get("SELECT * FROM accounts WHERE id = ?", existing.account_id);
@@ -185,15 +210,38 @@ export function update(id, data) {
   });
 }
 
-export function remove(id) {
+// Suppression : refusée si l'enveloppe alimente une ligne mensualisée du template.
+// Si elle a un historique, il faut choisir : « release » (l'argent redevient hors enveloppes du compte)
+// ou « reallocate » (le contenu part dans une autre enveloppe du même compte). Sans mode → 409 avec les infos du modal.
+export function remove(id, { mode = null, toEnvelopeId = null } = {}) {
   const existing = get("SELECT * FROM envelopes WHERE id = ?", id);
   if (!existing) throw httpError(404, "Enveloppe introuvable");
-  const n = get("SELECT COUNT(*) AS n FROM envelope_contributions WHERE envelope_id = ?", id).n;
-  if (n > 0) {
-    throw httpError(409, `Cette enveloppe a ${n} contribution(s). Clôturez-la pour garder l'historique, ou supprimez ses contributions d'abord.`);
+
+  const linked = get("SELECT label FROM budget_lines WHERE envelope_id = ? AND month_id IS NULL LIMIT 1", id);
+  if (linked) {
+    throw httpError(409, `Cette enveloppe alimente la ligne mensualisée « ${linked.label} » : démensualisez la ligne d'abord (template).`);
   }
-  run("DELETE FROM envelopes WHERE id = ?", id);
-  return { message: "Enveloppe supprimée" };
+
+  const total = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ?", id).s;
+  const n = get("SELECT COUNT(*) AS n FROM envelope_contributions WHERE envelope_id = ?", id).n;
+  if (n > 0 && !mode) {
+    const err = httpError(409, `« ${existing.name} » a un historique de ${n} contribution(s) pour un total de ${fromCents(total).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €`);
+    err.payload = { code: "ENVELOPE_HAS_FUNDS", total: fromCents(total), contributions: n, accountId: existing.account_id };
+    throw err;
+  }
+
+  return tx(() => {
+    if (mode === "reallocate" && total > 0) {
+      const target = get("SELECT * FROM envelopes WHERE id = ? AND closed_at IS NULL", toEnvelopeId);
+      if (!target || target.id === id) throw httpError(400, "Enveloppe destinataire invalide");
+      if (target.account_id !== existing.account_id) throw httpError(400, "La réaffectation ne se fait qu'entre enveloppes d'un même compte");
+      run("INSERT INTO envelope_contributions (envelope_id, amount_cents, kind, notes) VALUES (?, ?, 'reaffectation', ?)",
+        target.id, total, `Pris dans « ${existing.name} » (supprimée)`);
+    }
+    // mode « release » : rien à poser, la réservation disparaît avec l'enveloppe
+    run("DELETE FROM envelopes WHERE id = ?", id); // contributions supprimées en cascade
+    return { message: "Enveloppe supprimée" };
+  });
 }
 
 // ─── Contributions ────────────────────────────────────────

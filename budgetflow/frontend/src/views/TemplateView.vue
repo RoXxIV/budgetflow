@@ -212,7 +212,20 @@ async function submit() {
     } else if (wantMonthly && saved.envelopeId) {
       const env = envelopeById(saved.envelopeId)
       const wantedAccount = f.monthlyizeAccountId || accounts.value.find((a) => a.isMain)?.id || null
-      if (env && (env.accountId || null) !== wantedAccount) await updateEnvelope(env.id, { accountId: wantedAccount })
+      if (env && (env.accountId || null) !== wantedAccount) {
+        // L'enveloppe contient déjà de l'argent : il doit physiquement suivre → virement système confirmé
+        let moveOk = true
+        if (env.total > 0) {
+          const name = (id) => accounts.value.find((a) => a.id === id)?.name || 'le compte principal'
+          const oldHost = env.accountId || accounts.value.find((a) => a.isMain)?.id || null
+          moveOk = await confirmDialog({
+            title: 'Déplacer la mise de côté',
+            message: `L'enveloppe « ${env.name} » contient ${fmt(env.total)} : un virement de ce montant sera enregistré de ${name(oldHost)} vers ${name(wantedAccount)} dans le mois en cours.`,
+            confirmLabel: 'Déplacer et virer',
+          })
+        }
+        if (moveOk) await updateEnvelope(env.id, { accountId: wantedAccount })
+      }
     }
     closePanel()
     const [lRes, eRes] = await Promise.all([getTemplateLines(), getEnvelopes()])

@@ -98,7 +98,7 @@ const editingAccountId = ref(null)
 const accountForm = ref(defaultAccountForm())
 
 function defaultAccountForm() {
-  return { name: '', type: 'courant', isMain: false, includeInNetWorth: true, multiProjects: false, initialBalance: '' }
+  return { name: '', type: 'courant', isMain: false, includeInNetWorth: true, allowOverdraft: false, multiProjects: false, initialBalance: '' }
 }
 
 function openAddAccount() {
@@ -114,6 +114,7 @@ function openEditAccount(account) {
     type: account.type,
     isMain: account.isMain,
     includeInNetWorth: account.includeInNetWorth,
+    allowOverdraft: account.allowOverdraft,
     multiProjects: false,
     initialBalance: '',
   }
@@ -126,11 +127,11 @@ async function submitAccount() {
   try {
     if (editingAccountId.value) {
       await updateAccount(editingAccountId.value, {
-        name: f.name, type: f.type, isMain: f.isMain, includeInNetWorth: f.includeInNetWorth,
+        name: f.name, type: f.type, isMain: f.isMain, includeInNetWorth: f.includeInNetWorth, allowOverdraft: f.allowOverdraft,
       })
     } else {
       await createAccount({
-        name: f.name, type: f.type, isMain: f.isMain, includeInNetWorth: f.includeInNetWorth,
+        name: f.name, type: f.type, isMain: f.isMain, includeInNetWorth: f.includeInNetWorth, allowOverdraft: f.allowOverdraft,
         multiProjects: f.multiProjects,
         initialBalance: f.initialBalance === '' ? null : parseFloat(f.initialBalance),
       })
@@ -154,7 +155,32 @@ async function removeAccountConfirm(account) {
     confirmLabel: 'Supprimer', danger: true,
   })
   if (!ok) return
-  try { await deleteAccount(account.id); await load() } catch (e) { apiError(e) }
+  try { await deleteAccount(account.id); await load() } catch (e) {
+    const p = e.response?.data
+    if (p?.code === 'ACCOUNT_HAS_BALANCE') {
+      // Le compte a un solde : il faut dire où va l'argent → modal virement puis suppression
+      accountDelete.value = {
+        account, balance: p.balance,
+        toAccountId: accounts.value.find((a) => a.id !== account.id && a.isMain)?.id
+          || accounts.value.find((a) => a.id !== account.id)?.id || '',
+      }
+      return
+    }
+    apiError(e)
+  }
+}
+
+// ─── Suppression d'un compte avec solde : virer avant de supprimer ─
+const accountDelete = ref(null) // { account, balance, toAccountId }
+
+async function confirmAccountDelete() {
+  const d = accountDelete.value
+  if (!d?.toAccountId) return
+  try {
+    await deleteAccount(d.account.id, d.toAccountId)
+    accountDelete.value = null
+    await load()
+  } catch (e) { apiError(e) }
 }
 
 // ─── Formulaire enveloppe (ajout / édition) ──────────────
@@ -184,7 +210,15 @@ const initialTooHigh = computed(() => {
     const src = siblingEnvelopes.value.find((e) => e.id === f.fromEnvelopeId)
     return src ? amount > src.total : false
   }
+  if (availability.value?.allowOverdraft) return false // découvert autorisé : jamais bloqué
   return availability.value?.available != null && amount > availability.value.available
+})
+// Découvert autorisé et montant au-delà du disponible : accepté, mais signalé en ambre
+const initialOverdraws = computed(() => {
+  const f = envelopeForm.value
+  const amount = parseFloat(f.initialAmount)
+  return !!availability.value?.allowOverdraft && !f.fromEnvelopeId && amount > 0
+    && availability.value?.available != null && amount > availability.value.available
 })
 
 function openAddEnvelope(accountId = '') {
@@ -193,8 +227,11 @@ function openAddEnvelope(accountId = '') {
   envelopeFormOpen.value = true
 }
 
+const editingEnvelope = ref(null) // l'enveloppe telle qu'elle était (pour détecter un déplacement de compte)
+
 function openEditEnvelope(envelope) {
   editingEnvelopeId.value = envelope.id
+  editingEnvelope.value = envelope
   envelopeForm.value = {
     name: envelope.name,
     accountId: envelope.accountId || '',
@@ -216,6 +253,20 @@ async function submitEnvelope() {
   }
   try {
     if (editingEnvelopeId.value) {
+      // Déplacement vers un autre compte avec de l'argent dedans : l'argent suit → virement système confirmé
+      const old = editingEnvelope.value
+      const mainId = accounts.value.find((a) => a.isMain)?.id || null
+      const oldHost = old?.accountId || mainId
+      const newHost = data.accountId || mainId
+      if (old && old.total > 0 && (old.accountId || null) !== data.accountId && oldHost !== newHost) {
+        const name = (id) => accounts.value.find((a) => a.id === id)?.name || 'le compte principal'
+        const ok = await confirmDialog({
+          title: "Déplacer l'enveloppe",
+          message: `« ${old.name} » contient ${fmt(old.total)} : l'argent doit suivre. Un virement de ${fmt(old.total)} sera enregistré de ${name(oldHost)} vers ${name(newHost)} dans le mois en cours.`,
+          confirmLabel: 'Déplacer et virer',
+        })
+        if (!ok) return
+      }
       await updateEnvelope(editingEnvelopeId.value, data)
     } else {
       if (initialTooHigh.value) return
@@ -235,9 +286,43 @@ async function toggleClosed(envelope) {
 }
 
 async function removeEnvelopeConfirm(envelope) {
-  const ok = await confirmDialog({ title: "Supprimer l'enveloppe", message: `Supprimer « ${envelope.name} » ? (impossible si elle a des contributions : clôturez-la pour garder l'historique)`, confirmLabel: 'Supprimer', danger: true })
+  const ok = await confirmDialog({ title: "Supprimer l'enveloppe", message: `Supprimer « ${envelope.name} » ?`, confirmLabel: 'Supprimer', danger: true })
   if (!ok) return
-  try { await deleteEnvelope(envelope.id); await load() } catch (e) { apiError(e) }
+  try { await deleteEnvelope(envelope.id); await load() } catch (e) {
+    const p = e.response?.data
+    if (p?.code === 'ENVELOPE_HAS_FUNDS') {
+      // L'enveloppe a un historique : clôturer (recommandé), libérer, ou réaffecter avant suppression
+      envelopeDelete.value = { envelope, total: p.total, contributions: p.contributions, choice: 'close', toEnvelopeId: '' }
+      return
+    }
+    apiError(e)
+  }
+}
+
+// ─── Suppression d'une enveloppe avec historique ─────────
+const envelopeDelete = ref(null) // { envelope, total, contributions, choice: close|release|reallocate, toEnvelopeId }
+const envelopeDeleteTargets = computed(() => {
+  const d = envelopeDelete.value
+  if (!d) return []
+  return envelopes.value.filter((e) => (e.accountId || null) === (d.envelope.accountId || null) && e.id !== d.envelope.id && !e.isClosed)
+})
+
+async function confirmEnvelopeDelete() {
+  const d = envelopeDelete.value
+  if (!d) return
+  try {
+    if (d.choice === 'close') {
+      await updateEnvelope(d.envelope.id, { isClosed: true })
+    } else if (d.choice === 'reallocate') {
+      if (!d.toEnvelopeId) return
+      await deleteEnvelope(d.envelope.id, { mode: 'reallocate', toEnvelope: d.toEnvelopeId })
+    } else {
+      await deleteEnvelope(d.envelope.id, { mode: 'release' })
+    }
+    envelopeDelete.value = null
+    if (openEnvelopeId.value === d.envelope.id) openEnvelopeId.value = null
+    await load()
+  } catch (e) { apiError(e) }
 }
 
 // ─── Contributions (panneau déplié par enveloppe) ────────
@@ -345,6 +430,11 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <span>Inclus dans le patrimoine</span>
           <HelpTip text="Décochez pour un compte qui n'est pas vraiment à vous (compte joint, compte pro…) : il sera suivi mais exclu du total du patrimoine." />
         </label>
+        <label class="checkbox">
+          <input v-model="accountForm.allowOverdraft" type="checkbox" />
+          <span>Découvert autorisé</span>
+          <HelpTip wide text="Les enveloppes de ce compte ne sont plus plafonnées par son solde : vous pouvez réserver plus que le disponible (le « hors enveloppes » devient négatif, affiché en ambre). Utile pour un compte avec découvert autorisé à la banque." />
+        </label>
       </div>
       <p v-if="!editingAccountId && accountForm.type === 'epargne' && !accountForm.multiProjects" class="text-xs text-gray-400 mt-2">
         Une enveloppe « {{ accountForm.name || '…' }} » sera créée automatiquement sur ce compte.
@@ -390,7 +480,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
         </label>
       </div>
       <!-- Rappel du disponible : l'invariant Σ enveloppes ≤ solde du compte -->
-      <p v-if="!editingEnvelopeId && envelopeForm.accountId && availability" class="text-[12px] mt-2" :class="initialTooHigh ? 'text-red-500' : 'text-gray-400'">
+      <p v-if="!editingEnvelopeId && envelopeForm.accountId && availability" class="text-[12px] mt-2" :class="initialTooHigh ? 'text-red-500' : initialOverdraws ? 'text-amber-600' : 'text-gray-400'">
         <template v-if="availability.available === null">Solde de {{ availability.accountName }} inconnu (saisir le solde de début de mois) — pas de contrôle possible.</template>
         <template v-else-if="envelopeForm.fromEnvelopeId">
           Montant pris dans « {{ siblingEnvelopes.find((e) => e.id === envelopeForm.fromEnvelopeId)?.name }} » — aucun mouvement bancaire, l'enveloppe source baisse d'autant.
@@ -400,11 +490,67 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           {{ availability.accountName }} : {{ fmt(availability.balance) }} · déjà en enveloppes {{ fmt(availability.envelopesTotal) }} ·
           <b>disponible hors enveloppes {{ fmt(availability.available) }}</b>
           <span v-if="initialTooHigh"> — le montant initial dépasse le disponible.</span>
+          <span v-else-if="initialOverdraws"> — au-delà du disponible : le hors enveloppes deviendra négatif (découvert autorisé).</span>
         </template>
       </p>
       <template #footer>
         <button class="btn-primary" :disabled="initialTooHigh" @click="submitEnvelope">{{ editingEnvelopeId ? 'Sauver' : 'Créer' }}</button>
         <button class="btn-secondary" @click="envelopeFormOpen = false">Annuler</button>
+      </template>
+    </AppModal>
+
+    <!-- ─── Suppression d'un compte avec solde ───────── -->
+    <AppModal :open="!!accountDelete" title="Le compte a encore un solde" @close="accountDelete = null">
+      <div v-if="accountDelete" class="flex flex-col gap-3 text-[13px]">
+        <p>
+          « <b>{{ accountDelete.account.name }}</b> » a un solde de <b>{{ fmt(accountDelete.balance) }}</b>.
+          Avant de le supprimer, cet argent doit aller quelque part.
+        </p>
+        <label class="field"><span>Virer le solde vers</span>
+          <select v-model="accountDelete.toAccountId" class="input w-48">
+            <option v-for="a in accounts.filter((x) => x.id !== accountDelete.account.id)" :key="a.id" :value="a.id">{{ a.name }}</option>
+          </select>
+        </label>
+        <p class="text-[11.5px] text-gray-400">
+          Un virement de {{ fmt(Math.abs(accountDelete.balance)) }} sera enregistré dans le mois en cours, puis le compte sera supprimé.
+        </p>
+      </div>
+      <template #footer>
+        <button class="btn-primary" :disabled="!accountDelete?.toAccountId" @click="confirmAccountDelete">Virer puis supprimer</button>
+        <button class="btn-secondary" @click="accountDelete = null">Annuler</button>
+      </template>
+    </AppModal>
+
+    <!-- ─── Suppression d'une enveloppe avec historique ── -->
+    <AppModal :open="!!envelopeDelete" title="L'enveloppe n'est pas vide" @close="envelopeDelete = null">
+      <div v-if="envelopeDelete" class="flex flex-col gap-3 text-[13px]">
+        <p>
+          « <b>{{ envelopeDelete.envelope.name }}</b> » contient <b>{{ fmt(envelopeDelete.total) }}</b>
+          ({{ envelopeDelete.contributions }} contribution{{ envelopeDelete.contributions > 1 ? 's' : '' }}).
+        </p>
+        <label class="checkbox items-start">
+          <input v-model="envelopeDelete.choice" type="radio" value="close" class="mt-0.5" />
+          <span><b>Clôturer</b> (recommandé) — l'historique est conservé, l'argent redevient hors enveloppes{{ envelopeDelete.envelope.accountName ? ' de ' + envelopeDelete.envelope.accountName : '' }}. Réouvrable.</span>
+        </label>
+        <label class="checkbox items-start">
+          <input v-model="envelopeDelete.choice" type="radio" value="release" class="mt-0.5" />
+          <span><b>Supprimer et libérer</b> — l'historique est effacé, l'argent redevient hors enveloppes{{ envelopeDelete.envelope.accountName ? ' de ' + envelopeDelete.envelope.accountName : '' }} (aucun mouvement bancaire).</span>
+        </label>
+        <label v-if="envelopeDelete.total > 0 && envelopeDeleteTargets.length" class="checkbox items-start">
+          <input v-model="envelopeDelete.choice" type="radio" value="reallocate" class="mt-0.5" />
+          <span class="flex items-center gap-2 flex-wrap"><b>Supprimer et réaffecter</b> {{ fmt(envelopeDelete.total) }} vers
+            <select v-model="envelopeDelete.toEnvelopeId" class="input w-40" @click.prevent.stop="envelopeDelete.choice = 'reallocate'">
+              <option value="">— enveloppe</option>
+              <option v-for="t in envelopeDeleteTargets" :key="t.id" :value="t.id">{{ t.name }}</option>
+            </select>
+          </span>
+        </label>
+      </div>
+      <template #footer>
+        <button class="btn-primary" :class="{ 'bg-red-500! hover:bg-red-600!': envelopeDelete?.choice !== 'close' }" :disabled="envelopeDelete?.choice === 'reallocate' && !envelopeDelete?.toEnvelopeId" @click="confirmEnvelopeDelete">
+          {{ envelopeDelete?.choice === 'close' ? 'Clôturer' : 'Supprimer' }}
+        </button>
+        <button class="btn-secondary" @click="envelopeDelete = null">Annuler</button>
       </template>
     </AppModal>
 
