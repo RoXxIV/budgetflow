@@ -101,9 +101,21 @@ function assertAvailable(accountId, cents, what = "Le montant") {
   }
 }
 
+// Deux enveloppes ouvertes du même nom au même endroit = confusion garantie (les clôturées ne bloquent pas)
+function assertNameFree(name, accountId, excludeId = null) {
+  const dup = get(
+    "SELECT id FROM envelopes WHERE closed_at IS NULL AND lower(name) = lower(?) AND COALESCE(account_id, 0) = COALESCE(?, 0) AND id != COALESCE(?, -1)",
+    name, accountId, excludeId
+  );
+  if (dup) {
+    throw httpError(409, `Une enveloppe « ${name} » existe déjà ${accountId ? "sur ce compte" : "en virtuelle"} : choisissez un autre nom (ou clôturez l'autre)`);
+  }
+}
+
 export function create({ name, accountId = null, targetAmount = null, deadline = null, initialAmount = null, fromEnvelopeId = null }) {
   name = (name || "").trim();
   if (!name) throw httpError(400, "Le nom de l'enveloppe est requis");
+  assertNameFree(name, accountId);
   const cents = toCents(initialAmount);
 
   // Montant initial : soit pris dans une autre enveloppe du même compte (réaffectation), soit sur le disponible
@@ -167,6 +179,7 @@ export function update(id, data) {
     const name = data.name !== undefined ? String(data.name).trim() : existing.name;
     if (!name) throw httpError(400, "Le nom de l'enveloppe est requis");
     const accountId = data.accountId !== undefined ? data.accountId : existing.account_id;
+    assertNameFree(name, accountId, id);
     const target = data.targetAmount !== undefined ? toCents(data.targetAmount) : existing.target_amount_cents;
     const deadline = data.deadline !== undefined ? (data.deadline || null) : existing.deadline;
     const closedAt = data.isClosed !== undefined

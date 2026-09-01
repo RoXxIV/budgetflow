@@ -31,6 +31,9 @@ export function getById(id) {
 export function create({ name, type = "courant", isMain = false, includeInNetWorth = true, allowOverdraft = false, multiProjects = false, initialBalance = null }) {
   name = (name || "").trim();
   if (!name) throw httpError(400, "Le nom du compte est requis");
+  if (get("SELECT id FROM accounts WHERE lower(name) = lower(?)", name)) {
+    throw httpError(409, `Un compte « ${name} » existe déjà`);
+  }
 
   return tx(() => {
     if (isMain) run("UPDATE accounts SET is_main = 0");
@@ -68,6 +71,9 @@ export function update(id, data) {
   return tx(() => {
     const name = data.name !== undefined ? String(data.name).trim() : existing.name;
     if (!name) throw httpError(400, "Le nom du compte est requis");
+    if (get("SELECT id FROM accounts WHERE lower(name) = lower(?) AND id != ?", name, id)) {
+      throw httpError(409, `Un compte « ${name} » existe déjà`);
+    }
 
     if (data.isMain === true) run("UPDATE accounts SET is_main = 0");
     const isMain = data.isMain !== undefined ? (data.isMain ? 1 : 0) : existing.is_main;

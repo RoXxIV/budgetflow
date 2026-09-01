@@ -19,6 +19,9 @@ export function list() {
 export function create({ name, type = "depense", color = "#6b7280" }) {
   name = (name || "").trim();
   if (!name) throw httpError(400, "Le nom de la catégorie est requis");
+  if (get("SELECT id FROM categories WHERE lower(name) = lower(?)", name)) {
+    throw httpError(409, `La catégorie « ${name} » existe déjà`);
+  }
   if (!TYPES.includes(type)) throw httpError(400, "Type de catégorie invalide");
   const max = get("SELECT COALESCE(MAX(sort_order), -1) AS m FROM categories").m;
   const { lastInsertRowid: id } = run(
@@ -33,6 +36,9 @@ export function update(id, data) {
   if (!existing) throw httpError(404, "Catégorie introuvable");
   const name = data.name !== undefined ? String(data.name).trim() : existing.name;
   if (!name) throw httpError(400, "Le nom de la catégorie est requis");
+  if (get("SELECT id FROM categories WHERE lower(name) = lower(?) AND id != ?", name, id)) {
+    throw httpError(409, `La catégorie « ${name} » existe déjà`);
+  }
   const type = data.type !== undefined ? data.type : existing.type;
   if (!TYPES.includes(type)) throw httpError(400, "Type de catégorie invalide");
   const color = data.color !== undefined ? data.color : existing.color;
