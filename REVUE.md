@@ -22,11 +22,16 @@ Evan chasse les bugs manuellement tant qu'il en trouve ; quand ça se tarit, on 
 (review.mjs + tests de session) vers `node --test` pour consolider — **avant** d'attaquer le design
 et les pages stats. Chaque bug trouvé finit en test automatisé avec son fix.
 
-**02/09** — la page Comptes est couverte : `backend/tests/comptes.test.mjs` (18 tests, `npm test`
-depuis backend/). Bug-hunt Claude au passage, 3 corrigés : déplacement/création d'enveloppe vers un
-compte désactivé (l'argent sortait du bilan), montant initial négatif accepté, renommage synchronisé
-enveloppe→compte qui contournait l'unicité des noms. Reste à migrer : mois/☐/dates, template,
-cagnottes, calculateurs, investissements (checks de review.mjs).
+**02/09** — **toutes les pages sont couvertes** : `npm test` depuis backend/ lance 5 suites
+(`comptes`, `template`, `mois` — entrées/☐/cagnottes/mensualisation/clôture —, `parametres` —
+catégories/thèmes/calculateurs —, `investissements`), **55 tests**, chacune sur sa base neuve jetable
+(`tests/_setup.mjs`). `scripts/review.mjs` (83 checks) reste en contrôle global. Bug-hunt Claude au
+passage, 3 corrigés : déplacement/création d'enveloppe vers un compte désactivé (l'argent sortait du
+bilan), montant initial négatif accepté, renommage synchronisé enveloppe→compte qui contournait
+l'unicité des noms.
+
+**Au programme de demain (Evan)** : tests manuels page par page ; chaque bug trouvé → fix + test
+dans la suite de la page concernée, même commit.
 
 ## Reportés
 - **6. Suppression de mois** : à brainstormer après tests (échéances avancées, effets de bord).
