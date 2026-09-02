@@ -241,7 +241,7 @@ const donutData = computed(() => {
       <div class="card mb-4">
         <div class="flex items-center gap-2 mb-2">
           <h2 class="font-semibold text-[14px]">Répartition du mois</h2>
-          <HelpTip wide text="Revenus, dépenses et épargne du mois choisi : l'anneau extérieur est le réel, l'intérieur (délavé) le prévu. L'épargne réelle = entrées des lignes épargne + contributions normales aux enveloppes (comme la tuile « Mis de côté »). Le centre affiche le reste réel (revenus − dépenses − épargne). Transferts exclus." />
+          <HelpTip wide text="Revenus, dépenses et épargne du mois choisi : l'anneau extérieur est le réel, l'intérieur (délavé) le prévu. L'épargne réelle = entrées des lignes épargne + contributions normales aux enveloppes + versements d'investissement (comme la tuile « Mis de côté »). Le centre affiche le reste réel (revenus − dépenses − épargne). Transferts exclus." />
           <select v-model="donutPeriod" class="input ml-auto w-44">
             <option v-for="p in periods" :key="p" :value="p">{{ monthName(p) }}</option>
           </select>

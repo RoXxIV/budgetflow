@@ -90,8 +90,12 @@ export function overview() {
      WHERE bl.is_pot = 0 AND COALESCE(c.type, 'depense') IN ('depense','revenu','epargne')
      GROUP BY p, t`
   ).forEach((r) => { types[idx[r.p]].planned[r.t] = fromCents(r.s); });
-  // L'épargne réelle inclut les contributions « normales » (comme la tuile « Mis de côté »)
+  // L'épargne réelle suit la tuile « Mis de côté » : lignes épargne + contributions normales
+  // + versements d'investissement du mois
   envRows.forEach((r) => { if (idx[r.p] !== undefined) types[idx[r.p]].real.epargne += fromCents(r.s); });
+  all(
+    "SELECT substr(date, 1, 7) AS p, SUM(amount_cents) AS s FROM asset_movements WHERE kind = 'versement' GROUP BY p"
+  ).forEach((r) => { if (idx[r.p] !== undefined) types[idx[r.p]].real.epargne += fromCents(r.s); });
   types.forEach((t) => { t.real.epargne = Math.round(t.real.epargne * 100) / 100; });
 
   return { periods, savings, envelopes: envelopesWithData, themes, categories, types };

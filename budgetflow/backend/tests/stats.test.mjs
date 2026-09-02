@@ -27,6 +27,9 @@ test("décor : comptes, catégories, thème, mois, entrées", () => {
   entries.create(m.id, { amount: 40, accountId: main.id, toAccountId: livret.id }); // virement libre, sans ligne
   const japon = S.envelopes.create({ name: "Japon", accountId: livret.id });
   S.envelopes.addContribution(japon.id, { amount: 450, fromAccountId: main.id, notes: "Mensualité" });
+  const pea = accounts.create({ name: "PEA", type: "investissement" });
+  const etf = S.assets.create({ name: "ETF", accountId: pea.id });
+  S.assets.addMovement(etf.id, { kind: "versement", amount: 100, date: `${period}-05`, counterpartAccountId: main.id });
   o = stats.overview();
 });
 
@@ -55,9 +58,9 @@ test("mis de côté par enveloppe : la contribution normale du Japon apparaît",
   assert.ok(e && eq(e.points[o.periods.indexOf(period)], 450));
 });
 
-test("totaux par type : réel dépense/revenu, épargne = contributions normales, virements exclus", () => {
+test("totaux par type : épargne = contributions normales + versements d'investissement (comme la tuile)", () => {
   const t = o.types.find((x) => x.period === period);
   assert.ok(eq(t.real.depense, 50), `dépense = ${t.real.depense}`);
   assert.ok(eq(t.real.revenu, 2000));
-  assert.ok(eq(t.real.epargne, 450), `épargne = ${t.real.epargne}`);
+  assert.ok(eq(t.real.epargne, 550), `épargne = ${t.real.epargne}`);
 });
