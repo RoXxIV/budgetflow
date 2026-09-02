@@ -167,6 +167,12 @@ async function deleteMovement(asset, m) {
             <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
         </label>
+      </div>
+      <div class="mt-3">
+        <p class="text-[12.5px] font-semibold text-gray-600 mb-1.5 flex items-center gap-1.5">
+          Mettre en place un DCA (optionnel)
+          <HelpTip wide text="DCA (versement programmé) : la même somme investie chaque mois. Indiquez un montant : le mois affichera un ☐ versé qui pose le versement en un clic, et le projeté en tient compte. Laissez vide pour un actif sans versement récurrent." />
+        </p>
         <label class="field"><span>Versement mensuel prévu (€)</span><input v-model="form.monthlyDca" type="number" step="0.01" class="input w-28" placeholder="0" /></label>
       </div>
       <template #footer>
