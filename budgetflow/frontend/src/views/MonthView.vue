@@ -254,12 +254,18 @@ const groups = computed(() => {
 const groupsLeft = computed(() => groups.value.filter((_, i) => i % 2 === 0))
 const groupsRight = computed(() => groups.value.filter((_, i) => i % 2 === 1))
 
-// Part de chaque catégorie dépense dans les dépenses réelles du mois (barre sous le titre)
+// Part de chaque catégorie dépense — et des enveloppes — dans les sorties réelles du mois
+// (dépenses réelles + mis de côté en enveloppes), barre sous chaque titre
 const totalDepenses = computed(() => groups.value.filter((g) => g.category.type === 'depense').reduce((s, g) => s + g.actual, 0))
+const totalSorties = computed(() => Math.round((totalDepenses.value + monthContribTotal.value) * 100) / 100)
 const depensePct = (group) => {
-  if (group.category.type !== 'depense' || !totalDepenses.value || group.actual <= 0) return null
-  return Math.round((group.actual / totalDepenses.value) * 100)
+  if (group.category.type !== 'depense' || !totalSorties.value || group.actual <= 0) return null
+  return Math.round((group.actual / totalSorties.value) * 100)
 }
+const envelopesPct = computed(() => {
+  if (!totalSorties.value || monthContribTotal.value <= 0) return null
+  return Math.round((monthContribTotal.value / totalSorties.value) * 100)
+})
 
 // ─── Création de mois ────────────────────────────────────
 const createFormOpen = ref(false)
@@ -1048,11 +1054,18 @@ const mainEnvelopesTotal = computed(() => {
 
       <!-- ─── Enveloppes ───────────────────────────── -->
       <div v-if="envelopes.length" class="card p-0 overflow-hidden mb-4">
-        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
-          <span class="font-semibold text-[13.5px]">Enveloppes</span>
-          <span class="badge bg-violet-50 text-violet-700">épargne</span>
-          <HelpTip text="Vos projets d'épargne. ☐ versé pose la mensualité suggérée en un clic ; cliquez une enveloppe pour voir ou ajouter une contribution. Une dépense « depuis l'enveloppe » (dans une entrée) la fait baisser." />
-          <span class="ml-auto text-[12.5px] text-gray-400">ce mois : <span class="font-semibold text-violet-600">{{ fmt(monthContribTotal) }}</span></span>
+        <div class="px-4 py-2.5 border-b border-stone-100">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-[13.5px]">Enveloppes</span>
+            <span class="badge bg-violet-50 text-violet-700">épargne</span>
+            <HelpTip text="Vos projets d'épargne. ☐ versé pose la mensualité suggérée en un clic ; cliquez une enveloppe pour voir ou ajouter une contribution. Une dépense « depuis l'enveloppe » (dans une entrée) la fait baisser." />
+            <span class="ml-auto text-[12.5px] text-gray-400">ce mois : <span class="font-semibold text-violet-600">{{ fmt(monthContribTotal) }}</span></span>
+          </div>
+          <!-- Part du mis de côté dans les sorties réelles du mois -->
+          <div v-if="envelopesPct !== null" class="flex items-center gap-2 mt-1.5" :title="fmt(monthContribTotal) + ' sur ' + fmt(totalSorties) + ' de sorties réelles ce mois (dépenses + enveloppes)'">
+            <div class="progress flex-1"><div class="progress-bar bg-violet-500" :style="{ width: envelopesPct + '%' }" /></div>
+            <span class="text-[10.5px] text-gray-400 shrink-0" style="font-variant-numeric: tabular-nums">{{ envelopesPct }} %</span>
+          </div>
         </div>
 
         <div v-for="env in envelopes" :key="env.id">
@@ -1258,7 +1271,7 @@ const mainEnvelopesTotal = computed(() => {
                 <span class="ml-auto text-[12.5px] text-gray-400">{{ fmt(group.actual) }} <span class="text-gray-300">/ {{ fmt(group.planned) }}</span></span>
               </div>
               <!-- Part de la catégorie dans les dépenses réelles du mois -->
-              <div v-if="depensePct(group) !== null" class="flex items-center gap-2 mt-1.5" :title="fmt(group.actual) + ' sur ' + fmt(totalDepenses) + ' de dépenses réelles ce mois'">
+              <div v-if="depensePct(group) !== null" class="flex items-center gap-2 mt-1.5" :title="fmt(group.actual) + ' sur ' + fmt(totalSorties) + ' de sorties réelles ce mois (dépenses + enveloppes)'">
                 <div class="progress flex-1"><div class="progress-bar" :style="{ width: depensePct(group) + '%', background: group.category.color }" /></div>
                 <span class="text-[10.5px] text-gray-400 shrink-0" style="font-variant-numeric: tabular-nums">{{ depensePct(group) }} %</span>
               </div>
