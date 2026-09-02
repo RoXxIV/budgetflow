@@ -30,6 +30,26 @@ export function listByMonth(monthId) {
   return all("SELECT * FROM entries WHERE month_id = ? ORDER BY date, id", monthId).map(serialize);
 }
 
+// Une dépense « depuis l'enveloppe » ne peut pas dépasser son contenu — sauf si le compte hôte
+// autorise le découvert (l'enveloppe peut alors plonger, affichée en négatif). Les virements
+// système du ☐ payé mensualisé ne passent pas ici avec plus que le disponible (part couverte).
+function assertEnvelopeCanCover(envelopeId, amountCents, excludeEntryId = null) {
+  if (!envelopeId || !amountCents || amountCents <= 0) return;
+  const env = get("SELECT * FROM envelopes WHERE id = ?", envelopeId);
+  if (!env) return;
+  const hostId = env.account_id ?? get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
+  if (hostId && get("SELECT allow_overdraft FROM accounts WHERE id = ?", hostId)?.allow_overdraft) return;
+  const total = get(
+    "SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ? AND (entry_id IS NULL OR entry_id != COALESCE(?, -1))",
+    envelopeId, excludeEntryId
+  ).s;
+  if (amountCents > total) {
+    throw httpError(409,
+      `L'enveloppe « ${env.name} » ne contient que ${fromCents(total).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € : ` +
+      `réduisez le montant, prenez le reste sur un compte, ou autorisez le découvert sur son compte hôte`);
+  }
+}
+
 export function create(monthId, data) {
   assertOpen(monthId);
   const cents = toCents(data.amount);
@@ -48,6 +68,8 @@ export function create(monthId, data) {
   const recurringEnvelope = line?.envelope_id && data.envelopeId === undefined;
   const envelopeId = recurringEnvelope ? line.envelope_id : (data.envelopeId || null);
   const inTarget = recurringEnvelope ? 0 : (data.envelopeInTarget === false ? 0 : 1);
+  // Choix explicite « depuis l'enveloppe » : plafonné au contenu (une mensualisée absorbe, elle)
+  if (!recurringEnvelope) assertEnvelopeCanCover(envelopeId, cents);
 
   const { lastInsertRowid: id } = run(
     `INSERT INTO entries (month_id, line_id, label, amount_cents, date, account_id, to_account_id, payment_method, theme_id, is_shared, pot_line_id, source, notes, envelope_id, envelope_in_target, related_line_id)
@@ -83,6 +105,8 @@ export function update(id, data) {
     data[key] !== undefined ? transform(data[key]) : existing[dbKey];
   const cents = data.amount !== undefined ? toCents(data.amount) : existing.amount_cents;
   if (!cents) throw httpError(400, "Montant requis");
+  const newEnvelopeId = data.envelopeId !== undefined ? (data.envelopeId || null) : existing.envelope_id;
+  assertEnvelopeCanCover(newEnvelopeId, cents, existing.id);
 
   run(
     `UPDATE entries SET label = ?, amount_cents = ?, date = ?, account_id = ?, to_account_id = ?,

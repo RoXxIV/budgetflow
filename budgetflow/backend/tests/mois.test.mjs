@@ -92,6 +92,18 @@ test("☐ payé épargne : Depuis et Vers copiés, bilan à jour", () => {
   assert.notEqual(s.tiles.projete, null);
 });
 
+test("dépense depuis une enveloppe : plafonnée au contenu, sauf découvert autorisé sur l'hôte", () => {
+  // virt contient 150, hôte = principal (virtuelle) : dépenser 400 est refusé…
+  refuse(() => entries.create(m.id, { lineId: mCourses.id, amount: 400, envelopeId: virt.id }), 409);
+  // …sauf si le compte hôte autorise le découvert (l'enveloppe peut plonger)
+  accounts.update(main.id, { allowOverdraft: true });
+  const big = entries.create(m.id, { lineId: mCourses.id, amount: 400, envelopeId: virt.id, envelopeInTarget: false });
+  assert.ok(eq(envelopes.getById(virt.id).total, -250), "l'enveloppe plonge, en connaissance de cause");
+  entries.remove(big.id);
+  accounts.update(main.id, { allowOverdraft: false });
+  assert.ok(eq(envelopes.getById(virt.id).total, 150));
+});
+
 test("dépense depuis une enveloppe : total et cible suivent, contribution liée protégée", () => {
   const eEnv = entries.create(m.id, { lineId: mCourses.id, amount: 30, envelopeId: virt.id, envelopeInTarget: true });
   let v = envelopes.getById(virt.id);
