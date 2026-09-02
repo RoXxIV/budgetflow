@@ -42,6 +42,7 @@ test("patrimoine : la valeur de marché remplace le solde d'un compte investisse
   const row = nw.accounts.find((a) => a.accountId === pea.id);
   assert.ok(eq(row.used, 1000), "valeur de marché (1000), pas le solde (900)");
   assert.ok(eq(row.balance, 900));
+  assert.ok(eq(row.start, 0) && eq(row.balance - row.start, 900), "écart depuis le début du mois disponible");
 });
 
 test("garde-fous : suppression d'un actif avec mouvements, désactivation du compte hôte", () => {

@@ -31,6 +31,13 @@ async function load() {
 onMounted(load)
 
 const netWorthOf = (accountId) => netWorth.value?.accounts.find((a) => a.accountId === accountId) || null
+// Écart du solde depuis le début du mois en cours (null si inconnu ou nul)
+const monthDelta = (accountId) => {
+  const a = netWorthOf(accountId)
+  if (!a || a.balance == null || a.start == null) return null
+  const d = Math.round((a.balance - a.start) * 100) / 100
+  return d === 0 ? null : d
+}
 
 // ─── Réaffectation entre enveloppes d'un même compte ─────
 const reallocForm = ref({ toEnvelopeId: '', amount: '' })
@@ -561,6 +568,9 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <span v-if="!account.includeInNetWorth" class="badge bg-gray-100 text-gray-500">hors patrimoine</span>
           <span v-if="netWorthOf(account.id)?.used != null" class="text-[13px] font-semibold ml-1" :title="netWorthOf(account.id).marketValue != null ? 'Valeur de marché (solde ' + fmt(netWorthOf(account.id).balance) + ')' : 'Solde du mois en cours'">
             {{ fmt(netWorthOf(account.id).used) }}<span v-if="netWorthOf(account.id).marketValue != null" class="text-[10.5px] text-gray-400 font-normal"> marché</span>
+          </span>
+          <span v-if="monthDelta(account.id) !== null" class="text-[11px] font-semibold" :class="monthDelta(account.id) > 0 ? 'text-emerald-600' : 'text-red-500'" :title="'Mouvement du solde depuis le début du mois' + (netWorth?.monthPeriod ? ' (' + netWorth.monthPeriod + ')' : '')">
+            {{ monthDelta(account.id) > 0 ? '+' : '' }}{{ fmt(monthDelta(account.id)) }}
           </span>
           <div class="ml-auto flex gap-1">
             <button class="icon-btn" title="Modifier" @click="openEditAccount(account)">✎</button>

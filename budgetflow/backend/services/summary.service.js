@@ -19,7 +19,7 @@ export function getNetWorth() {
     ).filter((x) => x.value_cents !== null);
     const marketValue = valued.length ? fromCents(valued.reduce((s, x) => s + x.value_cents, 0)) : null;
     const used = marketValue !== null ? marketValue : a.current;
-    return { accountId: a.accountId, name: a.name, type: a.type, includeInNetWorth: a.includeInNetWorth, balance: a.current, marketValue, used };
+    return { accountId: a.accountId, name: a.name, type: a.type, includeInNetWorth: a.includeInNetWorth, start: a.start, balance: a.current, marketValue, used };
   });
   const total = rows.filter((r) => r.includeInNetWorth && r.used !== null).reduce((s, r) => s + r.used, 0);
   return { total: Math.round(total * 100) / 100, monthPeriod: month.period, accounts: rows };
