@@ -499,6 +499,7 @@ function openAddLine(category) {
     label: '',
     plannedAmount: '',   // prévu seul → ligne à cocher plus tard
     actualAmount: '',    // montant rempli → entrée créée tout de suite (le réel remplace le prévu)
+    entryLabel: '',      // …avec son détail propre (ligne « Amazon », entrée « xiaomi redmi »)
     entryDate: defaultDate(),
     // « Depuis » : un compte ('a:ID') ou une enveloppe ('e:ID' → dépense prise dans l'enveloppe)
     source: category.type === 'revenu' ? '' : (mainId ? 'a:' + mainId : ''),
@@ -606,6 +607,7 @@ async function submitLineForm() {
         await createEntry(current.value.id, {
           lineId: line.id,
           amount,
+          label: f.entryLabel || null,
           date: f.entryDate,
           themeId: f.themeId || null,
           // Revenu : le compte de l'entrée est celui qui est crédité ; sinon la source (compte ou compte hôte de l'enveloppe)
@@ -778,6 +780,7 @@ const mainEnvelopesTotal = computed(() => {
             <label class="field"><span class="flex items-center gap-1">Prévu (€) <HelpTip text="À venir : la ligne aura une case ☐ à cocher quand ce sera passé (ex. « on me rend 100 € la semaine prochaine »)." /></span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
             <label v-if="lineModalAdding" class="field"><span class="flex items-center gap-1">Montant (€) <HelpTip text="Déjà passé : l'entrée est créée tout de suite avec ce montant. Une seule saisie pour une dépense ponctuelle." /></span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>
           </template>
+          <label v-if="lineModalAdding && !lineForm.isPot && lineForm.actualAmount" class="field"><span class="flex items-center gap-1">Détail (optionnel) <HelpTip text="Le détail de cette entrée précise. La ligne fait office de sous-catégorie : ligne « Amazon », entrées « xiaomi redmi », « souris »… visibles en dépliant la ligne." /></span><input v-model="lineForm.entryLabel" type="text" class="input w-40" placeholder="xiaomi redmi, écouteurs…" @keyup.enter="submitLineForm" /></label>
           <label v-if="lineModalAdding && !lineForm.isPot && lineForm.actualAmount" class="field"><span>Date</span><input v-model="lineForm.entryDate" type="date" class="input w-34" /></label>
           <label v-else class="field" :title="lineForm.isPot ? 'Jour où vous réglez la cagnotte' : 'Date par défaut du « payé »'"><span>Jour du mois</span><input v-model="lineForm.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
           <label v-if="!lineModalAdding" class="field"><span>Catégorie</span>
