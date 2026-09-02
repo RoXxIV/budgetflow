@@ -25,6 +25,8 @@ test("décor : comptes, catégories, thème, mois, entrées", () => {
   const tr = lines.create(m.id, { label: "Op interne", categoryId: catTr.id, fromAccountId: main.id, toAccountId: livret.id });
   entries.create(m.id, { lineId: tr.id, amount: 300 });
   entries.create(m.id, { amount: 40, accountId: main.id, toAccountId: livret.id }); // virement libre, sans ligne
+  const japon = S.envelopes.create({ name: "Japon", accountId: livret.id });
+  S.envelopes.addContribution(japon.id, { amount: 450, fromAccountId: main.id, notes: "Mensualité" });
   o = stats.overview();
 });
 
@@ -48,9 +50,14 @@ test("catégories : les transferts sont exclus, le réel est là", () => {
   assert.ok(c && eq(c.points[o.periods.indexOf(period)], 50));
 });
 
-test("totaux par type : réel dépense/revenu, virements (ligne transfert et libre) exclus", () => {
+test("mis de côté par enveloppe : la contribution normale du Japon apparaît", () => {
+  const e = o.envelopes.find((x) => x.name === "Japon");
+  assert.ok(e && eq(e.points[o.periods.indexOf(period)], 450));
+});
+
+test("totaux par type : réel dépense/revenu, épargne = contributions normales, virements exclus", () => {
   const t = o.types.find((x) => x.period === period);
   assert.ok(eq(t.real.depense, 50), `dépense = ${t.real.depense}`);
   assert.ok(eq(t.real.revenu, 2000));
-  assert.ok(eq(t.real.epargne, 0));
+  assert.ok(eq(t.real.epargne, 450), `épargne = ${t.real.epargne}`);
 });

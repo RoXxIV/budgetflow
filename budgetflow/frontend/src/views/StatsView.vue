@@ -53,6 +53,19 @@ function toggleSavings(id) {
   savingsHidden.value = set
 }
 
+// ─── 1 bis. Mis de côté par enveloppe (contributions « normales », comme la tuile du bilan) ───
+const envHidden = ref(new Set())
+const envsAll = computed(() => (stats.value?.envelopes || []).map((e, i) => ({
+  key: 'e' + e.id, id: e.id, name: e.name + (e.isClosed ? ' (clôturée)' : ''), color: SLOTS[i % SLOTS.length], points: slice(e.points),
+})))
+const envsVisible = computed(() => envsAll.value.filter((e) => !envHidden.value.has(e.id)))
+function toggleEnv(id) {
+  const set = new Set(envHidden.value)
+  set.has(id) ? set.delete(id) : set.add(id)
+  envHidden.value = set
+}
+const smoothedPts = (points) => (points.length ? Math.round((points.reduce((s, v) => s + (v || 0), 0) / points.length) * 100) / 100 : 0)
+
 // ─── 2. Thèmes — couleur du thème (la même que partout dans l'app), lissé sur la période ───
 const activeThemes = ref(new Set())
 const themesAll = computed(() => stats.value?.themes || [])
@@ -147,6 +160,32 @@ const donutData = computed(() => {
         </details>
       </div>
 
+      <!-- ─── 1 bis. Mis de côté par enveloppe ──────── -->
+      <div class="card mb-4">
+        <div class="flex items-center gap-2 mb-2">
+          <h2 class="font-semibold text-[14px]">Mis de côté par enveloppe</h2>
+          <HelpTip wide text="Les contributions « normales » de chaque enveloppe, mois par mois — la même définition que la tuile « Mis de côté » du bilan (recalages et réaffectations exclus). C'est le flux d'épargne : quand vous dépenserez ce projet, son coût apparaîtra dans « Dépenses par thème », sans doublon." />
+        </div>
+        <div class="flex flex-wrap gap-1.5 mb-3">
+          <button v-for="e in envsAll" :key="e.key" class="chip" :class="{ 'chip--off': envHidden.has(e.id) }" @click="toggleEnv(e.id)">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ background: e.color }" />{{ e.name }}
+            <span v-if="!envHidden.has(e.id)" class="text-gray-400 font-normal">≈ {{ fmt(smoothedPts(e.points)) }}/mois</span>
+          </button>
+        </div>
+        <LineChart :labels="labels" :series="envsVisible" />
+        <details class="mt-2">
+          <summary class="text-[11.5px] text-gray-400 cursor-pointer hover:text-gray-600">tableau</summary>
+          <div class="overflow-x-auto mt-2">
+            <table class="stat-table">
+              <thead><tr><th></th><th v-for="(l, i) in labels" :key="i">{{ l }}</th><th>lissé</th></tr></thead>
+              <tbody>
+                <tr v-for="e in envsAll" :key="e.key"><td>{{ e.name }}</td><td v-for="(v, i) in e.points" :key="i">{{ fmt(v) }}</td><td class="font-semibold">{{ fmt(smoothedPts(e.points)) }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+
       <!-- ─── 2. Dépenses par thème ─────────────────── -->
       <div class="card mb-4">
         <div class="flex items-center gap-2 mb-2">
@@ -202,7 +241,7 @@ const donutData = computed(() => {
       <div class="card mb-4">
         <div class="flex items-center gap-2 mb-2">
           <h2 class="font-semibold text-[14px]">Répartition du mois</h2>
-          <HelpTip wide text="Revenus, dépenses et épargne du mois choisi : l'anneau extérieur est le réel, l'intérieur (délavé) le prévu. Le centre affiche le reste réel (revenus − dépenses − épargne). Transferts exclus." />
+          <HelpTip wide text="Revenus, dépenses et épargne du mois choisi : l'anneau extérieur est le réel, l'intérieur (délavé) le prévu. L'épargne réelle = entrées des lignes épargne + contributions normales aux enveloppes (comme la tuile « Mis de côté »). Le centre affiche le reste réel (revenus − dépenses − épargne). Transferts exclus." />
           <select v-model="donutPeriod" class="input ml-auto w-44">
             <option v-for="p in periods" :key="p" :value="p">{{ monthName(p) }}</option>
           </select>

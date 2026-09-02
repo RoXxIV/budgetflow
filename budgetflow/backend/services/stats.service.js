@@ -53,6 +53,20 @@ export function overview() {
      GROUP BY p, cid`
   ).forEach((r) => { if (byCat[r.cid]) byCat[r.cid].points[idx[r.p]] = fromCents(r.s); });
 
+  // ─── Mis de côté par enveloppe : contributions « normales » par mois ───
+  // (la même définition que la tuile « Mis de côté » du bilan — recalages et réaffectations exclus)
+  const envRows = all(
+    `SELECT substr(c.date, 1, 7) AS p, c.envelope_id AS eid, SUM(c.amount_cents) AS s
+     FROM envelope_contributions c
+     WHERE c.kind = 'normale'
+     GROUP BY p, eid`
+  );
+  const envelopes = all("SELECT id, name, closed_at FROM envelopes ORDER BY name")
+    .map((e) => ({ id: e.id, name: e.name, isClosed: !!e.closed_at, points: zeros() }));
+  const byEnv = Object.fromEntries(envelopes.map((e) => [e.id, e]));
+  envRows.forEach((r) => { if (byEnv[r.eid] && idx[r.p] !== undefined) byEnv[r.eid].points[idx[r.p]] = fromCents(r.s); });
+  const envelopesWithData = envelopes.filter((e) => e.points.some((v) => v !== 0));
+
   // ─── Totaux par type de catégorie (réel + prévu), hors transferts ───
   const types = periods.map((p) => ({
     period: p,
@@ -76,6 +90,9 @@ export function overview() {
      WHERE bl.is_pot = 0 AND COALESCE(c.type, 'depense') IN ('depense','revenu','epargne')
      GROUP BY p, t`
   ).forEach((r) => { types[idx[r.p]].planned[r.t] = fromCents(r.s); });
+  // L'épargne réelle inclut les contributions « normales » (comme la tuile « Mis de côté »)
+  envRows.forEach((r) => { if (idx[r.p] !== undefined) types[idx[r.p]].real.epargne += fromCents(r.s); });
+  types.forEach((t) => { t.real.epargne = Math.round(t.real.epargne * 100) / 100; });
 
-  return { periods, savings, themes, categories, types };
+  return { periods, savings, envelopes: envelopesWithData, themes, categories, types };
 }
