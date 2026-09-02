@@ -864,6 +864,9 @@ const mainEnvelopesTotal = computed(() => {
           </template>
         </div>
       </div>
+      <p v-if="!lineModalAdding && lineFormLine && entriesForLine(lineFormLine).length" class="text-[11px] text-amber-600 mt-1">
+        Cette ligne a {{ entriesForLine(lineFormLine).length }} entrée(s) : modifier le thème, Depuis, le moyen de paiement ou ½ s'applique à toutes.
+      </p>
       <template #footer>
         <button class="btn-primary" @click="submitLineForm">{{ lineModalAdding ? 'Ajouter' : 'Sauver' }}</button>
         <button class="btn-secondary" @click="closeLineForm">Annuler</button>

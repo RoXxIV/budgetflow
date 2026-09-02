@@ -156,6 +156,33 @@ export function update(id, data) {
     run("UPDATE envelopes SET name = ?, target_amount_cents = ?, deadline = ? WHERE id = ?",
       updated.label, updated.planned_amount_cents, nextDueDate(updated, currentPeriod()), updated.envelope_id);
   }
+
+  // Ligne de mois : les champs « partagés » modifiés se propagent à TOUTES les entrées de la ligne
+  // (changement de masse validé par Evan). Montants, dates et détails restent par entrée.
+  if (existing.month_id) {
+    if (data.themeId !== undefined && (data.themeId || null) !== existing.theme_id) {
+      run("UPDATE entries SET theme_id = ? WHERE line_id = ?", data.themeId || null, id);
+    }
+    if (data.paymentMethod !== undefined && (data.paymentMethod || null) !== existing.payment_method) {
+      run("UPDATE entries SET payment_method = ? WHERE line_id = ?", data.paymentMethod || null, id);
+    }
+    if (data.isShared !== undefined && (data.isShared ? 1 : 0) !== existing.is_shared) {
+      run("UPDATE entries SET is_shared = ? WHERE line_id = ?", data.isShared ? 1 : 0, id);
+    }
+    if (data.potLineId !== undefined && (data.potLineId || null) !== existing.pot_line_id) {
+      run("UPDATE entries SET pot_line_id = ? WHERE line_id = ?", data.potLineId || null, id);
+    }
+    // « Depuis » : jamais sur une dépense depuis enveloppe (compte hôte) ni un virement système ;
+    // pour une ligne revenu, c'est le compte crédité (toAccountId) qui se propage.
+    const catType = get("SELECT type FROM categories WHERE id = ?", updated.category_id)?.type || "depense";
+    if (catType === "revenu") {
+      if (data.toAccountId !== undefined && (data.toAccountId || null) !== existing.to_account_id && data.toAccountId) {
+        run("UPDATE entries SET account_id = ? WHERE line_id = ? AND envelope_id IS NULL", data.toAccountId, id);
+      }
+    } else if (data.fromAccountId !== undefined && (data.fromAccountId || null) !== existing.from_account_id && data.fromAccountId) {
+      run("UPDATE entries SET account_id = ? WHERE line_id = ? AND envelope_id IS NULL AND related_line_id IS NULL", data.fromAccountId, id);
+    }
+  }
   return getById(id);
 }
 

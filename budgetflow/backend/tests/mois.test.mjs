@@ -163,6 +163,15 @@ test("mensualisation, cycle complet : ENVELOPE_SHORT, virements système, éché
   months.remove(m2.id);
 });
 
+test("modifier une ligne de mois : thème/compte/paiement se propagent à toutes ses entrées", () => {
+  const th2 = themes.create({ name: "Sport" });
+  lines.update(mCourses.id, { themeId: th2.id });
+  assert.ok(entries.listByMonth(m.id).filter((e) => e.lineId === mCourses.id).every((e) => e.themeId === th2.id), "thème propagé");
+  lines.update(mCourses.id, { fromAccountId: livret.id });
+  assert.ok(entries.listByMonth(m.id).filter((e) => e.lineId === mCourses.id).every((e) => e.accountId === livret.id), "Depuis propagé");
+  lines.update(mCourses.id, { fromAccountId: main.id }); // retour
+});
+
 test("clôture : toutes les saisies du mois verrouillées, datées comprises", () => {
   months.setClosed(m.id, true);
   refuse(() => entries.create(m.id, { lineId: mCourses.id, amount: 1 }), 409);
