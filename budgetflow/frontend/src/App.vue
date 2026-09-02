@@ -8,6 +8,7 @@ const navLinks = [
   { name: 'Mois', to: '/mois' },
   { name: 'Comptes', to: '/comptes' },
   { name: 'Investissements', to: '/investissements' },
+  { name: 'Stats', to: '/stats' },
   { name: 'Template', to: '/template' },
   { name: 'Paramètres', to: '/parametres' },
 ]

@@ -33,8 +33,15 @@ l'unicité des noms.
 **Au programme de demain (Evan)** : tests manuels page par page ; chaque bug trouvé → fix + test
 dans la suite de la page concernée, même commit.
 
+## Stats — V1 livrée le 02/09
+Page `/stats`, période commune (3/6/12/tout) : ① évolution épargne & investissements (soldes de
+début de mois, courbe par compte masquable) ; ② dépenses par thème (1er actif par défaut, coût
+« lissé »/mois par thème actif) ; ③ réel par catégorie hors transferts ; ④ donut du mois réel
+(extérieur) vs prévu (intérieur), reste au centre. Virements système et catégories transfert
+exclus (le point 7 ci-dessous est réglé). Chaque bloc a son tableau. **Evan a des points de
+décision critiques à discuter — V1 à ajuster.**
+
 ## Reportés
 - **6. Suppression de mois** : à brainstormer après tests (échéances avancées, effets de bord).
-- **7. Stats** : exclure virements système et catégories transfert des dépenses (noté pour l'étape stats).
 - Réactivation des comptes aussi depuis les Paramètres (plus tard, si utile — pour l'instant bas de la page Comptes).
 - Remettre l'ancrage de Strava à juillet quand les tests sont finis (actuellement septembre pour tester).
