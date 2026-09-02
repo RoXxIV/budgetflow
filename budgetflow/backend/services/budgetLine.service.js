@@ -72,6 +72,9 @@ export function getById(id) {
 export function create(monthId, data) {
   const label = (data.label || "").trim();
   if (!label) throw httpError(400, "Le libellé de la ligne est requis");
+  if (data.fromAccountId && data.toAccountId && data.fromAccountId === data.toAccountId) {
+    throw httpError(400, "Depuis et Vers sont le même compte : un virement doit en changer (ou laissez Vers sur « extérieur »)");
+  }
   const interval = Math.max(1, Number(data.intervalMonths) || 1);
   const anchor = interval > 1 ? (Number(data.anchorMonth) || null) : null;
   if (interval > 1 && !anchor) throw httpError(400, "Indiquez le mois d'ancrage pour une ligne non mensuelle");
@@ -107,6 +110,11 @@ export function update(id, data) {
 
   const label = data.label !== undefined ? String(data.label).trim() : existing.label;
   if (!label) throw httpError(400, "Le libellé de la ligne est requis");
+  const fromAcc = data.fromAccountId !== undefined ? (data.fromAccountId || null) : existing.from_account_id;
+  const toAcc = data.toAccountId !== undefined ? (data.toAccountId || null) : existing.to_account_id;
+  if (fromAcc && toAcc && fromAcc === toAcc) {
+    throw httpError(400, "Depuis et Vers sont le même compte : un virement doit en changer (ou laissez Vers sur « extérieur »)");
+  }
 
   const val = (key, dbKey, transform = (v) => v) =>
     data[key] !== undefined ? transform(data[key]) : existing[dbKey];

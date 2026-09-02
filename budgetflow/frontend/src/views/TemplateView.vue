@@ -127,6 +127,8 @@ const modalAdding = computed(() => typeof openLineId.value === 'string')
 const showVers = computed(() =>
   formCategoryType.value !== 'depense' || /virement/i.test(form.value.paymentMethod || '') || !!form.value.toAccountId
 )
+// « Vers » ne propose jamais le compte « Depuis » (un virement vers soi-même n'a pas de sens)
+const versAccounts = computed(() => activeAccounts.value.filter((a) => a.id !== form.value.fromAccountId))
 
 function openAdd(category) {
   openLineId.value = `new-${category.id}`
@@ -374,7 +376,7 @@ const formCategoryType = computed(() => {
             <label v-if="showVers" class="field" :title="formCategoryType === 'depense' ? 'Provision : l\'argent part vers un de vos comptes' : 'Compte destination'"><span>Vers</span>
               <select v-model="form.toAccountId" class="input w-44">
                 <option value="">{{ formCategoryType === 'depense' ? '— extérieur (quelqu\'un d\'autre)' : '— compte destination' }}</option>
-                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in versAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </label>
           </template>

@@ -79,6 +79,11 @@ test("le réel remplace le prévu : somme des entrées, défauts, modification",
   refuse(() => entries.pay(m.id, mCourses.id), 409); // ☐ n'existe plus dès qu'il y a des entrées
 });
 
+test("virement vers soi-même refusé : entrée comme ligne", () => {
+  refuse(() => entries.create(m.id, { lineId: mCourses.id, amount: 10, accountId: main.id, toAccountId: main.id }), 400);
+  refuse(() => lines.create(null, { label: "Boucle", categoryId: catDep.id, fromAccountId: main.id, toAccountId: main.id }), 400);
+});
+
 test("☐ payé épargne : Depuis et Vers copiés, bilan à jour", () => {
   const mEp = mLines.find((l) => l.label === "Virement livret");
   const ep = entries.pay(m.id, mEp.id);

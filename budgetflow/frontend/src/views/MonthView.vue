@@ -542,6 +542,9 @@ const isTransfer = computed(() =>
   || ['epargne', 'transfert'].includes(lineFormCategoryType.value)
   || (!lineModalAdding.value && !!lineForm.value.toAccountId)
 )
+// « Vers » ne propose jamais le compte source (un virement vers soi-même n'a pas de sens)
+const versAccountsLine = computed(() => activeAccounts.value.filter((a) => a.id !== sourceAccountId.value))
+const versAccountsEntry = computed(() => activeAccounts.value.filter((a) => a.id !== entrySourceAccountId.value))
 
 const lineFormLine = ref(null) // ligne en cours d'édition (pour supprimer / reporter dans le template)
 
@@ -830,7 +833,7 @@ const mainEnvelopesTotal = computed(() => {
             <label v-if="isTransfer" class="field" :title="lineFormCategoryType === 'depense' ? 'Provision : l\'argent part vers un de vos comptes (ex. 70 € / mois vers le compte factures)' : 'Compte destination'"><span>Vers</span>
               <select v-model="lineForm.toAccountId" class="input w-44">
                 <option value="">{{ lineFormCategoryType === 'depense' ? '— extérieur (quelqu\'un d\'autre)' : '— compte destination' }}</option>
-                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in versAccountsLine" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </label>
           </template>
@@ -908,7 +911,7 @@ const mainEnvelopesTotal = computed(() => {
             <label v-if="entryIsTransfer" class="field" title="Vers un de vos comptes (provision, virement interne) ou extérieur"><span>Vers</span>
               <select v-model="entryForm.toAccountId" class="input w-44">
                 <option value="">— extérieur (quelqu'un d'autre)</option>
-                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                <option v-for="a in versAccountsEntry" :key="a.id" :value="a.id">{{ a.name }}</option>
               </select>
             </label>
           </template>

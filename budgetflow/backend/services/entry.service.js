@@ -62,6 +62,10 @@ export function create(monthId, data) {
   // Une entrée sans compte ne bougerait aucun solde : repli sur le compte principal
   let accountId = data.accountId ?? null;
   if (!accountId) accountId = get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
+  // Virement vers soi-même : aucun sens (seul le virement système « pris dans l'enveloppe » l'est, à dessein)
+  if (accountId && data.toAccountId && accountId === data.toAccountId && !data.relatedLineId) {
+    throw httpError(400, "Depuis et Vers sont le même compte : un virement doit en changer (ou laissez Vers sur « extérieur »)");
+  }
   // ½ : cagnotte explicite, sinon celle de la ligne, sinon la cagnotte par défaut (NULL)
   const potLineId = data.potLineId !== undefined ? (data.potLineId || null) : (line?.pot_line_id ?? null);
   // Ligne mensualisée : une entrée manuelle sort par défaut de son enveloppe, sans entamer la cible (le cycle se renouvelle)
@@ -107,6 +111,11 @@ export function update(id, data) {
   if (!cents) throw httpError(400, "Montant requis");
   const newEnvelopeId = data.envelopeId !== undefined ? (data.envelopeId || null) : existing.envelope_id;
   assertEnvelopeCanCover(newEnvelopeId, cents, existing.id);
+  const newAccountId = data.accountId !== undefined ? (data.accountId || null) : existing.account_id;
+  const newToAccountId = data.toAccountId !== undefined ? (data.toAccountId || null) : existing.to_account_id;
+  if (newAccountId && newToAccountId && newAccountId === newToAccountId && !existing.related_line_id) {
+    throw httpError(400, "Depuis et Vers sont le même compte : un virement doit en changer (ou laissez Vers sur « extérieur »)");
+  }
 
   run(
     `UPDATE entries SET label = ?, amount_cents = ?, date = ?, account_id = ?, to_account_id = ?,
