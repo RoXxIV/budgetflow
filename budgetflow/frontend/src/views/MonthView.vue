@@ -88,9 +88,9 @@ const dcaDone = (asset) => movementsForAsset(asset).some((m) => m.source === 'dc
 const monthInvestedTotal = computed(() => monthAssetMovements.value.filter((m) => m.kind === 'versement').reduce((s, m) => s + m.amount, 0))
 
 async function toggleDca(asset) {
+  if (movementsForAsset(asset).length) return // ☐ à sens unique : le réel remplace le prévu
   try {
-    if (dcaDone(asset)) await undcaAsset(current.value.id, asset.id)
-    else await dcaAsset(current.value.id, asset.id)
+    await dcaAsset(current.value.id, asset.id)
     await reload()
   } catch (e) { apiError(e) }
 }
@@ -1071,13 +1071,11 @@ const mainEnvelopesTotal = computed(() => {
 
         <div v-for="env in envelopes" :key="env.id">
           <div class="line-row" @click="toggleEnvelope(env)">
-            <!-- ☐ versé : la mensualité suggérée en un clic (même geste que ☐ payé) -->
+            <!-- ☐ versé : la mensualité suggérée en un clic — disparaît dès qu'une contribution du mois existe -->
             <input
-              v-if="env.monthlySuggestion > 0 && !current.isClosed"
+              v-if="env.monthlySuggestion > 0 && !current.isClosed && !contribsForEnvelope(env).some((c) => c.kind === 'normale')"
               type="checkbox"
               class="shrink-0 accent-violet-600 cursor-pointer"
-              :checked="contribsForEnvelope(env).some((c) => c.kind === 'normale')"
-              :disabled="contribsForEnvelope(env).some((c) => c.kind === 'normale')"
               :title="'Verser la mensualité suggérée : ' + fmt(env.monthlySuggestion)"
               @click.stop="contributeSuggested(env)"
             />
@@ -1139,14 +1137,12 @@ const mainEnvelopesTotal = computed(() => {
         </div>
         <div v-for="asset in assets" :key="asset.id">
           <div class="line-row" @click="toggleAsset(asset)">
-            <!-- ☐ versé : le DCA prévu, une fois par mois -->
+            <!-- ☐ versé : le DCA prévu — disparaît dès qu'un mouvement existe ce mois (le réel remplace le prévu) -->
             <input
-              v-if="asset.monthlyDca > 0"
+              v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed"
               type="checkbox"
               class="shrink-0 accent-teal-600 cursor-pointer"
-              :checked="dcaDone(asset)"
-              :disabled="current.isClosed"
-              :title="dcaDone(asset) ? 'Versé — décocher retire le versement DCA' : 'Marquer le versement mensuel comme fait'"
+              title="Marquer le versement mensuel comme fait (pour annuler ensuite : supprimez le mouvement ×)"
               @click.stop="toggleDca(asset)"
             />
             <span class="text-[13px] font-medium truncate" :class="{ 'text-gray-400': asset.monthlyDca > 0 && !dcaDone(asset) && !movementsForAsset(asset).length }">{{ asset.name }}</span>

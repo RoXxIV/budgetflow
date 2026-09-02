@@ -147,11 +147,17 @@ export function dca(monthId, assetId) {
   if (!asset) throw httpError(404, "Actif introuvable");
   if (!asset.monthly_dca_cents) throw httpError(400, "Aucun versement mensuel prévu sur cet actif");
   const start = `${month.period}-01`;
+  // Même règle que le ☐ payé des lignes : dès qu'un mouvement existe ce mois-ci
+  // (DCA ou versement manuel), le réel remplace le prévu — pas de second versement par la case
   const existing = get(
-    "SELECT id FROM asset_movements WHERE asset_id = ? AND source = 'dca' AND date >= ? AND date < date(?, '+1 month')",
+    "SELECT id, source FROM asset_movements WHERE asset_id = ? AND date >= ? AND date < date(?, '+1 month')",
     assetId, start, start
   );
-  if (existing) throw httpError(409, "DCA déjà versé ce mois");
+  if (existing) {
+    throw httpError(409, existing.source === "dca"
+      ? "DCA déjà versé ce mois"
+      : "Cet actif a déjà un mouvement ce mois-ci : le réel remplace le versement prévu");
+  }
   const today = new Date().toISOString().substring(0, 10);
   const date = today.startsWith(month.period) ? today : start;
   return addMovement(assetId, { kind: "versement", amount: fromCents(asset.monthly_dca_cents), date, source: "dca" });

@@ -29,12 +29,18 @@ test("performance : (valeur + retiré − investi) / investi, un retrait n'est p
   assert.ok(eq(assets.getById(etf.id).gainPct, 10), "(1000 + 100 − 1000) / 1000 = +10 %");
 });
 
-test("DCA : une fois par mois, décochable", () => {
-  assets.dca(m.id, etf.id);
-  refuse(() => assets.dca(m.id, etf.id), 409);
+test("DCA : refusé dès qu'un mouvement du mois existe (le réel remplace le prévu)", () => {
+  refuse(() => assets.dca(m.id, etf.id), 409); // l'ETF a déjà des versements manuels ce mois
+});
+
+test("DCA : une fois par mois sur un actif sans mouvement, décochable", () => {
+  const reg = assets.create({ name: "ETF mensuel", accountId: pea.id, monthlyDca: 50 });
+  assets.dca(m.id, reg.id);
+  refuse(() => assets.dca(m.id, reg.id), 409);
   assert.ok(eq(summary.getSummary(m.id).accounts.find((a) => a.accountId === pea.id).current, 950));
-  assets.undca(m.id, etf.id);
+  assets.undca(m.id, reg.id);
   assert.ok(eq(summary.getSummary(m.id).accounts.find((a) => a.accountId === pea.id).current, 900));
+  assets.update(reg.id, { isClosed: true });
 });
 
 test("patrimoine : la valeur de marché remplace le solde d'un compte investissement valorisé", () => {
