@@ -254,6 +254,13 @@ const groups = computed(() => {
 const groupsLeft = computed(() => groups.value.filter((_, i) => i % 2 === 0))
 const groupsRight = computed(() => groups.value.filter((_, i) => i % 2 === 1))
 
+// Part de chaque catégorie dépense dans les dépenses réelles du mois (barre sous le titre)
+const totalDepenses = computed(() => groups.value.filter((g) => g.category.type === 'depense').reduce((s, g) => s + g.actual, 0))
+const depensePct = (group) => {
+  if (group.category.type !== 'depense' || !totalDepenses.value || group.actual <= 0) return null
+  return Math.round((group.actual / totalDepenses.value) * 100)
+}
+
 // ─── Création de mois ────────────────────────────────────
 const createFormOpen = ref(false)
 const newMonth = ref({ period: '', snapshots: {} })
@@ -1244,10 +1251,17 @@ const mainEnvelopesTotal = computed(() => {
           <div v-for="group in column" :key="group.category.id ?? 'none'" class="card p-0 overflow-hidden">
 
             <!-- En-tête catégorie -->
-            <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
-              <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ background: group.category.color }" />
-              <span class="font-semibold text-[13.5px]">{{ group.category.name }}</span>
-              <span class="ml-auto text-[12.5px] text-gray-400">{{ fmt(group.actual) }} <span class="text-gray-300">/ {{ fmt(group.planned) }}</span></span>
+            <div class="px-4 py-2.5 border-b border-stone-100">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ background: group.category.color }" />
+                <span class="font-semibold text-[13.5px]">{{ group.category.name }}</span>
+                <span class="ml-auto text-[12.5px] text-gray-400">{{ fmt(group.actual) }} <span class="text-gray-300">/ {{ fmt(group.planned) }}</span></span>
+              </div>
+              <!-- Part de la catégorie dans les dépenses réelles du mois -->
+              <div v-if="depensePct(group) !== null" class="flex items-center gap-2 mt-1.5" :title="fmt(group.actual) + ' sur ' + fmt(totalDepenses) + ' de dépenses réelles ce mois'">
+                <div class="progress flex-1"><div class="progress-bar" :style="{ width: depensePct(group) + '%', background: group.category.color }" /></div>
+                <span class="text-[10.5px] text-gray-400 shrink-0" style="font-variant-numeric: tabular-nums">{{ depensePct(group) }} %</span>
+              </div>
             </div>
 
             <!-- Lignes -->
