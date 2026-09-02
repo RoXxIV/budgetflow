@@ -220,6 +220,13 @@ const singleEntryDetail = (line) => {
   const es = entriesForLine(line)
   return es.length === 1 ? (es[0].label || null) : null
 }
+// Tous les thèmes portés par la ligne et ses entrées (dédupliqués), visibles sans déplier
+const themesForLine = (line) => {
+  const ids = new Set()
+  if (line.themeId) ids.add(line.themeId)
+  entriesForLine(line).forEach((e) => { if (e.themeId) ids.add(e.themeId) })
+  return [...ids].map((id) => themeById(id)).filter(Boolean)
+}
 // Virements système rattachés à la ligne (sans ligne ni catégorie : enveloppe → compte prélevé, reste pris ailleurs)
 const transfersForLine = (line) => entriesAll.value.filter((e) => e.relatedLineId === line.id)
 const lineCategoryType = (line) => categories.value.find((c) => c.id === line.categoryId)?.type || 'depense'
@@ -1261,6 +1268,7 @@ const mainEnvelopesTotal = computed(() => {
                 <span v-if="sharingOn && line.isShared && !line.isPot" class="badge bg-amber-50 text-amber-600" :title="'Cagnotte : ' + (potById(line.potLineId) || pots[0]).label">
                   ½{{ pots.length > 1 ? ' ' + ((potById(line.potLineId) || pots[0]).pot?.partnerName || '') : '' }}
                 </span>
+                <span v-for="t in themesForLine(line)" :key="'th' + t.id" class="badge" :style="{ background: t.color + '22', color: t.color }">{{ t.name }}</span>
 
                 <!-- Montant : le réel remplace le prévu (cagnotte : « à envoyer » calculé) -->
                 <span class="ml-auto shrink-0 text-right">
