@@ -168,17 +168,23 @@ const shownTab = computed(() => {
 // Changement d'onglet : la hauteur du bloc est animée (mesure avant/après) pour que
 // le contenu du dessous soit poussé en douceur, pendant que le panneau entre en fondu
 const tabBody = ref(null)
+let tabTimer = null
 async function switchTab(tab) {
   if (tab === shownTab.value) return
   const el = tabBody.value
-  if (el) el.style.height = el.offsetHeight + 'px'
+  const startH = el ? el.offsetHeight : 0
   epargneTab.value = tab
   await nextTick()
   if (!el) return
-  requestAnimationFrame(() => {
-    el.style.height = el.scrollHeight + 'px'
-    setTimeout(() => { el.style.height = '' }, 330)
-  })
+  // La cible se mesure hauteur libérée (scrollHeight ne descend jamais sous une hauteur fixée) ;
+  // tout se joue avant la peinture : aucun flash visible.
+  el.style.height = 'auto'
+  const targetH = el.offsetHeight
+  el.style.height = startH + 'px'
+  void el.offsetHeight // reflow : fige la hauteur de départ avant la transition
+  el.style.height = targetH + 'px'
+  clearTimeout(tabTimer)
+  tabTimer = setTimeout(() => { el.style.height = '' }, 320)
 }
 const contribsForEnvelope = (env) => monthContribs.value.filter((c) => c.envelopeId === env.id)
 const monthContribTotal = computed(() => monthContribs.value.filter((c) => c.kind === 'normale').reduce((s, c) => s + c.amount, 0))
