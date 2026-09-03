@@ -49,8 +49,13 @@ Reste à vivre, registre unique à colonnes alignées, sections dépliées selon
 (+ localStorage), en-têtes enrichis, totaux sticky, « À faire ce mois », colonne latérale
 Enveloppes/Investissements. Adaptations logiques : pointage à sens unique conservé, thèmes en
 point de couleur, total = dépenses uniquement, reste à vivre via prevusRestants.
-**Différé** : thème sombre (tokens prêts, bascule quand toutes les pages seront tokenisées),
-addendum §6/§8. **À venir** : md pour la page Comptes, puis Stats/Template/Paramètres.
+**04/09 — les 6 pages sont au registre** : Comptes (2f97c14), Investissements (20ab872),
+Template (eb48a28), Stats (c5f0c58 — nouveaux composants BarChart/StackedAreaChart/SeriesPicker,
+mois en cours exclu par défaut, prévu des cagnottes unifié backend+test), Paramètres (a900706 —
+palette fermée --cat-1..12, plus d'input color, compteurs d'usage backend, script
+`scripts/registre-parametres-donnees.mjs` passé sur dev + backup-propre, à rejouer en release).
+**Différé** : thème sombre (tokenisation finie → bascule prête à brancher), addendum §6/§8,
+TWR investissements (« Écart » renommé en attendant), bloc « versements du mois » page Invest.
 
 ## Reportés
 - **6. Suppression de mois** : à brainstormer après tests (échéances avancées, effets de bord).
