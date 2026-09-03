@@ -296,45 +296,17 @@ function toggleCatOpen(group) {
   openCats.value = set
 }
 
-// Totaux dépenses (réel et prévu) + part des enveloppes dans les sorties réelles
+// Part de chaque catégorie dépense — et des enveloppes — dans les sorties réelles du mois
+// (dépenses réelles + mis de côté en enveloppes), barre sous chaque titre
 const totalDepenses = computed(() => groups.value.filter((g) => g.category.type === 'depense').reduce((s, g) => s + g.actual, 0))
-const plannedDepenses = computed(() => groups.value.filter((g) => g.category.type === 'depense').reduce((s, g) => s + g.planned, 0))
 const totalSorties = computed(() => Math.round((totalDepenses.value + monthContribTotal.value) * 100) / 100)
+const depensePct = (group) => {
+  if (group.category.type !== 'depense' || !totalSorties.value || group.actual <= 0) return null
+  return Math.round((group.actual / totalSorties.value) * 100)
+}
 const envelopesPct = computed(() => {
   if (!totalSorties.value || monthContribTotal.value <= 0) return null
   return Math.round((monthContribTotal.value / totalSorties.value) * 100)
-})
-
-// Jauge de budget d'une catégorie dépense : consommé / prévu
-const budgetPct = (group) => (group.category.type === 'depense' && group.planned > 0
-  ? Math.min(100, Math.round((group.actual / group.planned) * 100))
-  : null)
-const nonBudgete = (group) => group.category.type === 'depense' && group.planned === 0 && group.actual > 0
-
-// Bandeau : jours restants du mois et disponible par jour
-const daysLeft = computed(() => {
-  if (!current.value) return 0
-  const now = new Date()
-  const [y, m] = current.value.period.split('-').map(Number)
-  const total = new Date(y, m, 0).getDate()
-  const nowPeriod = now.toISOString().substring(0, 7)
-  if (current.value.period === nowPeriod) return total - now.getDate() + 1
-  return current.value.period > nowPeriod ? total : 0
-})
-const perDay = computed(() => {
-  const p = summaryData.value?.tiles.projete
-  if (p === null || p === undefined || p <= 0 || daysLeft.value <= 0) return null
-  return Math.round((p / daysLeft.value) * 100) / 100
-})
-
-// À surveiller : anomalies simples, affichées seulement quand il y en a
-const warnings = computed(() => {
-  const list = []
-  for (const g of groups.value.filter((x) => x.category.type === 'depense')) {
-    if (g.planned === 0 && g.actual > 0) list.push(`${fmt(g.actual)} dépensés sans budget dans « ${g.category.name} »`)
-    else if (g.planned > 0 && g.actual > g.planned) list.push(`« ${g.category.name} » dépasse son budget de ${fmt(g.actual - g.planned)}`)
-  }
-  return list
 })
 
 // ─── Création de mois ────────────────────────────────────
@@ -1044,31 +1016,27 @@ const mainEnvelopesTotal = computed(() => {
       <div class="subheader mb-4">
         <div class="flex items-center gap-x-5 gap-y-2 flex-wrap">
           <template v-if="summaryData">
-            <!-- L'information centrale : combien je peux encore dépenser ce mois-ci -->
+            <div class="kpi">
+              <span class="kpi-value" :class="amountClass(summaryData.tiles.disponible)">{{ fmtOrDash(summaryData.tiles.disponible) }}</span>
+              <span class="kpi-label">Solde actuel{{ summaryData.mainAccount ? ' · ' + summaryData.mainAccount.name : '' }}</span>
+              <span v-if="!summaryData.mainAccount" class="kpi-hint text-amber-500">Définir un compte principal</span>
+              <span v-else-if="summaryData.tiles.disponible === null" class="kpi-hint text-amber-500">Saisir le solde de début de mois</span>
+              <span v-else-if="mainEnvelopesTotal" class="kpi-hint">enveloppes déduites ({{ fmt(mainEnvelopesTotal) }})</span>
+            </div>
+            <div class="kpi-sep" />
             <div
               class="kpi"
               :title="`+ ${fmt(summaryData.tiles.detail.revenusRestants)} revenus prévus non encaissés · − ${fmt(summaryData.tiles.detail.prevusRestants)} sorties prévues non réalisées`"
             >
-              <span class="kpi-value text-[25px]" :class="amountClass(summaryData.tiles.projete)">{{ fmtOrDash(summaryData.tiles.projete) }}</span>
-              <span class="kpi-label flex items-center gap-1">Disponible jusqu'à la fin du mois <HelpTip text="Solde actuel + revenus prévus non encaissés − tout ce qui est prévu et pas encore passé (lignes non cochées, mensualités et DCA non versés). Répond à « est-ce que je peux me le permettre ? »." /></span>
-              <span v-if="perDay !== null" class="kpi-hint">{{ daysLeft }} jour{{ daysLeft > 1 ? 's' : '' }} restants · ≈ {{ fmt(perDay) }}/jour</span>
-              <span v-else class="kpi-hint">si tout le prévu se réalise</span>
+              <span class="kpi-value" :class="amountClass(summaryData.tiles.projete)">{{ fmtOrDash(summaryData.tiles.projete) }}</span>
+              <span class="kpi-label flex items-center gap-1">Projeté fin de mois <HelpTip text="Solde actuel + revenus prévus non encaissés − tout ce qui est prévu et pas encore passé (lignes non cochées, mensualités et DCA non versés). Répond à « est-ce que je peux me le permettre ? »." /></span>
+              <span class="kpi-hint">si tout le prévu se réalise</span>
             </div>
             <div class="kpi-sep" />
             <div class="kpi">
-              <span class="kpi-value">{{ fmt(totalDepenses) }} <span class="text-[12px] text-gray-400 font-semibold">/ {{ fmt(plannedDepenses) }}</span></span>
-              <span class="kpi-label">Dépenses réalisées</span>
-            </div>
-            <div class="kpi">
-              <span class="kpi-value text-violet-600">{{ fmt(summaryData.tiles.misDeCote) }} <span v-if="summaryData.tiles.objectifEpargne" class="text-[12px] text-gray-400 font-semibold">/ {{ fmt(summaryData.tiles.objectifEpargne) }}</span></span>
-              <span class="kpi-label">Épargne</span>
-            </div>
-            <div class="kpi-sep" />
-            <div class="kpi">
-              <span class="kpi-value text-[14px] text-gray-600">{{ fmtOrDash(summaryData.tiles.disponible) }}</span>
-              <span class="kpi-label">Solde réel{{ summaryData.mainAccount ? ' · ' + summaryData.mainAccount.name : '' }}</span>
-              <span v-if="!summaryData.mainAccount" class="kpi-hint text-amber-500">Définir un compte principal</span>
-              <span v-else-if="summaryData.tiles.disponible === null" class="kpi-hint text-amber-500">Saisir le solde de début</span>
+              <span class="kpi-value text-violet-600">{{ fmt(summaryData.tiles.misDeCote) }}</span>
+              <span class="kpi-label">Mis de côté ce mois</span>
+              <span v-if="summaryData.tiles.savingRate" class="kpi-hint">objectif {{ fmt(summaryData.tiles.objectifEpargne) }} ({{ summaryData.tiles.savingRate }} %)</span>
             </div>
           </template>
 
@@ -1110,15 +1078,6 @@ const mainEnvelopesTotal = computed(() => {
               <span :class="{ 'text-amber-600 font-semibold': a.unallocated < 0 }" :title="a.unallocated < 0 ? 'Négatif : les enveloppes réservent plus que le solde (découvert autorisé)' : ''">{{ fmtOrDash(a.unallocated) }}</span>
             </p>
           </div>
-        </div>
-      </div>
-
-      <!-- À surveiller : seulement quand il y a une anomalie -->
-      <div v-if="warnings.length" class="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 mb-4 flex items-start gap-2.5">
-        <PhWarning :size="17" weight="fill" class="text-amber-500 shrink-0 mt-0.5" />
-        <div class="text-[12.5px] text-amber-800 leading-relaxed">
-          <p class="font-semibold">À surveiller</p>
-          <p v-for="(w, i) in warnings" :key="i">{{ w }}</p>
         </div>
       </div>
 
@@ -1276,7 +1235,6 @@ const mainEnvelopesTotal = computed(() => {
       </div>
 
       <!-- Catégories -->
-      <p class="section-label">Budget du mois</p>
       <div class="flex flex-col gap-4">
           <div v-for="group in displayGroups" :key="group.category.id ?? 'none'" class="card p-0 overflow-hidden">
 
@@ -1288,18 +1246,16 @@ const mainEnvelopesTotal = computed(() => {
                 </span>
                 <span class="font-semibold text-[13.5px]">{{ group.category.name }}</span>
                 <span v-if="group.lines.length" class="badge bg-stone-100 text-gray-400">{{ group.lines.length }}</span>
-                <span class="ml-auto flex items-center gap-2">
-                  <span v-if="nonBudgete(group)" class="badge bg-amber-100 text-amber-700">{{ fmt(group.actual) }} non budgétés</span>
-                  <span v-else class="text-[14px] font-bold" style="font-variant-numeric: tabular-nums">
-                    {{ fmt(group.actual) }} <span class="text-[12px] text-gray-400 font-semibold">/ {{ fmt(group.planned) }}</span>
-                  </span>
+                <span class="ml-auto text-right leading-tight">
+                  <span class="block text-[14px] font-bold" style="font-variant-numeric: tabular-nums">{{ fmt(group.actual) }}</span>
+                  <span class="block text-[10.5px] text-gray-400">prévu {{ fmt(group.planned) }}</span>
                 </span>
                 <PhCaretDown :size="14" weight="bold" class="text-gray-300 shrink-0 transition-transform duration-300" :class="{ '-rotate-90': !isCatOpen(group) }" />
               </div>
-              <!-- Jauge de budget : dépensé / prévu (jamais de jauge sur un budget à zéro) -->
-              <div v-if="budgetPct(group) !== null" class="flex items-center gap-2 mt-1.5" :title="fmt(group.actual) + ' dépensés sur ' + fmt(group.planned) + ' prévus'">
-                <div class="progress flex-1"><div class="progress-bar transition-all duration-300" :style="{ width: budgetPct(group) + '%', background: group.actual > group.planned ? '#ef4444' : group.category.color }" /></div>
-                <span class="text-[10.5px] shrink-0" :class="group.actual > group.planned ? 'text-red-500 font-semibold' : 'text-gray-400'" style="font-variant-numeric: tabular-nums">{{ Math.round((group.actual / group.planned) * 100) }} %</span>
+              <!-- Part de la catégorie dans les dépenses réelles du mois -->
+              <div v-if="depensePct(group) !== null" class="flex items-center gap-2 mt-1.5" :title="fmt(group.actual) + ' sur ' + fmt(totalSorties) + ' de sorties réelles ce mois (dépenses + enveloppes)'">
+                <div class="progress flex-1"><div class="progress-bar" :style="{ width: depensePct(group) + '%', background: group.category.color }" /></div>
+                <span class="text-[10.5px] text-gray-400 shrink-0" style="font-variant-numeric: tabular-nums">{{ depensePct(group) }} %</span>
               </div>
             </div>
 
@@ -1309,16 +1265,17 @@ const mainEnvelopesTotal = computed(() => {
             <!-- Lignes -->
             <div v-for="line in group.lines" :key="line.id">
               <div class="line-row" :class="{ 'line-row--pot': line.isPot }" @click="toggleEntries(line)">
-                <!-- Statut : cercle = prévu (cliquer paie au prévu), coche verte = payé -->
-                <button
+                <!-- ☐ payé : prévu sans entrée → cocher crée l'entrée au prévu -->
+                <input
                   v-if="showCheckbox(line)"
-                  class="shrink-0 text-stone-300 hover:text-violet-500 transition-colors cursor-pointer"
+                  type="checkbox"
+                  class="shrink-0 text-violet-600 cursor-pointer"
+                  :checked="isPaid(line)"
                   :disabled="current.isClosed"
                   title="Marquer payé au montant prévu (pour annuler ensuite : supprimez l'entrée ×)"
                   @click.stop="togglePaid(line)"
-                ><PhCircle :size="18" weight="bold" /></button>
-                <PhCheckCircle v-else-if="isPaid(line)" :size="18" weight="fill" class="shrink-0 text-emerald-500" />
-                <span class="text-[13px] font-medium truncate" :class="isPaid(line) ? 'text-gray-900' : 'text-gray-600'">
+                />
+                <span class="text-[13px] font-medium truncate" :class="{ 'text-gray-400': !isPaid(line) }">
                   {{ line.label }}<span v-if="singleEntryDetail(line)" class="text-gray-400 font-normal"> — {{ singleEntryDetail(line) }}</span>
                 </span>
                 <span v-if="line.isPot" class="badge bg-amber-50 text-amber-600" title="Cagnotte : le prévu est calculé à partir des ½">cagnotte · {{ line.pot?.partnerName }}</span>
@@ -1326,11 +1283,7 @@ const mainEnvelopesTotal = computed(() => {
                 <span v-if="sharingOn && line.isShared && !line.isPot" class="badge bg-amber-50 text-amber-600" :title="'Cagnotte : ' + (potById(line.potLineId) || pots[0]).label">
                   ½{{ pots.length > 1 ? ' ' + ((potById(line.potLineId) || pots[0]).pot?.partnerName || '') : '' }}
                 </span>
-                <!-- Un seul tag visible, le reste en « +n » (survol = la liste) -->
-                <template v-if="themesForLine(line).length">
-                  <span class="badge" :style="{ background: themesForLine(line)[0].color + '22', color: themesForLine(line)[0].color }">{{ themesForLine(line)[0].name }}</span>
-                  <span v-if="themesForLine(line).length > 1" class="badge bg-stone-100 text-gray-400" :title="themesForLine(line).map((t) => t.name).join(' · ')">+{{ themesForLine(line).length - 1 }}</span>
-                </template>
+                <span v-for="t in themesForLine(line)" :key="'th' + t.id" class="badge" :style="{ background: t.color + '22', color: t.color }">{{ t.name }}</span>
 
                 <!-- Montant : le réel remplace le prévu (cagnotte : « à envoyer » calculé) -->
                 <span class="ml-auto shrink-0 text-right">
@@ -1344,7 +1297,7 @@ const mainEnvelopesTotal = computed(() => {
                     <span class="text-[13px] font-semibold" :class="!isPaid(line) ? 'text-gray-400' : overBudget(line) ? 'text-red-500' : ''">
                       {{ fmt(isPaid(line) ? line.actualAmount : line.plannedAmount) }}
                     </span>
-                    <span v-if="isPaid(line) && line.plannedAmount > 0 && line.actualAmount !== line.plannedAmount" class="text-[11px] text-gray-400" title="Montant différent du prévu"><span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 align-middle mr-1" /> / {{ fmt(line.plannedAmount) }} prévu</span>
+                    <span v-if="isPaid(line) && line.plannedAmount > 0 && line.actualAmount !== line.plannedAmount" class="text-[11px] text-gray-400"> / {{ fmt(line.plannedAmount) }} prévu</span>
                   </template>
                 </span>
                 <button
@@ -1471,10 +1424,9 @@ const mainEnvelopesTotal = computed(() => {
 <style scoped>
 @reference "@/style.css";
 
-.card { @apply bg-white rounded-2xl border border-stone-200/90 shadow-xs; }
-.section-label { @apply text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2 mt-2; }
-.subheader { @apply bg-white/95 backdrop-blur rounded-2xl border border-stone-200/90 px-5 py-4 sticky top-[60px] z-20 shadow-sm; }
-.month-select { @apply text-[17px] font-bold tracking-tight text-gray-900 bg-transparent border border-transparent hover:border-stone-200 rounded-lg py-1 pl-1 pr-1 outline-none cursor-pointer; }
+.card { @apply bg-white rounded-xl border border-stone-200; }
+.subheader { @apply bg-white/95 backdrop-blur rounded-xl border border-stone-200 px-5 py-3 sticky top-3 z-20 shadow-sm; }
+.month-select { @apply text-[16px] font-bold text-gray-900 bg-transparent border border-transparent hover:border-stone-200 rounded-lg py-1 pl-1 pr-1 outline-none cursor-pointer; }
 .kpi { @apply flex flex-col leading-tight; }
 .kpi-value { @apply text-[17px] font-bold tracking-tight; }
 .kpi-label { @apply text-[11px] text-gray-400 font-medium; }
@@ -1501,7 +1453,7 @@ const mainEnvelopesTotal = computed(() => {
 .field { @apply flex flex-col gap-1 text-[11px] font-medium text-gray-500; }
 .input { @apply py-1.5 px-2 border border-stone-200 rounded-md text-[13px] text-gray-900 bg-white outline-none focus:border-violet-400 disabled:opacity-50; }
 .checkbox { @apply flex items-center gap-1 text-[12.5px] text-gray-600 cursor-pointer; }
-.btn-primary { @apply py-1.5 px-3.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-[12.5px] font-semibold shadow-sm cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
+.btn-primary { @apply py-1.5 px-3 bg-violet-600 hover:bg-violet-700 text-white rounded-md text-[12.5px] font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed; }
 .btn-secondary { @apply py-1.5 px-3 bg-white border border-stone-200 hover:bg-stone-100 text-gray-600 rounded-md text-[12.5px] font-medium cursor-pointer; }
 .icon-btn { @apply w-6 h-6 rounded hover:bg-stone-200 cursor-pointer text-[13px]; }
 .progress { @apply h-1 bg-stone-200 rounded-full overflow-hidden; }
