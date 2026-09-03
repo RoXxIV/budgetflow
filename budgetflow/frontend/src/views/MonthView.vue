@@ -727,27 +727,6 @@ const mainEnvelopesTotal = computed(() => {
 
 <template>
   <div>
-    <!-- ─── En-tête ──────────────────────────────────── -->
-    <div class="flex items-start justify-between mb-5">
-      <div>
-        <h1 class="text-[22px] font-semibold">Mois</h1>
-        <p class="text-[13px] text-gray-400 mt-0.5 flex items-center gap-1.5">
-          Suivi budgétaire mensuel
-          <HelpTip wide text="Chaque ligne a un prévu (du template) et un réel (vos entrées). ☐ = prévu pas encore réalisé : cocher crée l'entrée au prévu. Cliquez une ligne pour voir ses entrées, « + entrée » pour en ajouter, ✎ pour modifier la ligne. « + ligne » ajoute une dépense propre à ce mois. Un mois clôturé est verrouillé." />
-        </p>
-      </div>
-      <div class="flex gap-2 items-center">
-        <select
-          v-if="monthsList.length"
-          class="input min-w-36"
-          :value="current?.id"
-          @change="openMonth(monthsList.find((m) => m.id === Number($event.target.value)))"
-        >
-          <option v-for="m in monthsList" :key="m.id" :value="m.id">{{ m.name }}{{ m.isClosed ? ' 🔒' : '' }}</option>
-        </select>
-        <button class="btn-primary" @click="openCreateForm">+ Nouveau mois</button>
-      </div>
-    </div>
 
     <!-- ─── Formulaire création ──────────────────────── -->
     <AppModal :open="createFormOpen" title="Nouveau mois" @close="createFormOpen = false">
@@ -991,52 +970,59 @@ const mainEnvelopesTotal = computed(() => {
 
     <!-- ─── Contenu du mois ──────────────────────────── -->
     <div v-if="current">
-      <div class="flex items-center gap-2.5 mb-4">
-        <h2 class="text-[17px] font-bold">{{ current.name }}</h2>
-        <span class="badge" :class="current.isClosed ? 'bg-gray-100 text-gray-500' : 'bg-emerald-50 text-emerald-700'">
-          {{ current.isClosed ? 'Clôturé' : 'Ouvert' }}
-        </span>
-        <button class="link text-xs" @click="toggleClosed">{{ current.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
-        <button class="link text-xs ml-auto" @click="openSnapshots">Soldes de début de mois</button>
-      </div>
+      <!-- ─── Sous-header : mois, statut, bilan et actions en une barre (sticky) ── -->
+      <div class="subheader mb-4">
+        <div class="flex items-center gap-x-5 gap-y-2 flex-wrap">
+          <div class="flex items-center gap-2">
+            <select
+              class="month-select"
+              :value="current?.id"
+              @change="openMonth(monthsList.find((m) => m.id === Number($event.target.value)))"
+            >
+              <option v-for="m in monthsList" :key="m.id" :value="m.id">{{ m.name }}{{ m.isClosed ? ' 🔒' : '' }}</option>
+            </select>
+            <span class="badge" :class="current.isClosed ? 'bg-gray-100 text-gray-500' : 'bg-emerald-50 text-emerald-700'">
+              {{ current.isClosed ? 'Clôturé' : 'Ouvert' }}
+            </span>
+          </div>
 
-      <!-- ─── Bilan ────────────────────────────────── -->
-      <div v-if="summaryData" class="card px-5 py-4 mb-4">
-        <div class="grid grid-cols-3 gap-6">
-          <div class="flex flex-col gap-0.5">
-            <span class="text-[20px] font-bold tracking-tight" :class="amountClass(summaryData.tiles.disponible)">
-              {{ fmtOrDash(summaryData.tiles.disponible) }}
-            </span>
-            <span class="text-[11.5px] text-gray-400 font-medium">
-              Solde actuel{{ summaryData.mainAccount ? ' — ' + summaryData.mainAccount.name : '' }}
-            </span>
-            <span v-if="!summaryData.mainAccount" class="text-[11px] text-amber-500">Définir un compte principal (Comptes)</span>
-            <span v-else-if="summaryData.tiles.disponible === null" class="text-[11px] text-amber-500">Saisir le solde de début de mois</span>
-            <span v-else-if="mainEnvelopesTotal" class="text-[11px] text-gray-400">enveloppes déduites ({{ fmt(mainEnvelopesTotal) }})</span>
-          </div>
-          <div
-            class="flex flex-col gap-0.5"
-            :title="`+ ${fmt(summaryData.tiles.detail.revenusRestants)} revenus prévus non encaissés · − ${fmt(summaryData.tiles.detail.prevusRestants)} sorties prévues non réalisées`"
-          >
-            <span class="text-[20px] font-bold tracking-tight" :class="amountClass(summaryData.tiles.projete)">
-              {{ fmtOrDash(summaryData.tiles.projete) }}
-            </span>
-            <span class="text-[11.5px] text-gray-400 font-medium flex items-center gap-1">Projeté fin de mois <HelpTip text="Solde actuel + revenus prévus non encaissés − tout ce qui est prévu et pas encore passé (lignes non cochées, mensualités et DCA non versés). Répond à « est-ce que je peux me le permettre ? »." /></span>
-            <span class="text-[11px] text-gray-400">si tout le prévu se réalise</span>
-          </div>
-          <div class="flex flex-col gap-0.5">
-            <span class="text-[20px] font-bold tracking-tight text-violet-600">{{ fmt(summaryData.tiles.misDeCote) }}</span>
-            <span class="text-[11.5px] text-gray-400 font-medium">Mis de côté ce mois</span>
-            <span v-if="summaryData.tiles.savingRate" class="text-[11px] text-gray-400">
-              objectif {{ fmt(summaryData.tiles.objectifEpargne) }} ({{ summaryData.tiles.savingRate }} % du revenu)
-            </span>
+          <template v-if="summaryData">
+            <div class="kpi-sep" />
+            <div class="kpi">
+              <span class="kpi-value" :class="amountClass(summaryData.tiles.disponible)">{{ fmtOrDash(summaryData.tiles.disponible) }}</span>
+              <span class="kpi-label">Solde actuel{{ summaryData.mainAccount ? ' · ' + summaryData.mainAccount.name : '' }}</span>
+              <span v-if="!summaryData.mainAccount" class="kpi-hint text-amber-500">Définir un compte principal</span>
+              <span v-else-if="summaryData.tiles.disponible === null" class="kpi-hint text-amber-500">Saisir le solde de début de mois</span>
+              <span v-else-if="mainEnvelopesTotal" class="kpi-hint">enveloppes déduites ({{ fmt(mainEnvelopesTotal) }})</span>
+            </div>
+            <div class="kpi-sep" />
+            <div
+              class="kpi"
+              :title="`+ ${fmt(summaryData.tiles.detail.revenusRestants)} revenus prévus non encaissés · − ${fmt(summaryData.tiles.detail.prevusRestants)} sorties prévues non réalisées`"
+            >
+              <span class="kpi-value" :class="amountClass(summaryData.tiles.projete)">{{ fmtOrDash(summaryData.tiles.projete) }}</span>
+              <span class="kpi-label flex items-center gap-1">Projeté fin de mois <HelpTip text="Solde actuel + revenus prévus non encaissés − tout ce qui est prévu et pas encore passé (lignes non cochées, mensualités et DCA non versés). Répond à « est-ce que je peux me le permettre ? »." /></span>
+              <span class="kpi-hint">si tout le prévu se réalise</span>
+            </div>
+            <div class="kpi-sep" />
+            <div class="kpi">
+              <span class="kpi-value text-violet-600">{{ fmt(summaryData.tiles.misDeCote) }}</span>
+              <span class="kpi-label">Mis de côté ce mois</span>
+              <span v-if="summaryData.tiles.savingRate" class="kpi-hint">objectif {{ fmt(summaryData.tiles.objectifEpargne) }} ({{ summaryData.tiles.savingRate }} %)</span>
+            </div>
+          </template>
+
+          <div class="ml-auto flex items-center gap-3">
+            <button class="link text-xs" @click="showAccounts = !showAccounts">{{ showAccounts ? '▲' : '▼' }} Comptes</button>
+            <button class="link text-xs" @click="openSnapshots">Soldes de début</button>
+            <button class="link text-xs" @click="toggleClosed">{{ current.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
+            <button class="btn-primary" @click="openCreateForm">+ Nouveau mois</button>
+            <HelpTip wide text="Chaque ligne a un prévu (du template) et un réel (vos entrées). ☐ = prévu pas encore réalisé : cocher crée l'entrée au prévu. Cliquez une ligne pour voir ses entrées, « + entrée » pour en ajouter, ✎ pour modifier la ligne. « + ligne » ajoute une dépense propre à ce mois. Un mois clôturé est verrouillé." />
           </div>
         </div>
 
-        <button class="link text-xs mt-3" @click="showAccounts = !showAccounts">
-          {{ showAccounts ? '▲' : '▼' }} Soldes des comptes
-        </button>
-        <div v-if="showAccounts" class="grid grid-cols-4 gap-2 mt-2">
+        <!-- Soldes des comptes (déplié dans la barre) -->
+        <div v-if="showAccounts" class="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-stone-100">
           <div v-for="a in summaryData.accounts" :key="a.accountId" class="bg-stone-50 rounded-lg px-3 py-2">
             <p class="text-[11.5px] font-semibold truncate">{{ a.name }}<span v-if="a.isMain" class="text-violet-500"> ★</span></p>
             <p class="text-[12.5px]">
@@ -1379,6 +1365,13 @@ const mainEnvelopesTotal = computed(() => {
 @reference "@/style.css";
 
 .card { @apply bg-white rounded-xl border border-stone-200; }
+.subheader { @apply bg-white/95 backdrop-blur rounded-xl border border-stone-200 px-5 py-3 sticky top-3 z-20 shadow-sm; }
+.month-select { @apply text-[16px] font-bold text-gray-900 bg-transparent border border-transparent hover:border-stone-200 rounded-lg py-1 pl-1 pr-1 outline-none cursor-pointer; }
+.kpi { @apply flex flex-col leading-tight; }
+.kpi-value { @apply text-[17px] font-bold tracking-tight; }
+.kpi-label { @apply text-[11px] text-gray-400 font-medium; }
+.kpi-hint { @apply text-[10.5px] text-gray-400; }
+.kpi-sep { @apply w-px self-stretch bg-stone-200; }
 .badge { @apply text-[10.5px] font-semibold px-1.5 py-px rounded-full shrink-0; }
 .line-row { @apply flex items-center gap-2 px-4 py-2 border-b border-stone-50 cursor-pointer hover:bg-stone-50; }
 .line-row--pot { @apply bg-amber-50/60 hover:bg-amber-50 border-l-2 border-l-amber-400; }
