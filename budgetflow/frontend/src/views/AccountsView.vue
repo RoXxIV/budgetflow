@@ -9,6 +9,7 @@ import {
 } from '@/api/envelopes.js'
 import { watch } from 'vue'
 import { confirmDialog, apiError } from '@/composables/useDialog.js'
+import { eur } from '@/lib/format.js'
 import HelpTip from '@/components/HelpTip.vue'
 
 // ─── Data ────────────────────────────────────────────────
@@ -69,8 +70,52 @@ const TYPE_COLORS = {
   investissement: 'bg-violet-50 text-violet-700',
   especes: 'bg-amber-50 text-amber-700',
 }
-const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+const fmt = eur // « 1 667,85 € », espaces fines insécables
 const pct = (e) => (e.effectiveTarget ? Math.min(100, Math.round((e.total / e.effectiveTarget) * 100)) : null)
+
+// ─── Registre des comptes groupé par type (brief Comptes §2/§4) ───
+const GROUP_LABELS = { courant: 'Comptes courants', epargne: 'Épargne', investissement: 'Investissement', especes: 'Espèces' }
+// Solde affiché : valeur de marché si valorisé, sinon solde live ; null = inconnu (on affiche « — », pas 0)
+const accountBalance = (a) => {
+  const r = netWorthOf(a.id)
+  if (!r) return null
+  return r.used ?? r.balance ?? null
+}
+const accountGroups = computed(() =>
+  ['courant', 'epargne', 'investissement', 'especes']
+    .map((type) => {
+      const accs = activeAccounts.value
+        .filter((a) => a.type === type)
+        .sort((a, b) => (b.isMain ? 1 : 0) - (a.isMain ? 1 : 0) || ((accountBalance(b) ?? -1e15) - (accountBalance(a) ?? -1e15)))
+      return {
+        type,
+        label: GROUP_LABELS[type],
+        accounts: accs,
+        total: accs.reduce((s, a) => s + (a.includeInNetWorth ? (accountBalance(a) || 0) : 0), 0),
+      }
+    })
+    .filter((g) => g.accounts.length)
+)
+const monthLabel = computed(() => {
+  const p = netWorth.value?.monthPeriod
+  if (!p) return ''
+  const [y, m] = p.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+})
+
+// Dépliage des enveloppes d'un compte + menu d'actions ⋯
+const openAccountId = ref(null)
+function toggleAccount(account) {
+  if (!account.envelopes.length) return
+  openAccountId.value = openAccountId.value === account.id ? null : account.id
+}
+const menuAccountId = ref(null)
+async function makeMain(account) {
+  try { await updateAccount(account.id, { isMain: true }); await load() } catch (e) { apiError(e) }
+}
+async function togglePatrimoine(account) {
+  try { await updateAccount(account.id, { includeInNetWorth: !account.includeInNetWorth }); await load() } catch (e) { apiError(e) }
+}
 
 // ─── Formulaire compte (ajout / édition) ─────────────────
 const accountFormOpen = ref(false)
@@ -359,10 +404,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
     <div class="flex items-start justify-between mb-6">
       <div>
         <h1 class="text-[22px] font-semibold">Comptes &amp; enveloppes</h1>
-        <p class="text-[13px] text-gray-400 mt-0.5 flex items-center gap-1.5">
-          Vos comptes bancaires et vos projets d'épargne
-          <HelpTip wide text="Un compte = un vrai compte (courant, livret, PEA…). Une enveloppe = de l'argent réservé pour un projet (Japon, matelas de sécurité…), hébergée sur un compte ou virtuelle. Le solde d'un compte = ses enveloppes + le « hors enveloppes ». Un compte épargne créé avec un solde initial reçoit automatiquement une enveloppe du même nom." />
-        </p>
+        <p class="page-sub">Vos comptes bancaires et vos projets d'épargne</p>
       </div>
       <div class="flex gap-2">
         <button class="btn-secondary" @click="openAddEnvelope()">+ Enveloppe</button>
@@ -374,16 +416,19 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
       Backend injoignable : {{ error }}
     </p>
 
-    <!-- ─── Patrimoine ───────────────────────────────── -->
-    <div v-if="netWorth && accounts.length" class="card mb-5 flex items-center gap-6">
-      <div>
-        <span class="block text-[24px] font-bold tracking-tight">{{ fmt(netWorth.total) }}</span>
-        <span class="block text-[11.5px] text-gray-400 font-medium">Patrimoine total<span v-if="netWorth.monthPeriod"> · soldes de {{ netWorth.monthPeriod }}</span></span>
+    <!-- ─── Patrimoine : une valeur en héros + répartition par type — brief §3 ── -->
+    <div v-if="netWorth && accounts.length" class="panel patri">
+      <div class="synth-hero">
+        <span class="num synth-solde">{{ fmt(netWorth.total) }}</span>
+        <span class="synth-sub"><span class="has-tip" title="Somme des comptes inclus, au solde du mois en cours. Pour un compte investissement dont les actifs sont valorisés, la valeur de marché remplace le solde.">Patrimoine total</span><template v-if="monthLabel"> · {{ monthLabel }}</template></span>
       </div>
-      <p class="text-[11.5px] text-gray-400 max-w-md">
-        Somme des comptes inclus, au solde du mois en cours. Pour un compte investissement dont les actifs sont valorisés,
-        la valeur de marché remplace le solde.
-      </p>
+      <template v-for="grp in accountGroups" :key="'t' + grp.type">
+        <div class="synth-sep" />
+        <div class="synth-kv">
+          <span class="synth-k">{{ grp.label }}</span>
+          <span class="num synth-v">{{ fmt(grp.total) }}</span>
+        </div>
+      </template>
     </div>
 
     <!-- ─── Formulaire compte ────────────────────────── -->
@@ -553,141 +598,169 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
     </AppModal>
 
     <!-- ─── Aucun compte ─────────────────────────────── -->
-    <div v-if="!accounts.length && !virtualEnvelopes.length" class="text-center py-16 text-gray-400">
-      <p class="mb-4">Aucun compte pour l'instant.</p>
-      <button class="btn-primary" @click="openAddAccount">Créer le premier compte</button>
+    <div v-if="!accounts.length && !virtualEnvelopes.length" class="panel empty-panel">
+      <p>Aucun compte pour l'instant.</p>
+      <button class="btn-primary" @click="openAddAccount">Ajouter un compte</button>
     </div>
 
-    <!-- ─── Comptes ──────────────────────────────────── -->
-    <div class="grid grid-cols-2 gap-4">
-      <div v-for="account in activeAccounts" :key="account.id" class="card">
-        <div class="flex items-center gap-2 mb-1">
-          <span class="font-semibold text-[15px]">{{ account.name }}</span>
-          <span class="badge" :class="TYPE_COLORS[account.type]">{{ TYPE_LABELS[account.type] }}</span>
-          <span v-if="account.isMain" class="badge bg-violet-100 text-violet-700" title="Compte principal">★ principal</span>
-          <span v-if="!account.includeInNetWorth" class="badge bg-gray-100 text-gray-500">hors patrimoine</span>
-          <span v-if="netWorthOf(account.id)?.used != null" class="text-[13px] font-semibold ml-1" :title="netWorthOf(account.id).marketValue != null ? 'Valeur de marché (solde ' + fmt(netWorthOf(account.id).balance) + ')' : 'Solde du mois en cours'">
-            {{ fmt(netWorthOf(account.id).used) }}<span v-if="netWorthOf(account.id).marketValue != null" class="text-[10.5px] text-gray-400 font-normal"> marché</span>
-          </span>
-          <span v-if="monthDelta(account.id) !== null" class="text-[11px] font-semibold" :class="monthDelta(account.id) > 0 ? 'text-emerald-600' : 'text-red-500'" :title="'Mouvement du solde depuis le début du mois' + (netWorth?.monthPeriod ? ' (' + netWorth.monthPeriod + ')' : '')">
-            {{ monthDelta(account.id) > 0 ? '+' : '' }}{{ fmt(monthDelta(account.id)) }}
-          </span>
-          <div class="ml-auto flex gap-1">
-            <button class="icon-btn" title="Modifier" @click="openEditAccount(account)">✎</button>
-            <button class="icon-btn" title="Désactiver — le compte sort des saisies et du bilan, l'historique reste, réactivable" @click="deactivateConfirm(account)">⏻</button>
-            <button class="icon-btn text-red-400 hover:text-red-600" title="Supprimer définitivement (seulement sans historique)" @click="removeAccountConfirm(account)">🗑</button>
-          </div>
+    <!-- ─── Registre des comptes, groupé par type — brief §2/§4/§5 ── -->
+    <div v-else class="panel acc-panel" @click="menuAccountId = null">
+      <div class="acc-grid acc-head">
+        <span></span><span></span><span class="colh">enveloppes</span><span class="colh">solde</span><span></span>
+      </div>
+
+      <section v-for="grp in accountGroups" :key="grp.type" class="reg-section">
+        <div class="acc-grid acc-sec-head">
+          <span></span>
+          <span class="reg-sec-title">{{ grp.label }} <span class="reg-sec-count num">{{ grp.accounts.length }}</span></span>
+          <span></span>
+          <span class="num reg-sec-real">{{ fmt(grp.total) }}</span>
+          <span></span>
         </div>
 
-        <!-- Enveloppes hébergées -->
-        <div v-if="account.envelopes.length" class="mt-3 flex flex-col gap-2">
-          <div v-for="envelope in account.envelopes" :key="envelope.id" class="envelope-row" :class="{ 'opacity-50': envelope.isClosed }">
-            <div class="flex items-center gap-2 cursor-pointer" @click="toggleContribs(envelope)">
-              <span class="text-[13.5px] font-medium">{{ envelope.name }}</span>
-              <span v-if="envelope.isClosed" class="badge bg-gray-100 text-gray-500">clôturée</span>
-              <span class="ml-auto text-[13.5px] font-semibold">{{ fmt(envelope.total) }}</span>
-              <span v-if="envelope.targetAmount" class="text-xs text-gray-400" :title="envelope.spentInTarget ? fmt(envelope.targetAmount) + ' − ' + fmt(envelope.spentInTarget) + ' déjà dépensés pour le projet' : ''">/ {{ fmt(envelope.effectiveTarget) }}<span v-if="envelope.spentInTarget"> · {{ fmt(envelope.spentInTarget) }} dépensés</span></span>
-            </div>
-            <div v-if="envelope.targetAmount" class="progress mt-1.5">
-              <div class="progress-bar" :style="{ width: pct(envelope) + '%' }" />
-            </div>
+        <div v-for="account in grp.accounts" :key="account.id" class="acc-rowwrap">
+          <div class="acc-grid acc-row" :class="{ 'is-excluded': !account.includeInNetWorth, 'is-openable': account.envelopes.length }" @click="toggleAccount(account)">
+            <span class="cell-star"><span v-if="account.isMain" class="star" title="Compte principal">★</span></span>
+            <span class="cell-label">
+              <span class="row-label">{{ account.name }}</span>
+              <span v-if="netWorthOf(account.id)?.marketValue != null" class="tag tag-neutral" title="Valorisé à la valeur de marché de ses actifs">marché</span>
+              <span v-if="!account.includeInNetWorth" class="tag tag-neutral" title="Suivi mais exclu du total du patrimoine">exclu</span>
+              <span v-if="monthDelta(account.id) !== null" class="tag num" :class="monthDelta(account.id) > 0 ? 'tag-credit' : 'tag-alert'" title="Mouvement du solde depuis le début du mois">{{ monthDelta(account.id) > 0 ? '+' : '' }}{{ fmt(monthDelta(account.id)) }}</span>
+            </span>
+            <span class="num cell-envcount" :class="{ meta: !account.envelopes.length }">{{ account.envelopes.length || '—' }}</span>
+            <span class="num cell-balance" :class="{ 'is-over': (accountBalance(account) ?? 0) < 0, meta: accountBalance(account) === null }" :title="accountBalance(account) === null ? 'Solde inconnu — saisir le solde d\u2019ouverture du mois' : ''">{{ accountBalance(account) === null ? '—' : fmt(accountBalance(account)) }}</span>
+            <span class="cell-actions" @click.stop>
+              <button class="btn-icon row-action" title="Modifier" @click="openEditAccount(account)">✎</button>
+              <span class="menu-wrap">
+                <button class="btn-icon" title="Actions" @click="menuAccountId = menuAccountId === account.id ? null : account.id">⋯</button>
+                <div v-if="menuAccountId === account.id" class="menu">
+                  <button class="menu-item" @click="menuAccountId = null; openAddEnvelope(account.id)">Ajouter une enveloppe</button>
+                  <button v-if="!account.isMain" class="menu-item" @click="menuAccountId = null; makeMain(account)">Définir comme compte principal</button>
+                  <button class="menu-item" @click="menuAccountId = null; togglePatrimoine(account)">{{ account.includeInNetWorth ? 'Exclure du patrimoine' : 'Inclure dans le patrimoine' }}</button>
+                  <button class="menu-item" @click="menuAccountId = null; deactivateConfirm(account)">Désactiver le compte</button>
+                  <div class="menu-sep" />
+                  <button class="menu-item is-danger" @click="menuAccountId = null; removeAccountConfirm(account)">Supprimer le compte</button>
+                </div>
+              </span>
+              <span class="chev-slot"><PhCaretDown v-if="account.envelopes.length" :size="13" class="chev" :class="{ 'is-open': openAccountId === account.id }" @click="toggleAccount(account)" /></span>
+            </span>
+          </div>
 
-            <!-- Contributions dépliées -->
-            <div v-if="openEnvelopeId === envelope.id" class="mt-3 border-t border-stone-100 pt-3">
-              <div v-for="c in contributions" :key="c.id" class="flex items-center gap-2 text-[12.5px] py-1">
-                <span class="text-gray-400 w-20 shrink-0">{{ c.date }}</span>
-                <span :class="c.amount >= 0 ? 'text-emerald-600' : 'text-red-500'" class="font-medium w-24">{{ fmt(c.amount) }}</span>
-                <span v-if="KIND_LABELS[c.kind]" class="badge bg-stone-100 text-gray-500">{{ KIND_LABELS[c.kind] }}</span>
-                <span class="text-gray-400 truncate">{{ c.notes }}</span>
-                <button class="icon-btn ml-auto text-red-300 hover:text-red-500" @click="deleteContribution(envelope, c.id)">×</button>
+          <!-- Enveloppes du compte (niveau 2) — §5 -->
+          <div v-if="openAccountId === account.id && account.envelopes.length" class="env-block">
+            <div v-for="envelope in account.envelopes" :key="envelope.id" class="env-item" :class="{ 'is-closed-env': envelope.isClosed }" @click.stop="toggleContribs(envelope)">
+              <div class="env-row1">
+                <span class="env-name">{{ envelope.name }}</span>
+                <span v-if="envelope.isClosed" class="tag tag-neutral">clôturée</span>
+                <span class="num env-amounts">
+                  <span class="ink">{{ fmt(envelope.total) }}</span><span v-if="envelope.targetAmount" class="meta"> / {{ fmt(envelope.effectiveTarget) }}</span>
+                  <span v-if="envelope.targetAmount" class="env-pct num">{{ pct(envelope) }} %</span>
+                </span>
               </div>
-              <p v-if="!contributions.length" class="text-xs text-gray-400 py-1">Aucune contribution.</p>
-              <div v-if="!envelope.isClosed" class="flex gap-2 mt-2">
+              <div v-if="envelope.targetAmount" class="env-row2">
+                <span class="goal-bar"><span class="goal-fill" :style="{ width: Math.min(100, pct(envelope) || 0) + '%' }" /></span>
+                <span class="num env-rest">reste {{ fmt(Math.max(0, Math.round((envelope.effectiveTarget - envelope.total) * 100) / 100)) }}</span>
+              </div>
+
+              <div v-if="openEnvelopeId === envelope.id" class="env-expand" @click.stop>
+                <div v-for="c in contributions" :key="c.id" class="entry-row">
+                  <span class="entry-date num">{{ c.date }}</span>
+                  <span class="entry-label">{{ KIND_LABELS[c.kind] ? KIND_LABELS[c.kind] + (c.notes ? ' · ' + c.notes : '') : (c.notes || '') }}</span>
+                  <span class="entry-amount num" :class="c.amount >= 0 ? 'is-credit' : 'is-over'">{{ fmt(c.amount) }}</span>
+                  <span class="entry-actions"><button class="btn-icon is-danger" title="Supprimer la contribution" @click.stop="deleteContribution(envelope, c.id)">×</button></span>
+                </div>
+                <p v-if="!contributions.length" class="entries-empty">Aucune contribution.</p>
+                <div v-if="!envelope.isClosed" class="env-form">
+                  <input v-model="contribForm.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="submitContribution(envelope)" />
+                  <input v-model="contribForm.date" type="date" class="input w-32" />
+                  <input v-model="contribForm.notes" type="text" class="input flex-1" placeholder="Note (optionnelle)" />
+                  <button class="btn-secondary" @click="submitContribution(envelope)">Ajouter</button>
+                </div>
+                <div v-if="!envelope.isClosed && reallocTargets(envelope).length" class="env-form">
+                  <span class="meta">Réaffecter</span>
+                  <input v-model="reallocForm.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="doReallocate(envelope)" />
+                  <span class="meta">vers</span>
+                  <select v-model="reallocForm.toEnvelopeId" class="input flex-1">
+                    <option value="">— enveloppe</option>
+                    <option v-for="t in reallocTargets(envelope)" :key="t.id" :value="t.id">{{ t.name }}</option>
+                  </select>
+                  <button class="btn-secondary" @click="doReallocate(envelope)">OK</button>
+                </div>
+                <div class="env-actions">
+                  <button class="link-accent" @click="openEditEnvelope(envelope)">Modifier</button>
+                  <button class="link-accent" @click="toggleClosed(envelope)">{{ envelope.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
+                  <button class="link-danger" @click="removeEnvelopeConfirm(envelope)">Supprimer</button>
+                </div>
+              </div>
+            </div>
+            <button class="btn-discret" @click.stop="openAddEnvelope(account.id)"><PhPlus :size="12" weight="bold" /> Ajouter une enveloppe</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Enveloppes virtuelles (sans compte hôte) -->
+      <section v-if="virtualEnvelopes.length" class="reg-section">
+        <div class="acc-grid acc-sec-head">
+          <span></span>
+          <span class="reg-sec-title">Enveloppes virtuelles <span class="reg-sec-count num">{{ virtualEnvelopes.length }}</span></span>
+          <span></span><span></span><span></span>
+        </div>
+        <div class="env-block is-flat">
+          <div v-for="envelope in virtualEnvelopes" :key="envelope.id" class="env-item" :class="{ 'is-closed-env': envelope.isClosed }" @click.stop="toggleContribs(envelope)">
+            <div class="env-row1">
+              <span class="env-name">{{ envelope.name }}</span>
+              <span v-if="envelope.isClosed" class="tag tag-neutral">clôturée</span>
+              <span class="num env-amounts">
+                <span class="ink">{{ fmt(envelope.total) }}</span><span v-if="envelope.targetAmount" class="meta"> / {{ fmt(envelope.targetAmount) }}</span>
+                <span v-if="envelope.targetAmount" class="env-pct num">{{ pct(envelope) }} %</span>
+              </span>
+            </div>
+            <div v-if="envelope.targetAmount" class="env-row2">
+              <span class="goal-bar"><span class="goal-fill" :style="{ width: Math.min(100, pct(envelope) || 0) + '%' }" /></span>
+              <span class="num env-rest">reste {{ fmt(Math.max(0, Math.round(((envelope.effectiveTarget ?? envelope.targetAmount) - envelope.total) * 100) / 100)) }}</span>
+            </div>
+            <div v-if="openEnvelopeId === envelope.id" class="env-expand" @click.stop>
+              <div v-for="c in contributions" :key="c.id" class="entry-row">
+                <span class="entry-date num">{{ c.date }}</span>
+                <span class="entry-label">{{ KIND_LABELS[c.kind] ? KIND_LABELS[c.kind] + (c.notes ? ' · ' + c.notes : '') : (c.notes || '') }}</span>
+                <span class="entry-amount num" :class="c.amount >= 0 ? 'is-credit' : 'is-over'">{{ fmt(c.amount) }}</span>
+                <span class="entry-actions"><button class="btn-icon is-danger" title="Supprimer la contribution" @click.stop="deleteContribution(envelope, c.id)">×</button></span>
+              </div>
+              <p v-if="!contributions.length" class="entries-empty">Aucune contribution.</p>
+              <div v-if="!envelope.isClosed" class="env-form">
                 <input v-model="contribForm.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="submitContribution(envelope)" />
-                <input v-model="contribForm.date" type="date" class="input w-36" />
+                <input v-model="contribForm.date" type="date" class="input w-32" />
                 <input v-model="contribForm.notes" type="text" class="input flex-1" placeholder="Note (optionnelle)" />
                 <button class="btn-secondary" @click="submitContribution(envelope)">Ajouter</button>
               </div>
-              <!-- Réaffecter vers une autre enveloppe du compte (aucun mouvement bancaire) -->
-              <div v-if="!envelope.isClosed && reallocTargets(envelope).length" class="flex gap-2 mt-2 items-center text-xs">
-                <span class="text-gray-400">Réaffecter</span>
-                <input v-model="reallocForm.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="doReallocate(envelope)" />
-                <span class="text-gray-400">vers</span>
-                <select v-model="reallocForm.toEnvelopeId" class="input w-40">
-                  <option value="">— enveloppe</option>
-                  <option v-for="t in reallocTargets(envelope)" :key="t.id" :value="t.id">{{ t.name }}</option>
-                </select>
-                <button class="btn-secondary" @click="doReallocate(envelope)">OK</button>
-              </div>
-              <div class="flex gap-3 mt-2 text-xs">
-                <button class="link" @click="openEditEnvelope(envelope)">Modifier</button>
-                <button class="link" @click="toggleClosed(envelope)">{{ envelope.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
-                <button class="link text-red-400" @click="removeEnvelopeConfirm(envelope)">Supprimer</button>
+              <div class="env-actions">
+                <button class="link-accent" @click="openEditEnvelope(envelope)">Modifier</button>
+                <button class="link-accent" @click="toggleClosed(envelope)">{{ envelope.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
+                <button class="link-danger" @click="removeEnvelopeConfirm(envelope)">Supprimer</button>
               </div>
             </div>
           </div>
         </div>
-        <p v-else class="text-xs text-gray-400 mt-2">Aucune enveloppe sur ce compte.</p>
-        <button class="link text-xs mt-2" @click="openAddEnvelope(account.id)">+ enveloppe sur ce compte</button>
-      </div>
-    </div>
+      </section>
 
-    <!-- ─── Comptes désactivés ───────────────────────── -->
-    <div v-if="inactiveAccounts.length" class="mt-6">
-      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Comptes désactivés</p>
-      <div class="grid grid-cols-2 gap-4">
-        <div v-for="account in inactiveAccounts" :key="account.id" class="card opacity-60">
-          <div class="flex items-center gap-2">
-            <span class="font-semibold text-[15px]">{{ account.name }}</span>
-            <span class="badge" :class="TYPE_COLORS[account.type]">{{ TYPE_LABELS[account.type] }}</span>
-            <span class="badge bg-gray-100 text-gray-500">désactivé</span>
-            <div class="ml-auto flex gap-2 items-center">
-              <button class="link text-xs" @click="reactivate(account)">Réactiver</button>
-              <button class="icon-btn text-red-400 hover:text-red-600" title="Supprimer définitivement (seulement sans historique)" @click="removeAccountConfirm(account)">🗑</button>
-            </div>
-          </div>
-          <p class="text-xs text-gray-400 mt-1">Hors saisies, bilan et patrimoine. L'historique est conservé.</p>
+      <!-- Comptes désactivés : hors saisies et bilan, réactivables -->
+      <section v-if="inactiveAccounts.length" class="reg-section">
+        <div class="acc-grid acc-sec-head">
+          <span></span>
+          <span class="reg-sec-title meta">Comptes désactivés <span class="reg-sec-count num">{{ inactiveAccounts.length }}</span></span>
+          <span></span><span></span><span></span>
         </div>
-      </div>
-    </div>
-
-    <!-- ─── Enveloppes virtuelles (sans compte) ──────── -->
-    <div v-if="virtualEnvelopes.length" class="mt-6">
-      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Enveloppes virtuelles</p>
-      <div class="grid grid-cols-2 gap-4">
-        <div v-for="envelope in virtualEnvelopes" :key="envelope.id" class="card envelope-row" :class="{ 'opacity-50': envelope.isClosed }">
-          <div class="flex items-center gap-2 cursor-pointer" @click="toggleContribs(envelope)">
-            <span class="text-[13.5px] font-medium">{{ envelope.name }}</span>
-            <span v-if="envelope.isClosed" class="badge bg-gray-100 text-gray-500">clôturée</span>
-            <span class="ml-auto text-[13.5px] font-semibold">{{ fmt(envelope.total) }}</span>
-            <span v-if="envelope.targetAmount" class="text-xs text-gray-400">/ {{ fmt(envelope.targetAmount) }}</span>
-          </div>
-          <div v-if="envelope.targetAmount" class="progress mt-1.5">
-            <div class="progress-bar" :style="{ width: pct(envelope) + '%' }" />
-          </div>
-          <div v-if="openEnvelopeId === envelope.id" class="mt-3 border-t border-stone-100 pt-3">
-            <div v-for="c in contributions" :key="c.id" class="flex items-center gap-2 text-[12.5px] py-1">
-              <span class="text-gray-400 w-20 shrink-0">{{ c.date }}</span>
-              <span :class="c.amount >= 0 ? 'text-emerald-600' : 'text-red-500'" class="font-medium w-24">{{ fmt(c.amount) }}</span>
-              <span v-if="KIND_LABELS[c.kind]" class="badge bg-stone-100 text-gray-500">{{ KIND_LABELS[c.kind] }}</span>
-              <span class="text-gray-400 truncate">{{ c.notes }}</span>
-              <button class="icon-btn ml-auto text-red-300 hover:text-red-500" @click="deleteContribution(envelope, c.id)">×</button>
-            </div>
-            <p v-if="!contributions.length" class="text-xs text-gray-400 py-1">Aucune contribution.</p>
-            <div v-if="!envelope.isClosed" class="flex gap-2 mt-2">
-              <input v-model="contribForm.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="submitContribution(envelope)" />
-              <input v-model="contribForm.date" type="date" class="input w-36" />
-              <input v-model="contribForm.notes" type="text" class="input flex-1" placeholder="Note (optionnelle)" />
-              <button class="btn-secondary" @click="submitContribution(envelope)">Ajouter</button>
-            </div>
-            <div class="flex gap-3 mt-2 text-xs">
-              <button class="link" @click="openEditEnvelope(envelope)">Modifier</button>
-              <button class="link" @click="toggleClosed(envelope)">{{ envelope.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
-              <button class="link text-red-400" @click="removeEnvelopeConfirm(envelope)">Supprimer</button>
-            </div>
-          </div>
+        <div v-for="account in inactiveAccounts" :key="account.id" class="acc-grid acc-row is-inactive">
+          <span></span>
+          <span class="cell-label"><span class="row-label meta">{{ account.name }}</span><span class="tag tag-neutral">désactivé</span></span>
+          <span></span>
+          <span></span>
+          <span class="cell-actions" @click.stop>
+            <button class="link-accent" @click="reactivate(account)">Réactiver</button>
+            <button class="btn-icon is-danger row-action" title="Supprimer définitivement (seulement sans historique)" @click="removeAccountConfirm(account)">×</button>
+          </span>
         </div>
-      </div>
+      </section>
     </div>
   </div>
 </template>
@@ -695,18 +768,159 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 <style scoped>
 @reference "@/style.css";
 
-.card { @apply bg-white rounded-xl border border-stone-200 px-5 py-4; }
-.form-title { @apply text-[14px] font-semibold mb-3; }
-.field { @apply flex flex-col gap-1 text-xs font-medium text-gray-500; }
-.input { @apply py-1.5 px-2.5 border border-stone-200 rounded-md text-[13px] text-gray-900 bg-stone-50 outline-none focus:border-violet-400; }
-.checkbox { @apply flex items-center gap-1.5 text-[13px] text-gray-600 cursor-pointer pb-1.5; }
-.btn-primary { @apply py-2 px-3.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-[13px] font-medium cursor-pointer; }
-.btn-secondary { @apply py-2 px-3.5 bg-white border border-stone-200 hover:bg-stone-50 text-gray-600 rounded-lg text-[13px] font-medium cursor-pointer; }
-.icon-btn { @apply w-7 h-7 rounded-md hover:bg-stone-100 text-gray-400 cursor-pointer text-[13px]; }
-.badge { @apply text-[11px] font-semibold px-2 py-0.5 rounded-full; }
-.envelope-row { @apply bg-stone-50 rounded-lg px-3 py-2.5; }
-.card.envelope-row { @apply bg-white px-5 py-4; }
-.progress { @apply h-1.5 bg-stone-200 rounded-full overflow-hidden; }
-.progress-bar { @apply h-full bg-violet-500 rounded-full; }
-.link { @apply text-violet-600 hover:underline cursor-pointer; }
+/* ─── Page ─── */
+.page-sub { font-size: 13px; color: var(--c-ink-2); margin-top: 2px; }
+.panel { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-container); }
+.meta { color: var(--c-ink-3); font-weight: 400; }
+.ink { color: var(--c-ink); }
+.is-over { color: var(--c-over); }
+.is-credit { color: var(--c-credit); }
+
+/* ─── Patrimoine ─── */
+.patri { display: flex; align-items: center; gap: var(--s-6); padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); }
+.synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
+.synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
+.synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; }
+.has-tip { text-decoration: underline dotted var(--c-ink-3); text-underline-offset: 3px; cursor: help; }
+.synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
+.synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
+.synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
+.synth-v { font-size: var(--t-amount); color: var(--c-ink); }
+
+/* ─── Registre des comptes ─── */
+.acc-panel { overflow: visible; }
+.acc-grid {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 96px 140px 96px;
+  align-items: center;
+  gap: var(--s-3);
+  padding-inline: var(--s-5);
+  min-height: var(--h-row);
+}
+.acc-head { min-height: 30px; border-bottom: 1px solid var(--c-line); background: var(--c-surface-sunken); border-radius: var(--r-container) var(--r-container) 0 0; }
+.colh { font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); text-align: right; }
+.reg-section + .reg-section { border-top: 1px solid var(--c-line-strong); }
+.acc-sec-head { min-height: 44px; background: var(--c-surface-sunken); }
+.reg-sec-title { font-size: var(--t-section); font-weight: 600; color: var(--c-ink); }
+.reg-sec-count { font-size: var(--t-small); font-weight: 400; color: var(--c-ink-3); margin-left: var(--s-2); }
+.reg-sec-real { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); text-align: right; }
+
+.acc-row { border-bottom: 1px solid var(--c-line); transition: background-color var(--dur-fast) var(--ease); }
+.acc-rowwrap:last-child .acc-row { border-bottom: none; }
+.acc-row.is-openable { cursor: pointer; }
+.acc-row:hover { background: var(--c-surface-hover); }
+.acc-row.is-excluded .row-label { color: var(--c-ink-3); }
+.acc-row.is-inactive { border-bottom: none; }
+.cell-star { text-align: center; }
+.star { color: var(--c-ink-2); font-size: 14px; }
+.cell-label { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.row-label { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell-envcount { font-size: 13px; color: var(--c-ink-2); text-align: right; }
+.cell-balance { font-size: var(--t-amount); color: var(--c-ink); text-align: right; }
+.cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.row-action { opacity: 0; }
+.acc-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
+.chev-slot { width: 20px; display: flex; justify-content: center; }
+.chev { color: var(--c-ink-3); transition: transform var(--dur-fast) var(--ease); transform: rotate(-90deg); cursor: pointer; }
+.chev.is-open { transform: rotate(0deg); }
+
+/* Menu ⋯ */
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 40;
+  min-width: 230px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-container);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--s-2);
+}
+.menu-item {
+  display: block; width: 100%; text-align: left;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-control);
+  font-size: 13px; color: var(--c-ink);
+  cursor: pointer;
+}
+.menu-item:hover { background: var(--c-surface-hover); }
+.menu-item.is-danger { color: var(--c-over); }
+.menu-item.is-danger:hover { background: var(--c-over-soft); }
+.menu-sep { height: 1px; background: var(--c-line); margin: var(--s-2) 0; }
+
+/* ─── Enveloppes (niveau 2) ─── */
+.env-block {
+  margin: var(--s-1) var(--s-5) var(--s-3) calc(20px + var(--s-5));
+  background: var(--c-surface-sunken);
+  border-radius: var(--r-control);
+  padding: var(--s-2) var(--s-4);
+  animation: reg-in var(--dur-base) var(--ease);
+}
+.env-block.is-flat { margin-left: var(--s-5); }
+.env-item { padding: var(--s-2) 0; cursor: pointer; }
+.env-item + .env-item { border-top: 1px solid var(--c-line); }
+.env-item.is-closed-env .env-name { color: var(--c-ink-3); }
+.env-row1 { display: flex; align-items: center; gap: var(--s-2); min-height: 24px; }
+.env-name { font-size: 13px; font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.env-amounts { margin-left: auto; font-size: 13px; white-space: nowrap; }
+.env-pct { margin-left: var(--s-3); font-size: var(--t-small); color: var(--c-ink-3); }
+.env-row2 { display: flex; align-items: center; gap: var(--s-4); margin-top: 3px; }
+.goal-bar { width: 200px; height: 4px; border-radius: var(--r-pill); background: var(--c-track); overflow: hidden; flex-shrink: 0; }
+.goal-fill { display: block; height: 100%; background: var(--c-fill-goal); transition: width var(--dur-base) var(--ease); }
+.env-rest { font-size: var(--t-small); color: var(--c-ink-3); }
+.env-expand { margin-top: var(--s-3); border-top: 1px solid var(--c-line); padding-top: var(--s-2); cursor: default; }
+.entry-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) 96px 30px; gap: var(--s-3); align-items: center; min-height: 30px; }
+.entry-date { font-size: var(--t-small); color: var(--c-ink-3); }
+.entry-label { font-size: var(--t-small); color: var(--c-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry-amount { font-size: var(--t-small); text-align: right; }
+.entry-actions { display: flex; justify-content: flex-end; }
+.entries-empty { font-size: var(--t-small); color: var(--c-ink-3); padding: var(--s-2) 0; }
+.env-form { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2); flex-wrap: wrap; }
+.env-actions { display: flex; gap: var(--s-4); margin-top: var(--s-3); }
+
+/* ─── États vides ─── */
+.empty-panel { text-align: center; padding: var(--s-8); font-size: 13px; color: var(--c-ink-2); display: flex; flex-direction: column; align-items: center; gap: var(--s-4); }
+
+/* ─── Tags ─── */
+.tag {
+  display: inline-flex; align-items: center; gap: var(--s-1);
+  height: 20px; padding: 0 var(--s-3);
+  border-radius: var(--r-control);
+  font-size: var(--t-tag); font-weight: 500;
+  white-space: nowrap; flex-shrink: 0;
+}
+.tag-neutral { background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); }
+.tag-credit { background: var(--c-credit-soft); color: var(--c-credit); }
+.tag-alert { background: var(--c-over-soft); color: var(--c-over); }
+
+/* ─── Boutons, liens, champs (partagés avec les modales) ─── */
+.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: #fff; border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-primary:hover { background: var(--c-accent-hover); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary { height: 30px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); color: var(--c-ink); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-secondary:hover { background: var(--c-surface-hover); }
+.btn-icon { width: 26px; height: 26px; border-radius: var(--r-control); display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-3); font-size: 13px; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-icon:hover { background: var(--c-surface-hover); color: var(--c-ink); }
+.btn-icon.is-danger:hover { background: var(--c-over-soft); color: var(--c-over); }
+.btn-discret { display: inline-flex; align-items: center; gap: var(--s-1); color: var(--c-accent); font-size: var(--t-small); font-weight: 500; padding: var(--s-2) 0; cursor: pointer; }
+.btn-discret:hover { color: var(--c-accent-hover); }
+.link-accent { color: var(--c-accent); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
+.link-accent:hover { color: var(--c-accent-hover); text-decoration: underline; }
+.link-danger { color: var(--c-over); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
+.link-danger:hover { text-decoration: underline; }
+.link { color: var(--c-accent); font-size: var(--t-small); cursor: pointer; }
+.link:hover { text-decoration: underline; }
+.field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
+.input { padding: 6px var(--s-3); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); font-size: 13px; color: var(--c-ink); background: var(--c-surface); outline: none; font-family: var(--font-ui); }
+.input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
+.checkbox { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); cursor: pointer; }
+.badge { display: inline-flex; align-items: center; font-size: var(--t-meta); font-weight: 500; padding: 1px var(--s-3); border-radius: var(--r-control); background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); flex-shrink: 0; }
+
+@keyframes reg-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+button:focus-visible, select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--c-accent-ring); border-radius: var(--r-control); }
+
+@media (max-width: 899px) {
+  .acc-grid { grid-template-columns: 20px minmax(0, 1fr) 120px 72px; min-height: var(--h-row-touch); }
+  .cell-envcount, .acc-head .colh:first-of-type { display: none; }
+}
 </style>
