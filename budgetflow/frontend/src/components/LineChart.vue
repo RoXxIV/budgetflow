@@ -6,13 +6,16 @@ import { ref, computed } from 'vue'
 
 const props = defineProps({
   labels: { type: Array, required: true },  // libellés X (mois)
-  series: { type: Array, required: true },  // [{ key, name, color, points: [Number|null] }]
+  series: { type: Array, required: true },  // [{ key, name, color, dash?, points: [Number|null] }]
+  height: { type: Number, default: 280 },   // hauteur du viewBox (180-200 pour une courbe compacte)
+  minimalAxis: { type: Boolean, default: false }, // deux repères Y (min/max) au lieu de la grille complète
 })
 
-const W = 900, H = 280
+const W = 900
 const PAD = { l: 58, r: 18, t: 14, b: 28 }
 const plotW = W - PAD.l - PAD.r
-const plotH = H - PAD.t - PAD.b
+const H = computed(() => props.height)
+const plotH = computed(() => H.value - PAD.t - PAD.b)
 
 const allValues = computed(() => props.series.flatMap((s) => s.points.filter((v) => v !== null && v !== undefined)))
 const rawMax = computed(() => Math.max(1, ...allValues.value))
@@ -29,13 +32,14 @@ const step = computed(() => niceStep(rawMax.value - rawMin.value || 1))
 const yMax = computed(() => Math.ceil(rawMax.value / step.value) * step.value)
 const yMin = computed(() => Math.floor(rawMin.value / step.value) * step.value)
 const ticks = computed(() => {
+  if (props.minimalAxis) return yMin.value === yMax.value ? [yMin.value] : [yMin.value, yMax.value]
   const t = []
   for (let v = yMin.value; v <= yMax.value + 1e-9; v += step.value) t.push(Math.round(v * 100) / 100)
   return t
 })
 
 const x = (i) => PAD.l + (props.labels.length <= 1 ? plotW / 2 : (i / (props.labels.length - 1)) * plotW)
-const y = (v) => PAD.t + plotH - ((v - yMin.value) / (yMax.value - yMin.value || 1)) * plotH
+const y = (v) => PAD.t + plotH.value - ((v - yMin.value) / (yMax.value - yMin.value || 1)) * plotH.value
 const path = (points) => {
   let d = ''
   let started = false
@@ -87,7 +91,7 @@ const xEvery = computed(() => (props.labels.length > 14 ? 2 : 1))
       </g>
       <line v-if="hover !== null" :x1="x(hover)" :x2="x(hover)" :y1="PAD.t" :y2="PAD.t + plotH" stroke="#c3c2b7" stroke-width="1" />
       <g v-for="s in series" :key="s.key">
-        <path :d="path(s.points)" fill="none" :stroke="s.color" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        <path :d="path(s.points)" fill="none" :stroke="s.color" stroke-width="2" :stroke-dasharray="s.dash ? '6 5' : undefined" stroke-linejoin="round" stroke-linecap="round" />
         <template v-if="lastIdx(s.points) >= 0">
           <circle :cx="x(lastIdx(s.points))" :cy="y(s.points[lastIdx(s.points)])" r="6" fill="#fcfcfb" />
           <circle :cx="x(lastIdx(s.points))" :cy="y(s.points[lastIdx(s.points)])" r="4" :fill="s.color" />
