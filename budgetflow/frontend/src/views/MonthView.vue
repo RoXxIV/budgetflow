@@ -1049,7 +1049,7 @@ const mainEnvelopesTotal = computed(() => {
               class="kpi"
               :title="`+ ${fmt(summaryData.tiles.detail.revenusRestants)} revenus prévus non encaissés · − ${fmt(summaryData.tiles.detail.prevusRestants)} sorties prévues non réalisées`"
             >
-              <span class="kpi-value text-[21px]" :class="amountClass(summaryData.tiles.projete)">{{ fmtOrDash(summaryData.tiles.projete) }}</span>
+              <span class="kpi-value text-[25px]" :class="amountClass(summaryData.tiles.projete)">{{ fmtOrDash(summaryData.tiles.projete) }}</span>
               <span class="kpi-label flex items-center gap-1">Disponible jusqu'à la fin du mois <HelpTip text="Solde actuel + revenus prévus non encaissés − tout ce qui est prévu et pas encore passé (lignes non cochées, mensualités et DCA non versés). Répond à « est-ce que je peux me le permettre ? »." /></span>
               <span v-if="perDay !== null" class="kpi-hint">{{ daysLeft }} jour{{ daysLeft > 1 ? 's' : '' }} restants · ≈ {{ fmt(perDay) }}/jour</span>
               <span v-else class="kpi-hint">si tout le prévu se réalise</span>
@@ -1471,10 +1471,10 @@ const mainEnvelopesTotal = computed(() => {
 <style scoped>
 @reference "@/style.css";
 
-.card { @apply bg-white rounded-xl border border-stone-200 shadow-xs; }
-.section-label { @apply text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2 mt-1; }
-.subheader { @apply bg-white/95 backdrop-blur rounded-xl border border-stone-200 px-5 py-3 sticky top-3 z-20 shadow-sm; }
-.month-select { @apply text-[16px] font-bold text-gray-900 bg-transparent border border-transparent hover:border-stone-200 rounded-lg py-1 pl-1 pr-1 outline-none cursor-pointer; }
+.card { @apply bg-white rounded-2xl border border-stone-200/90 shadow-xs; }
+.section-label { @apply text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2 mt-2; }
+.subheader { @apply bg-white/95 backdrop-blur rounded-2xl border border-stone-200/90 px-5 py-4 sticky top-[60px] z-20 shadow-sm; }
+.month-select { @apply text-[17px] font-bold tracking-tight text-gray-900 bg-transparent border border-transparent hover:border-stone-200 rounded-lg py-1 pl-1 pr-1 outline-none cursor-pointer; }
 .kpi { @apply flex flex-col leading-tight; }
 .kpi-value { @apply text-[17px] font-bold tracking-tight; }
 .kpi-label { @apply text-[11px] text-gray-400 font-medium; }
@@ -1501,7 +1501,7 @@ const mainEnvelopesTotal = computed(() => {
 .field { @apply flex flex-col gap-1 text-[11px] font-medium text-gray-500; }
 .input { @apply py-1.5 px-2 border border-stone-200 rounded-md text-[13px] text-gray-900 bg-white outline-none focus:border-violet-400 disabled:opacity-50; }
 .checkbox { @apply flex items-center gap-1 text-[12.5px] text-gray-600 cursor-pointer; }
-.btn-primary { @apply py-1.5 px-3 bg-violet-600 hover:bg-violet-700 text-white rounded-md text-[12.5px] font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed; }
+.btn-primary { @apply py-1.5 px-3.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-[12.5px] font-semibold shadow-sm cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
 .btn-secondary { @apply py-1.5 px-3 bg-white border border-stone-200 hover:bg-stone-100 text-gray-600 rounded-md text-[12.5px] font-medium cursor-pointer; }
 .icon-btn { @apply w-6 h-6 rounded hover:bg-stone-200 cursor-pointer text-[13px]; }
 .progress { @apply h-1 bg-stone-200 rounded-full overflow-hidden; }

@@ -16,9 +16,9 @@ const navLinks = [
 
 <template>
   <div class="min-h-screen flex flex-col">
-    <header class="bg-white border-b border-stone-200 px-6 py-3 flex items-center gap-6">
-      <div class="flex items-center gap-2.5 font-semibold text-[15px]">
-        <span class="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center text-white text-sm">B</span>
+    <header class="sticky top-0 z-30 bg-white/85 backdrop-blur border-b border-stone-200/80 px-6 py-2.5 flex items-center gap-7">
+      <div class="flex items-center gap-2.5 font-bold text-[15px] tracking-tight">
+        <span class="w-8 h-8 bg-violet-600 rounded-xl flex items-center justify-center text-white text-sm shadow-sm">B</span>
         BudgetFlow
       </div>
       <nav class="flex gap-1">
@@ -26,8 +26,8 @@ const navLinks = [
           v-for="link in navLinks"
           :key="link.to"
           :to="link.to"
-          class="px-3.5 py-1.5 rounded-lg text-[13.5px] font-medium text-gray-500 hover:text-gray-900"
-          :class="{ 'bg-violet-50 text-violet-700': route.path.startsWith(link.to) }"
+          class="px-3.5 py-1.5 rounded-lg text-[13px] font-medium text-gray-500 hover:text-gray-900 hover:bg-stone-100 transition-colors"
+          :class="{ 'bg-violet-100/70 text-violet-700 font-semibold': route.path.startsWith(link.to) }"
         >
           {{ link.name }}
         </router-link>
