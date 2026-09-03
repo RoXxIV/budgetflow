@@ -1,4 +1,5 @@
 import { all, fromCents } from "../db/index.js";
+import { computeAll as computePots } from "./pot.service.js";
 
 /**
  * Agrégats de la page Stats — le réel vient des entrées, comme partout dans l'app.
@@ -97,6 +98,12 @@ export function overview() {
     "SELECT substr(date, 1, 7) AS p, SUM(amount_cents) AS s FROM asset_movements WHERE kind = 'versement' GROUP BY p"
   ).forEach((r) => { if (idx[r.p] !== undefined) types[idx[r.p]].real.epargne += fromCents(r.s); });
   types.forEach((t) => { t.real.epargne = Math.round(t.real.epargne * 100) / 100; });
+  // Le prévu d'une cagnotte est calculé (is_pot exclu de la somme ci-dessus) : on l'ajoute
+  // avec la même formule que les pages Mois et Template — les trois affichent le même prévu.
+  months.forEach((m) => {
+    computePots(m.id).forEach((p) => { types[idx[m.period]].planned.depense += p.toSend; });
+  });
+  types.forEach((t) => { t.planned.depense = Math.round(t.planned.depense * 100) / 100; });
 
   return { periods, savings, envelopes: envelopesWithData, themes, categories, types };
 }

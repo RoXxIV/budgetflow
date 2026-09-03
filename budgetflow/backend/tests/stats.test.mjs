@@ -64,3 +64,13 @@ test("totaux par type : épargne = contributions normales + versements d'investi
   assert.ok(eq(t.real.revenu, 2000));
   assert.ok(eq(t.real.epargne, 550), `épargne = ${t.real.epargne}`);
 });
+
+test("prévu : la cagnotte compte pour son montant calculé, comme sur les pages Mois et Template", () => {
+  const before = o.types.find((x) => x.period === period).planned.depense;
+  // Ligne ½ prévue 100 € sans entrée + cagnotte (Marion paie 630, ma part 50 %)
+  // → à envoyer = (100 + 630) × 50 % − 100 = 265
+  lines.create(m.id, { label: "Commun", categoryId: catDep.id, plannedAmount: 100, isShared: true, fromAccountId: main.id });
+  lines.create(m.id, { label: "Loyer", categoryId: catDep.id, isPot: true, potPartnerName: "Marion", potPartnerPaid: 630, potMyShare: 50, fromAccountId: main.id });
+  const t = stats.overview().types.find((x) => x.period === period);
+  assert.ok(eq(t.planned.depense, before + 100 + 265), `prévu dépense = ${t.planned.depense}, attendu ${before + 365}`);
+});
