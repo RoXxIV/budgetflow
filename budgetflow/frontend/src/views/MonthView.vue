@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { eur } from '@/lib/format.js'
 import {
   getMonths, getMonthPrefill, createMonth, setMonthClosed,
   getMonthLines, payLine,
@@ -75,6 +76,8 @@ async function openMonth(month) {
   current.value = month
   const [sRes] = await Promise.all([getMonthSnapshots(month.id), loadMonthData(month.id)])
   snapshots.value = sRes.data
+  // §5.5 : les sections avec activité s'ouvrent d'office, les autres restent repliées
+  openCats.value = new Set(groups.value.filter((g) => g.actual !== 0).map((g) => g.category.id ?? 'none'))
 }
 
 async function reload() {
@@ -159,33 +162,75 @@ function potStatus(line) {
 // ─── Enveloppes (contribution rapide depuis le mois) ─────
 const openEnvelopeId = ref(null)
 const contribForm = ref({})
-// Onglet actif du bloc Enveloppes / Investissements (repli sur celui qui a du contenu)
-const epargneTab = ref('env')
-const shownTab = computed(() => {
-  if (epargneTab.value === 'env' && envelopes.value.length) return 'env'
-  if (epargneTab.value === 'inv' && assets.value.length) return 'inv'
-  return envelopes.value.length ? 'env' : 'inv'
+// ─── Synthèse & navigation de mois (refonte registre §5.3) ───
+const sortedMonths = computed(() => [...monthsList.value].sort((a, b) => a.period.localeCompare(b.period)))
+const curIdx = computed(() => sortedMonths.value.findIndex((m) => m.id === current.value?.id))
+const prevMonthTarget = computed(() => (curIdx.value > 0 ? sortedMonths.value[curIdx.value - 1] : null))
+const nextMonthTarget = computed(() => sortedMonths.value[curIdx.value + 1] || null)
+function stepMonth(d) {
+  const t = d < 0 ? prevMonthTarget.value : nextMonthTarget.value
+  if (t) openMonth(t)
+}
+const nextPeriodName = computed(() => {
+  const last = sortedMonths.value[sortedMonths.value.length - 1]
+  if (!last) return ''
+  const [y, m] = last.period.split('-').map(Number)
+  const d = new Date(Date.UTC(y, m, 1))
+  const s = d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+  return s.charAt(0).toUpperCase() + s.slice(1)
 })
-// Changement d'onglet : la hauteur du bloc est animée (mesure avant/après) pour que
-// le contenu du dessous soit poussé en douceur, pendant que le panneau entre en fondu
-const tabBody = ref(null)
-let tabTimer = null
-async function switchTab(tab) {
-  if (tab === shownTab.value) return
-  const el = tabBody.value
-  const startH = el ? el.offsetHeight : 0
-  epargneTab.value = tab
-  await nextTick()
-  if (!el) return
-  // La cible se mesure hauteur libérée (scrollHeight ne descend jamais sous une hauteur fixée) ;
-  // tout se joue avant la peinture : aucun flash visible.
-  el.style.height = 'auto'
-  const targetH = el.offsetHeight
-  el.style.height = startH + 'px'
-  void el.offsetHeight // reflow : fige la hauteur de départ avant la transition
-  el.style.height = targetH + 'px'
-  clearTimeout(tabTimer)
-  tabTimer = setTimeout(() => { el.style.height = '' }, 320)
+function onMonthSelect(e) {
+  const v = e.target.value
+  if (v === '__new') {
+    e.target.value = String(current.value?.id ?? '')
+    openCreateForm()
+    return
+  }
+  openMonth(monthsList.value.find((m) => m.id === Number(v)))
+}
+const objectifPct = computed(() => {
+  const t = summaryData.value?.tiles
+  return t?.objectifEpargne ? Math.round((t.misDeCote / t.objectifEpargne) * 100) : 0
+})
+
+// Ombre de la barre sticky uniquement après scroll (sentinelle + IntersectionObserver)
+const scrolled = ref(false)
+const stickySentinel = ref(null)
+let sentinelObs = null
+watch(stickySentinel, (el) => {
+  if (sentinelObs) { sentinelObs.disconnect(); sentinelObs = null }
+  if (el) {
+    sentinelObs = new IntersectionObserver(([e]) => { scrolled.value = !e.isIntersecting })
+    sentinelObs.observe(el)
+  }
+})
+
+// Couleur de catégorie désaturée (~65 %) : seule couleur libre admise dans le registre
+function desat(hex) {
+  if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return 'var(--c-ink-3)'
+  const n = parseInt(hex.slice(1), 16)
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  const gray = 0.299 * r + 0.587 * g + 0.114 * b
+  const mix = (c) => Math.round(c * 0.65 + gray * 0.35)
+  return 'rgb(' + mix(r) + ',' + mix(g) + ',' + mix(b) + ')'
+}
+// Variante de remplissage de la barre de section (§5.8)
+const barVariant = (group) => {
+  if (!group.planned) return ''
+  const ratio = group.actual / group.planned
+  if (ratio > 1) return 'is-over'
+  if (ratio >= 0.85) return 'is-warn'
+  return ''
+}
+// Ligne à signaler : cagnotte à régler, ou échéance passée non pointée (§5.6)
+function rowAlert(line) {
+  if (line.isPot && line.pot && line.pot.toSend > 0 && !isPaid(line)) return true
+  if (line.recurringDay && !isPaid(line) && line.plannedAmount > 0 && current.value) {
+    const today = new Date().toISOString().substring(0, 10)
+    const due = current.value.period + '-' + String(line.recurringDay).padStart(2, '0')
+    if (today.startsWith(current.value.period) && due < today) return true
+  }
+  return false
 }
 const contribsForEnvelope = (env) => monthContribs.value.filter((c) => c.envelopeId === env.id)
 const monthContribTotal = computed(() => monthContribs.value.filter((c) => c.kind === 'normale').reduce((s, c) => s + c.amount, 0))
@@ -239,7 +284,8 @@ async function contributeSuggested(env) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────
-const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+const fmt = eur // format registre : « 1 667,85 € » avec espaces fines insécables
+const shortDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
 const themeById = (id) => themes.value.find((t) => t.id === id) || null
 const accountById = (id) => accounts.value.find((a) => a.id === id) || null // liste complète : les entrées passées gardent leur nom
 const activeAccounts = computed(() => accounts.value.filter((a) => a.isActive)) // saisies : comptes actifs seulement
@@ -1012,410 +1058,316 @@ const mainEnvelopesTotal = computed(() => {
 
     <!-- ─── Contenu du mois ──────────────────────────── -->
     <div v-if="current">
-      <!-- ─── Sous-header : mois, statut, bilan et actions en une barre (sticky) ── -->
-      <div class="subheader mb-4">
-        <div class="flex items-center gap-x-5 gap-y-2 flex-wrap">
-          <template v-if="summaryData">
-            <div class="kpi">
-              <span class="kpi-value" :class="amountClass(summaryData.tiles.disponible)">{{ fmtOrDash(summaryData.tiles.disponible) }}</span>
-              <span class="kpi-label">Solde actuel{{ summaryData.mainAccount ? ' · ' + summaryData.mainAccount.name : '' }}</span>
-              <span v-if="!summaryData.mainAccount" class="kpi-hint text-amber-500">Définir un compte principal</span>
-              <span v-else-if="summaryData.tiles.disponible === null" class="kpi-hint text-amber-500">Saisir le solde de début de mois</span>
-              <span v-else-if="mainEnvelopesTotal" class="kpi-hint">enveloppes déduites ({{ fmt(mainEnvelopesTotal) }})</span>
-            </div>
-            <div class="kpi-sep" />
-            <div
-              class="kpi"
-              :title="`+ ${fmt(summaryData.tiles.detail.revenusRestants)} revenus prévus non encaissés · − ${fmt(summaryData.tiles.detail.prevusRestants)} sorties prévues non réalisées`"
-            >
-              <span class="kpi-value" :class="amountClass(summaryData.tiles.projete)">{{ fmtOrDash(summaryData.tiles.projete) }}</span>
-              <span class="kpi-label flex items-center gap-1">Projeté fin de mois <HelpTip text="Solde actuel + revenus prévus non encaissés − tout ce qui est prévu et pas encore passé (lignes non cochées, mensualités et DCA non versés). Répond à « est-ce que je peux me le permettre ? »." /></span>
-              <span class="kpi-hint">si tout le prévu se réalise</span>
-            </div>
-            <div class="kpi-sep" />
-            <div class="kpi">
-              <span class="kpi-value text-violet-600">{{ fmt(summaryData.tiles.misDeCote) }}</span>
-              <span class="kpi-label">Mis de côté ce mois</span>
-              <span v-if="summaryData.tiles.savingRate" class="kpi-hint">objectif {{ fmt(summaryData.tiles.objectifEpargne) }} ({{ summaryData.tiles.savingRate }} %)</span>
-            </div>
-          </template>
-
-          <!-- Colonne mois à droite (contenu aligné à gauche) : nom + statut, actions dessous -->
-          <div class="ml-auto flex flex-col items-start gap-1.5">
-            <div class="flex items-center gap-2">
-              <select
-                class="month-select"
-                :value="current?.id"
-                @change="openMonth(monthsList.find((m) => m.id === Number($event.target.value)))"
-              >
-                <option v-for="m in monthsList" :key="m.id" :value="m.id">{{ m.name }}{{ m.isClosed ? ' 🔒' : '' }}</option>
-              </select>
-              <span class="badge" :class="current.isClosed ? 'bg-gray-100 text-gray-500' : 'bg-emerald-50 text-emerald-700'">
-                {{ current.isClosed ? 'Clôturé' : 'Ouvert' }}
-              </span>
-            </div>
-            <div class="flex items-center gap-3">
-              <button class="link text-xs" @click="showAccounts = !showAccounts">{{ showAccounts ? '▲' : '▼' }} Comptes</button>
-              <button class="link text-xs" @click="openSnapshots">Soldes de début</button>
-              <button class="link text-xs" @click="toggleClosed">{{ current.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
-              <button class="btn-primary" @click="openCreateForm">+ Nouveau mois</button>
-              <HelpTip wide text="Chaque ligne a un prévu (du template) et un réel (vos entrées). ☐ = prévu pas encore réalisé : cocher crée l'entrée au prévu. Cliquez une ligne pour voir ses entrées, « + entrée » pour en ajouter, ✎ pour modifier la ligne. « + ligne » ajoute une dépense propre à ce mois. Un mois clôturé est verrouillé." />
-            </div>
+      <!-- ─── Barre de synthèse (sticky, fond opaque) — §5.3, corrige A1 ── -->
+      <div ref="stickySentinel" style="height: 1px"></div>
+      <div class="synth" :class="{ 'is-scrolled': scrolled }">
+        <div class="synth-hero">
+          <span class="num synth-solde" :class="{ 'is-over': (summaryData?.tiles.disponible ?? 0) < 0 }">{{ fmtOrDash(summaryData?.tiles.disponible) }}</span>
+          <span class="synth-sub">Solde {{ summaryData?.mainAccount?.name || '—' }}</span>
+        </div>
+        <div class="synth-sep" />
+        <div class="synth-kv">
+          <span class="synth-k has-tip" title="Solde estimé si toutes les lignes prévues sont réalisées.">Fin de mois</span>
+          <span class="num synth-v" :class="{ 'is-over': (summaryData?.tiles.projete ?? 0) < 0 }">{{ fmtOrDash(summaryData?.tiles.projete) }}</span>
+        </div>
+        <div class="synth-sep" />
+        <div class="synth-kv">
+          <span class="synth-k has-tip" title="Épargne réalisée sur l'objectif du mois.">Épargne du mois</span>
+          <span class="num synth-v">{{ fmt(summaryData?.tiles.misDeCote || 0) }} <span class="synth-meta">sur {{ fmt(summaryData?.tiles.objectifEpargne || 0) }}</span></span>
+          <span v-if="summaryData?.tiles.objectifEpargne" class="mini-track"><span class="mini-fill" :style="{ width: Math.min(100, objectifPct) + '%' }" /></span>
+        </div>
+        <div class="synth-right">
+          <div class="synth-month">
+            <button class="btn-icon" title="Mois précédent" :disabled="!prevMonthTarget" @click="stepMonth(-1)">‹</button>
+            <select class="month-select" :value="current?.id" @change="onMonthSelect">
+              <option v-for="m in monthsList" :key="m.id" :value="m.id">{{ m.name }}</option>
+              <option value="__new">Créer {{ nextPeriodName }}…</option>
+            </select>
+            <button class="btn-icon" title="Mois suivant" :disabled="!nextMonthTarget" @click="stepMonth(1)">›</button>
+            <span class="synth-status"><span class="status-dot" :class="{ 'is-closed': current.isClosed }" />{{ current.isClosed ? 'Mois clôturé' : 'Mois ouvert' }}</span>
+          </div>
+          <div class="synth-actions">
+            <button class="link-accent" @click="showAccounts = !showAccounts">Comptes</button>
+            <button class="link-accent" @click="openSnapshots">Soldes d'ouverture</button>
+            <button class="btn-secondary" @click="toggleClosed">{{ current.isClosed ? 'Rouvrir le mois' : 'Clôturer le mois' }}</button>
           </div>
         </div>
+      </div>
 
-        <!-- Soldes des comptes (déplié dans la barre) -->
-        <div v-if="showAccounts" class="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-stone-100">
-          <div v-for="a in summaryData.accounts" :key="a.accountId" class="bg-stone-50 rounded-lg px-3 py-2">
-            <p class="text-[11.5px] font-semibold truncate">{{ a.name }}<span v-if="a.isMain" class="text-violet-500"> ★</span></p>
-            <p class="text-[12.5px]">
-              <span class="text-gray-400">{{ fmtOrDash(a.start) }}</span>
-              <span class="text-gray-300"> → </span>
-              <span class="font-semibold" :class="amountClass(a.current)">{{ fmtOrDash(a.current) }}</span>
-            </p>
-            <p v-if="a.envelopesTotal" class="text-[10.5px] text-gray-400">
+      <!-- Soldes des comptes (panneau sous la synthèse) -->
+      <div v-if="showAccounts" class="panel accounts-panel">
+        <div class="accounts-grid">
+          <div v-for="a in summaryData?.accounts || []" :key="a.accountId" class="account-tile">
+            <p class="account-name">{{ a.name }}<span v-if="a.isMain" class="account-star"> ★</span></p>
+            <p class="num account-balances"><span class="meta">{{ fmtOrDash(a.start) }}</span><span class="sep"> → </span><span class="ink" :class="{ 'is-over': (a.current ?? 0) < 0 }">{{ fmtOrDash(a.current) }}</span></p>
+            <p v-if="a.envelopesTotal" class="account-meta num">
               enveloppes {{ fmt(a.envelopesTotal) }} · hors enveloppes
-              <span :class="{ 'text-amber-600 font-semibold': a.unallocated < 0 }" :title="a.unallocated < 0 ? 'Négatif : les enveloppes réservent plus que le solde (découvert autorisé)' : ''">{{ fmtOrDash(a.unallocated) }}</span>
+              <span :class="{ 'is-warn-text': a.unallocated < 0 }" :title="a.unallocated < 0 ? 'Négatif : les enveloppes réservent plus que le solde (découvert autorisé)' : ''">{{ fmtOrDash(a.unallocated) }}</span>
             </p>
           </div>
         </div>
       </div>
 
-      <!-- ─── Enveloppes & Investissements : une carte, deux onglets ── -->
-      <div v-if="envelopes.length || assets.length" class="card p-0 overflow-hidden mb-4">
-        <div class="flex border-b border-stone-100">
-          <button v-if="envelopes.length" class="tab" :class="{ 'tab--violet': shownTab === 'env' }" @click="switchTab('env')">
-            <PhPiggyBank :size="18" :weight="shownTab === 'env' ? 'fill' : 'regular'" :class="shownTab === 'env' ? 'text-violet-600' : ''" />
-            <span class="font-semibold text-[13px]">Enveloppes</span>
-            <span class="text-[12.5px]" :class="shownTab === 'env' ? 'text-violet-600 font-semibold' : 'text-gray-400'">{{ fmt(monthContribTotal) }}</span>
-          </button>
-          <button v-if="assets.length" class="tab" :class="{ 'tab--teal': shownTab === 'inv' }" @click="switchTab('inv')">
-            <PhChartLineUp :size="18" :weight="shownTab === 'inv' ? 'fill' : 'regular'" :class="shownTab === 'inv' ? 'text-teal-600' : ''" />
-            <span class="font-semibold text-[13px]">Investissements</span>
-            <span class="text-[12.5px]" :class="shownTab === 'inv' ? 'text-teal-600 font-semibold' : 'text-gray-400'">{{ fmt(monthInvestedTotal) }}</span>
-          </button>
-        </div>
-
-        <div ref="tabBody" class="tab-body">
-        <div :key="shownTab" class="tab-panel">
-        <template v-if="shownTab === 'env'">
-        <!-- Part du mis de côté dans les sorties réelles du mois -->
-        <div v-if="envelopesPct !== null" class="px-4 pt-2.5 flex items-center gap-2" :title="fmt(monthContribTotal) + ' sur ' + fmt(totalSorties) + ' de sorties réelles ce mois (dépenses + enveloppes)'">
-          <div class="progress flex-1"><div class="progress-bar bg-violet-500" :style="{ width: envelopesPct + '%' }" /></div>
-          <span class="text-[10.5px] text-gray-400 shrink-0" style="font-variant-numeric: tabular-nums">{{ envelopesPct }} %</span>
-          <HelpTip text="Vos projets d'épargne. ☐ versé pose la mensualité suggérée en un clic ; cliquez une enveloppe pour voir ou ajouter une contribution. Une dépense « depuis l'enveloppe » (dans une entrée) la fait baisser." />
-        </div>
-
-        <div v-for="env in envelopes" :key="env.id">
-          <div class="line-row" @click="toggleEnvelope(env)">
-            <!-- ☐ versé : la mensualité suggérée en un clic — disparaît dès qu'une contribution du mois existe -->
-            <input
-              v-if="env.monthlySuggestion > 0 && !current.isClosed && !contribsForEnvelope(env).some((c) => c.kind === 'normale')"
-              type="checkbox"
-              class="shrink-0 text-violet-600 cursor-pointer"
-              :title="'Verser la mensualité suggérée : ' + fmt(env.monthlySuggestion)"
-              @click.stop="contributeSuggested(env)"
-            />
-            <span class="text-[13px] font-medium truncate">{{ env.name }}</span>
-            <span v-if="env.accountName" class="badge bg-stone-100 text-gray-500">{{ env.accountName }}</span>
-            <span v-if="contribsForEnvelope(env).length" class="badge" :class="contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? 'bg-violet-50 text-violet-700' : 'bg-amber-50 text-amber-700'">
-              {{ contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? '+' : '' }}{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois
-            </span>
-            <span v-else-if="env.monthlySuggestion" class="text-[11px] text-gray-400" title="Mensualité suggérée pour atteindre la cible à l'échéance">
-              ≈ {{ fmt(env.monthlySuggestion) }} / mois
-            </span>
-            <span class="ml-auto shrink-0 text-right">
-              <span class="text-[13px] font-semibold">{{ fmt(env.total) }}</span>
-              <span v-if="env.targetAmount" class="text-[11px] text-gray-400" :title="env.spentInTarget ? fmt(env.targetAmount) + ' − ' + fmt(env.spentInTarget) + ' déjà dépensés pour le projet' : ''"> / {{ fmt(env.effectiveTarget) }}</span>
-              <span v-if="env.targetAmount" class="block text-[10.5px]" :class="env.total >= env.effectiveTarget ? 'text-emerald-600' : 'text-gray-400'">
-                {{ env.total >= env.effectiveTarget ? 'cible atteinte' : 'reste ' + fmt(env.effectiveTarget - env.total) }}{{ env.spentInTarget ? ' · ' + fmt(env.spentInTarget) + ' dépensés' : '' }}
-              </span>
-            </span>
-          </div>
-          <div v-if="env.targetAmount" class="px-4 pb-1.5 -mt-1">
-            <div class="progress"><div class="progress-bar bg-violet-500" :style="{ width: envelopePct(env) + '%' }" /></div>
-          </div>
-
-          <!-- Contributions du mois + ajout -->
-          <div v-if="openEnvelopeId === env.id" class="edit-panel">
-            <div v-for="c in contribsForEnvelope(env)" :key="c.id" class="flex items-center gap-2 text-[12.5px] py-1">
-              <span class="text-gray-400 w-20 shrink-0">{{ c.date }}</span>
-              <span class="font-medium w-20 shrink-0" :class="c.amount >= 0 ? 'text-emerald-600' : 'text-red-500'">{{ fmt(c.amount) }}</span>
-              <span v-if="c.kind !== 'normale'" class="badge bg-stone-100 text-gray-500">{{ c.kind }}</span>
-              <span class="text-gray-400 truncate">{{ c.notes }}</span>
-              <span v-if="c.fromAccountName" class="text-gray-300 text-[11px] ml-auto shrink-0">
-                {{ c.fromAccountName }}<template v-if="env.accountName && env.accountName !== c.fromAccountName"> → {{ env.accountName }}</template>
-              </span>
-              <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" :class="{ 'ml-auto': !c.fromAccountName }" @click="deleteContribution(c)">×</button>
-            </div>
-            <p v-if="!contribsForEnvelope(env).length" class="text-xs text-gray-400 py-1">Aucune contribution ce mois.</p>
-
-            <div v-if="!current.isClosed" class="flex flex-wrap gap-2 mt-2 items-center">
-              <input v-model="contribForm.amount" type="number" step="0.01" class="input w-24" :placeholder="env.monthlySuggestion ? String(env.monthlySuggestion) : 'Montant'" @keyup.enter="submitContribution(env)" />
-              <input v-model="contribForm.date" type="date" class="input w-34" />
-              <select v-model="contribForm.fromAccountId" class="input w-28" title="Compte source">
-                <option value="">— depuis</option>
-                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-              </select>
-              <span v-if="env.accountName" class="text-gray-300 text-[12px]">→ {{ env.accountName }}</span>
-              <input v-model="contribForm.notes" type="text" class="input w-36" placeholder="Note (optionnelle)" @keyup.enter="submitContribution(env)" />
-              <button class="btn-secondary" @click="submitContribution(env)">Ajouter</button>
-            </div>
-          </div>
-        </div>
-        </template>
-
-        <!-- ─── Onglet Investissements ───────────────── -->
-        <template v-else>
-        <div v-for="asset in assets" :key="asset.id">
-          <div class="line-row" @click="toggleAsset(asset)">
-            <!-- ☐ versé : le DCA prévu — disparaît dès qu'un mouvement existe ce mois (le réel remplace le prévu) -->
-            <input
-              v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed"
-              type="checkbox"
-              class="shrink-0 text-teal-600 cursor-pointer"
-              title="Marquer le versement mensuel comme fait (pour annuler ensuite : supprimez le mouvement ×)"
-              @click.stop="toggleDca(asset)"
-            />
-            <span class="text-[13px] font-medium truncate" :class="{ 'text-gray-400': asset.monthlyDca > 0 && !dcaDone(asset) && !movementsForAsset(asset).length }">{{ asset.name }}</span>
-            <span v-if="asset.type" class="badge bg-violet-50 text-violet-700">{{ asset.type }}</span>
-            <span v-if="asset.accountName" class="badge bg-stone-100 text-gray-500">{{ asset.accountName }}</span>
-            <span v-if="movementsForAsset(asset).length" class="badge bg-teal-50 text-teal-700">
-              {{ movementsForAsset(asset).length }} mouvement{{ movementsForAsset(asset).length > 1 ? 's' : '' }}
-            </span>
-            <span class="ml-auto shrink-0 text-right">
-              <span class="text-[13px] font-semibold" :class="movementsForAsset(asset).length ? '' : 'text-gray-400'">
-                {{ fmt(movementsForAsset(asset).length ? movementsForAsset(asset).reduce((s, m) => s + (m.kind === 'versement' ? m.amount : -m.amount), 0) : asset.monthlyDca) }}
-              </span>
-              <span v-if="!movementsForAsset(asset).length && asset.monthlyDca" class="text-[11px] text-gray-400"> prévu</span>
-            </span>
-          </div>
-          <div v-if="openAssetId === asset.id" class="edit-panel">
-            <div v-for="m in movementsForAsset(asset)" :key="m.id" class="flex items-center gap-2 text-[12.5px] py-1">
-              <span class="text-gray-400 w-20 shrink-0">{{ m.date }}</span>
-              <span class="font-medium w-20 shrink-0" :class="m.kind === 'versement' ? 'text-emerald-600' : 'text-red-500'">{{ m.kind === 'retrait' ? '−' : '+' }}{{ fmt(m.amount) }}</span>
-              <span v-if="m.source === 'dca'" class="badge bg-blue-50 text-blue-600">DCA</span>
-              <span class="text-gray-300 text-[11px] ml-auto shrink-0">
-                {{ m.kind === 'versement' ? (m.counterpartAccountName || '?') + ' → ' + (asset.accountName || asset.name) : (asset.accountName || asset.name) + ' → ' + (m.counterpartAccountName || '?') }}
-              </span>
-              <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" @click="deleteAssetMovement(m)">×</button>
-            </div>
-            <p v-if="!movementsForAsset(asset).length" class="text-xs text-gray-400 py-1">Aucun mouvement ce mois.</p>
-            <div v-if="!current.isClosed" class="flex flex-wrap gap-2 mt-2 items-center">
-              <select v-model="assetMovementForm.kind" class="input w-28">
-                <option value="versement">Versement</option>
-                <option value="retrait">Retrait</option>
-              </select>
-              <input v-model="assetMovementForm.amount" type="number" step="0.01" class="input w-24" placeholder="Montant" @keyup.enter="submitAssetMovement(asset)" />
-              <input v-model="assetMovementForm.date" type="date" class="input w-34" />
-              <select v-model="assetMovementForm.counterpartAccountId" class="input w-28" :title="assetMovementForm.kind === 'versement' ? 'Compte source' : 'Compte destination'">
-                <option value="">— compte</option>
-                <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-              </select>
-              <span v-if="asset.accountName" class="text-gray-300 text-[12px]">{{ assetMovementForm.kind === 'versement' ? '→ ' + asset.accountName : '← ' + asset.accountName }}</span>
-              <button class="btn-secondary" @click="submitAssetMovement(asset)">Ajouter</button>
-            </div>
-          </div>
-        </div>
-        </template>
-        </div>
-        </div>
-      </div>
-
-      <!-- Snapshots -->
-      <div v-if="snapshotsOpen" class="card px-5 py-4 mb-4">
-        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Soldes de début de mois</p>
-        <div class="flex flex-wrap gap-3 mb-3">
+      <!-- Soldes d'ouverture (édition) -->
+      <div v-if="snapshotsOpen" class="panel accounts-panel">
+        <p class="panel-title">Soldes d'ouverture</p>
+        <div class="snapshot-form">
           <label v-for="a in activeAccounts" :key="a.id" class="field">
             <span>{{ a.name }}</span>
             <input v-model="snapshotEdits[a.id]" type="number" step="0.01" class="input w-28" :disabled="current.isClosed" placeholder="—" />
           </label>
         </div>
-        <button v-if="!current.isClosed" class="btn-primary" @click="saveSnapshots">Sauvegarder</button>
+        <button v-if="!current.isClosed" class="btn-primary" @click="saveSnapshots">Enregistrer les soldes</button>
       </div>
 
-      <!-- Catégories -->
-      <div class="flex flex-col gap-4">
-          <div v-for="group in displayGroups" :key="group.category.id ?? 'none'" class="card p-0 overflow-hidden">
-
-            <!-- En-tête catégorie (clic = replier / déplier) -->
-            <div class="px-4 py-3 border-b border-stone-100 cursor-pointer select-none hover:bg-stone-50/60 transition-colors" @click="toggleCatOpen(group)">
-              <div class="flex items-center gap-2.5">
-                <span class="cat-chip" :style="{ background: group.category.color + '1c' }">
-                  <span class="w-2.5 h-2.5 rounded-full" :style="{ background: group.category.color }" />
-                </span>
-                <span class="font-semibold text-[13.5px]">{{ group.category.name }}</span>
-                <span v-if="group.lines.length" class="badge bg-stone-100 text-gray-400">{{ group.lines.length }}</span>
-                <span class="ml-auto text-right leading-tight">
-                  <span class="block text-[14px] font-bold" style="font-variant-numeric: tabular-nums">{{ fmt(group.actual) }}</span>
-                  <span class="block text-[10.5px] text-gray-400">prévu {{ fmt(group.planned) }}</span>
-                </span>
-                <PhCaretDown :size="14" weight="bold" class="text-gray-300 shrink-0 transition-transform duration-300" :class="{ '-rotate-90': !isCatOpen(group) }" />
-              </div>
-              <!-- Part de la catégorie dans les dépenses réelles du mois -->
-              <div v-if="depensePct(group) !== null" class="flex items-center gap-2 mt-1.5" :title="fmt(group.actual) + ' sur ' + fmt(totalSorties) + ' de sorties réelles ce mois (dépenses + enveloppes)'">
-                <div class="progress flex-1"><div class="progress-bar" :style="{ width: depensePct(group) + '%', background: group.category.color }" /></div>
-                <span class="text-[10.5px] text-gray-400 shrink-0" style="font-variant-numeric: tabular-nums">{{ depensePct(group) }} %</span>
-              </div>
+      <!-- ─── Grille : registre + colonne latérale — §5.1 ── -->
+      <div class="month-layout">
+        <div class="reg-col">
+          <!-- Registre du mois : panneau unique — §5.4, corrige A2/A3 -->
+          <div class="panel reg-panel">
+            <div class="reg-grid reg-head">
+              <span></span><span></span><span class="colh">prévu</span><span class="colh">réel</span><span></span>
             </div>
 
-            <!-- Contenu repliable : lignes + ajout -->
-            <div class="collapse-wrap" :class="{ 'collapse-wrap--open': isCatOpen(group) }">
+            <section v-for="group in displayGroups" :key="group.category.id ?? 'none'" class="reg-section">
+              <!-- En-tête de section — §5.5 -->
+              <div class="reg-sec-head" @click="toggleCatOpen(group)">
+                <div class="reg-grid">
+                  <span class="cat-dot" :style="{ background: desat(group.category.color) }" />
+                  <span class="reg-sec-title">{{ group.category.name }} <span class="reg-sec-count num">{{ group.lines.length }}</span></span>
+                  <span class="num reg-sec-prev">{{ group.planned ? fmt(group.planned) : '' }}</span>
+                  <span class="num reg-sec-real" :class="{ 'is-credit': group.category.type === 'revenu' && group.actual > 0 }">{{ fmt(group.actual) }}</span>
+                  <PhCaretDown :size="14" class="chev" :class="{ 'is-open': isCatOpen(group) }" />
+                </div>
+                <div v-if="group.planned > 0 && group.category.type === 'depense'" class="sec-bar">
+                  <div class="sec-fill" :class="barVariant(group)" :style="{ width: Math.min(100, Math.round((group.actual / group.planned) * 100)) + '%' }" />
+                </div>
+              </div>
+
+              <div class="collapse-wrap" :class="{ 'collapse-wrap--open': isCatOpen(group) }">
+              <div class="min-h-0 overflow-hidden">
+                <!-- Ligne budgétaire — §5.6 -->
+                <div v-for="line in group.lines" :key="line.id" class="reg-rowwrap">
+                  <div class="reg-grid reg-row" :class="{ 'is-alert': rowAlert(line) }" @click="toggleEntries(line)">
+                    <span class="cell-point">
+                      <button
+                        v-if="showCheckbox(line)"
+                        class="pointbox"
+                        :disabled="current.isClosed"
+                        :aria-label="'Pointer ' + (line.label || 'la ligne')"
+                        title="Pointer : crée l'entrée au montant prévu (annulation : supprimer l'entrée)"
+                        @click.stop="togglePaid(line)"
+                      ></button>
+                      <span v-else-if="isPaid(line)" class="pointbox is-checked"><PhCheck :size="12" weight="bold" /></span>
+                    </span>
+                    <span class="cell-label">
+                      <span class="row-label" :class="{ 'is-pointed': isPaid(line), 'is-empty': !line.label }">{{ line.label || 'Sans libellé' }}<span v-if="singleEntryDetail(line)" class="row-detail"> — {{ singleEntryDetail(line) }}</span></span>
+                      <span v-if="line.isPot && line.pot && line.pot.toSend !== 0 && !isPaid(line)" class="tag tag-alert">{{ line.pot.toSend > 0 ? 'à envoyer · ' + (line.pot.partnerName || '') : (line.pot.partnerName || '') + ' vous doit' }}</span>
+                      <span v-else-if="line.isPot" class="tag tag-neutral">cagnotte</span>
+                      <span v-if="sharingOn && line.isShared && !line.isPot" class="tag tag-info" title="Dépense partagée : 50 % à votre charge.">½ partagé</span>
+                      <span v-if="line.recurringDay && !isPaid(line)" class="tag tag-neutral num">le {{ line.recurringDay }}</span>
+                      <template v-if="themesForLine(line).length">
+                        <span class="tag tag-neutral"><span class="tag-dot" :style="{ background: themesForLine(line)[0].color }" />{{ themesForLine(line)[0].name }}</span>
+                        <span v-if="themesForLine(line).length > 1" class="tag tag-neutral" :title="themesForLine(line).map((t) => t.name).join(', ')">+{{ themesForLine(line).length - 1 }}</span>
+                      </template>
+                    </span>
+                    <span class="num cell-prev">{{ line.isPot ? '' : (line.plannedAmount ? fmt(line.plannedAmount) : '—') }}</span>
+                    <span class="num cell-real">
+                      <template v-if="line.isPot && !isPaid(line) && line.pot">
+                        <span :class="line.pot.toSend > 0 ? 'is-over' : 'is-credit'">{{ fmt(Math.abs(line.pot.toSend)) }}</span>
+                      </template>
+                      <template v-else-if="isPaid(line)">
+                        <span :class="{ 'is-over': overBudget(line), 'is-credit': lineCategoryType(line) === 'revenu' }">{{ fmt(line.actualAmount) }}</span>
+                      </template>
+                      <span v-else class="cell-dash">—</span>
+                    </span>
+                    <span class="cell-actions">
+                      <button v-if="!current.isClosed" class="btn-icon row-action" title="Modifier la ligne" @click.stop="openEditLine(line)">✎</button>
+                    </span>
+                  </div>
+
+                  <!-- Entrées (niveau 3) — §5.7 -->
+                  <div v-if="openEntriesLineId === line.id" class="entries-block">
+                    <div v-if="line.isPot && line.pot" class="pot-detail">
+                      <span>Payé par moi en commun (½)</span><span class="num">{{ fmt(line.pot.sharedByMe) }}</span>
+                      <span>Payé par {{ line.pot.partnerName }}</span><span class="num">{{ fmt(line.pot.partnerPaid) }}</span>
+                      <span>Total commun</span><span class="num">{{ fmt(line.pot.total) }}</span>
+                      <span>Ma part ({{ line.pot.myShare }} %)</span><span class="num">{{ fmt(line.pot.myPart) }}</span>
+                      <span class="strong">{{ potStatus(line) }}</span><span class="num strong" :class="line.pot.toSend > 0 ? 'is-over' : 'is-credit'">{{ fmt(Math.abs(line.pot.toSend)) }}</span>
+                    </div>
+                    <div v-for="e in entriesForLine(line)" :key="e.id" class="entry-row">
+                      <span class="entry-date num">{{ shortDate(e.date) }}</span>
+                      <span class="entry-label">{{ e.label || '' }}
+                        <span v-if="e.source === 'paye'" class="tag tag-neutral">pointé</span>
+                        <span v-if="e.envelopeId && envelopeById(e.envelopeId)" class="tag tag-info" :title="e.envelopeInTarget ? 'Compte dans l\'objectif' : 'Hors objectif'">depuis {{ envelopeById(e.envelopeId).name }}</span>
+                        <span v-if="sharingOn && e.isShared" class="tag tag-info">½ partagé</span>
+                      </span>
+                      <span class="entry-amount num">{{ fmt(e.amount) }}</span>
+                      <span class="entry-account">{{ accountById(e.accountId)?.name || '' }}<template v-if="accountById(e.toAccountId)"> → {{ accountById(e.toAccountId).name }}</template></span>
+                      <span class="entry-actions">
+                        <button v-if="!current.isClosed" class="btn-icon" title="Modifier l'entrée" @click.stop="openEditEntry(line, e)">✎</button>
+                        <button v-if="!current.isClosed" class="btn-icon is-danger" title="Supprimer l'entrée" @click.stop="removeEntry(e)">×</button>
+                      </span>
+                    </div>
+                    <p v-if="!entriesForLine(line).length" class="entries-empty">Aucune entrée.</p>
+                    <div v-for="t in transfersForLine(line)" :key="'t' + t.id" class="entry-row is-transfer">
+                      <span class="entry-date num">{{ shortDate(t.date) }}</span>
+                      <span class="entry-label"><span class="tag tag-neutral">virement</span>{{ t.label }}</span>
+                      <span class="entry-amount num">{{ fmt(t.amount) }}</span>
+                      <span class="entry-account"></span>
+                      <span class="entry-actions"><button v-if="!current.isClosed" class="btn-icon is-danger" title="Supprimer ce virement (le mouvement entre comptes est annulé)" @click.stop="removeEntry(t)">×</button></span>
+                    </div>
+                    <button v-if="!current.isClosed" class="btn-discret" @click.stop="openAddEntry(line)"><PhPlus :size="12" weight="bold" /> Ajouter une entrée</button>
+                  </div>
+                </div>
+
+                <div v-if="!group.lines.length" class="reg-empty">Aucune ligne dans {{ group.category.name }}.</div>
+                <button v-if="!current.isClosed" class="btn-addline" @click="openAddLine(group.category)"><PhPlus :size="13" weight="bold" /> Ajouter une ligne budgétaire</button>
+              </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Relevés du mois (calculateurs) -->
+          <div v-if="calculators.length" class="panel calc-panel">
+            <div class="reg-sec-head" @click="calcOpen = !calcOpen">
+              <div class="calc-head">
+                <span class="reg-sec-title">Relevés du mois</span>
+                <span class="reg-sec-count num">{{ calculators.length }}</span>
+                <PhCaretDown :size="14" class="chev" :class="{ 'is-open': calcOpen }" />
+              </div>
+            </div>
+            <div class="collapse-wrap" :class="{ 'collapse-wrap--open': calcOpen }">
             <div class="min-h-0 overflow-hidden">
-            <!-- Lignes -->
-            <div v-for="line in group.lines" :key="line.id">
-              <div class="line-row" :class="{ 'line-row--pot': line.isPot }" @click="toggleEntries(line)">
-                <!-- ☐ payé : prévu sans entrée → cocher crée l'entrée au prévu -->
-                <input
-                  v-if="showCheckbox(line)"
-                  type="checkbox"
-                  class="shrink-0 text-violet-600 cursor-pointer"
-                  :checked="isPaid(line)"
-                  :disabled="current.isClosed"
-                  title="Marquer payé au montant prévu (pour annuler ensuite : supprimez l'entrée ×)"
-                  @click.stop="togglePaid(line)"
-                />
-                <span class="text-[13px] font-medium truncate" :class="{ 'text-gray-400': !isPaid(line) }">
-                  {{ line.label }}<span v-if="singleEntryDetail(line)" class="text-gray-400 font-normal"> — {{ singleEntryDetail(line) }}</span>
-                </span>
-                <span v-if="line.isPot" class="badge bg-amber-50 text-amber-600" title="Cagnotte : le prévu est calculé à partir des ½">cagnotte · {{ line.pot?.partnerName }}</span>
-                <span v-if="line.recurringDay && !isPaid(line)" class="badge bg-blue-50 text-blue-600">le {{ line.recurringDay }}</span>
-                <span v-if="sharingOn && line.isShared && !line.isPot" class="badge bg-amber-50 text-amber-600" :title="'Cagnotte : ' + (potById(line.potLineId) || pots[0]).label">
-                  ½{{ pots.length > 1 ? ' ' + ((potById(line.potLineId) || pots[0]).pot?.partnerName || '') : '' }}
-                </span>
-                <span v-for="t in themesForLine(line)" :key="'th' + t.id" class="badge" :style="{ background: t.color + '22', color: t.color }">{{ t.name }}</span>
-
-                <!-- Montant : le réel remplace le prévu (cagnotte : « à envoyer » calculé) -->
-                <span class="ml-auto shrink-0 text-right">
-                  <template v-if="line.isPot && !isPaid(line) && line.pot">
-                    <span class="text-[11px] text-gray-400 mr-1">{{ potStatus(line) }}</span>
-                    <span class="text-[13px] font-semibold" :class="line.pot.toSend > 0 ? 'text-amber-600' : line.pot.toSend < 0 ? 'text-emerald-600' : 'text-gray-400'">
-                      {{ fmt(Math.abs(line.pot.toSend)) }}
+              <div v-for="calc in calculators" :key="calc.id" class="calc-row">
+                <span class="calc-name">{{ calc.name }}</span>
+                <div v-for="r in calc.readings" :key="r.defId" class="calc-reading">
+                  <label class="field">
+                    <span>{{ r.label || r.symbol }}<span v-if="r.unit" class="meta"> · {{ r.unit }}</span></span>
+                    <span class="calc-inputs">
+                      <template v-if="r.kind === 'index'">
+                        <input v-model="r.previous" type="number" step="any" class="input w-24 is-prev" :disabled="current.isClosed" title="Index de début (reporté du mois précédent)" @change="saveReadings(calc)" />
+                        <span class="sep">→</span>
+                      </template>
+                      <input v-model="r.current" type="number" step="any" class="input w-24" :disabled="current.isClosed" :title="r.kind === 'index' ? 'Index de fin' : 'Valeur du mois'" @change="saveReadings(calc)" />
                     </span>
-                  </template>
+                  </label>
+                  <span v-if="r.kind === 'index' && r.consumption !== null" class="num calc-conso">= {{ fmtNum(r.consumption) }}</span>
+                </div>
+                <div class="calc-result">
+                  <span v-if="calc.error" class="calc-error">{{ calc.error }}</span>
                   <template v-else>
-                    <span class="text-[13px] font-semibold" :class="!isPaid(line) ? 'text-gray-400' : overBudget(line) ? 'text-red-500' : ''">
-                      {{ fmt(isPaid(line) ? line.actualAmount : line.plannedAmount) }}
-                    </span>
-                    <span v-if="isPaid(line) && line.plannedAmount > 0 && line.actualAmount !== line.plannedAmount" class="text-[11px] text-gray-400"> / {{ fmt(line.plannedAmount) }} prévu</span>
+                    <span class="calc-cell"><span class="num strong">{{ calc.estimate === null ? '—' : fmt(calc.estimate) }}</span><span class="meta">estimé</span></span>
+                    <template v-if="calc.line">
+                      <span class="calc-cell"><span class="num">{{ fmt(calc.line.planned) }}</span><span class="meta">{{ calc.line.label }}</span></span>
+                      <span class="calc-cell"><span class="num" :class="calc.gap === null ? '' : calc.gap > 0 ? 'is-over' : 'is-credit'">{{ calc.gap === null ? '—' : (calc.gap > 0 ? '+' : '') + fmt(calc.gap) }}</span><span class="meta">écart</span></span>
+                      <button
+                        v-if="!current.isClosed && calc.gap !== null && Math.abs(calc.gap) >= 0.01 && Math.abs((calc.line.regularisation || 0) - calc.gap) >= 0.01"
+                        class="btn-secondary"
+                        :title="calc.line.regularisation ? 'Régularisation déjà posée : ' + fmt(calc.line.regularisation) : ''"
+                        @click="regularize(calc)"
+                      >{{ calc.line.regularisation ? 'Mettre à jour' : 'Régulariser' }}</button>
+                      <span v-else-if="calc.line.regularisation" class="calc-ok">Régularisé</span>
+                    </template>
                   </template>
-                </span>
-                <button
-                  v-if="!current.isClosed"
-                  class="icon-btn shrink-0 text-gray-300 hover:text-gray-600"
-                  title="Modifier la ligne"
-                  @click.stop="openEditLine(line)"
-                >✎</button>
-              </div>
-
-              <!-- Entrées dépliées -->
-              <div v-if="openEntriesLineId === line.id" class="edit-panel">
-                <!-- Cagnotte : le détail du calcul -->
-                <div v-if="line.isPot && line.pot" class="text-[12px] text-gray-500 grid grid-cols-2 gap-x-6 gap-y-0.5 max-w-md mb-2 pb-2 border-b border-stone-200">
-                  <span>Payé par moi en commun (½)</span><span class="text-right font-medium text-gray-700">{{ fmt(line.pot.sharedByMe) }}<span v-if="line.pot.sharedPlanned" class="text-gray-400 font-normal"> dont {{ fmt(line.pot.sharedPlanned) }} prévu</span></span>
-                  <span>Payé par {{ line.pot.partnerName }}</span><span class="text-right font-medium text-gray-700">{{ fmt(line.pot.partnerPaid) }}</span>
-                  <span>Total commun</span><span class="text-right font-medium text-gray-700">{{ fmt(line.pot.total) }}</span>
-                  <span>Ma part ({{ line.pot.myShare }} %)</span><span class="text-right font-medium text-gray-700">{{ fmt(line.pot.myPart) }}</span>
-                  <span class="font-medium text-gray-700">{{ potStatus(line) }}</span><span class="text-right font-semibold" :class="line.pot.toSend > 0 ? 'text-amber-600' : 'text-emerald-600'">{{ fmt(Math.abs(line.pot.toSend)) }}</span>
                 </div>
-                <div v-for="e in entriesForLine(line)" :key="e.id" class="flex items-center gap-2 text-[12.5px] py-1 flex-wrap">
-                  <span class="text-gray-400 w-20 shrink-0">{{ e.date }}</span>
-                  <span class="font-medium w-20 shrink-0">{{ fmt(e.amount) }}</span>
-                  <span v-if="e.source === 'paye'" class="badge bg-blue-50 text-blue-600">payé</span>
-                  <span v-if="themeById(e.themeId)" class="badge" :style="{ background: themeById(e.themeId).color + '22', color: themeById(e.themeId).color }">{{ themeById(e.themeId).name }}</span>
-                  <span v-if="sharingOn && e.isShared" class="badge bg-amber-50 text-amber-600" :title="'Cagnotte : ' + (potById(e.potLineId) || pots[0]).label">
-                    ½{{ pots.length > 1 ? ' ' + ((potById(e.potLineId) || pots[0]).pot?.partnerName || '') : '' }}
-                  </span>
-                  <span class="text-gray-400 truncate">{{ e.label }}</span>
-                  <span v-if="e.envelopeId && envelopeById(e.envelopeId)" class="badge bg-violet-50 text-violet-700" :title="e.envelopeInTarget ? 'Fait partie de l\'objectif' : 'Hors objectif'">
-                    depuis {{ envelopeById(e.envelopeId).name }}{{ e.envelopeInTarget ? '' : ' · hors objectif' }}
-                  </span>
-                  <span v-if="accountById(e.accountId) || accountById(e.toAccountId)" class="text-gray-300 text-[11px] ml-auto shrink-0">
-                    {{ accountById(e.accountId)?.name || '?' }}<template v-if="accountById(e.toAccountId)"> → {{ accountById(e.toAccountId).name }}</template>
-                  </span>
-                  <button v-if="!current.isClosed" class="icon-btn text-gray-300 hover:text-gray-600 shrink-0" :class="{ 'ml-auto': !accountById(e.accountId) && !accountById(e.toAccountId) }" title="Modifier l'entrée" @click="openEditEntry(line, e)">✎</button>
-                  <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0" @click="removeEntry(e)">×</button>
-                </div>
-                <p v-if="!entriesForLine(line).length" class="text-xs text-gray-400 py-1">Aucune entrée.</p>
-                <!-- Virements système liés (mouvements entre comptes, jamais comptés en dépense) -->
-                <div v-for="t in transfersForLine(line)" :key="'t' + t.id" class="flex items-center gap-2 text-[12px] py-1 text-gray-500">
-                  <span class="text-gray-400 w-20 shrink-0">{{ t.date }}</span>
-                  <span class="badge bg-stone-100 text-gray-500">virement</span>
-                  <span class="font-medium">{{ fmt(t.amount) }}</span>
-                  <span class="truncate">{{ t.label }}</span>
-                  <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0 ml-auto" title="Supprimer ce virement (le mouvement entre comptes est annulé)" @click="removeEntry(t)">×</button>
-                </div>
-                <button v-if="!current.isClosed" class="add-row add-row--inset" @click="openAddEntry(line)"><PhPlus :size="13" weight="bold" /> Ajouter une entrée</button>
               </div>
             </div>
-
-            <p v-if="!group.lines.length" class="text-xs text-gray-400 px-4 py-2.5">Aucune ligne.</p>
-            <button v-if="!current.isClosed" class="add-row" @click="openAddLine(group.category)"><PhPlus :size="13" weight="bold" /> Ajouter une ligne</button>
-            </div>
             </div>
           </div>
-      </div>
-
-      <!-- ─── Calculateurs (en bas, pleine largeur, repliables) ── -->
-      <div v-if="calculators.length" class="card p-0 overflow-hidden mt-4">
-        <div class="flex items-center gap-2.5 px-4 py-3 border-b border-stone-100 cursor-pointer select-none hover:bg-stone-50/60 transition-colors" @click="calcOpen = !calcOpen">
-          <span class="font-semibold text-[13.5px]">Calculateurs</span>
-          <span class="badge bg-cyan-50 text-cyan-700">relevés du mois</span>
-          <span class="badge bg-stone-100 text-gray-400">{{ calculators.length }}</span>
-          <PhCaretDown :size="14" weight="bold" class="ml-auto text-gray-300 shrink-0 transition-transform duration-300" :class="{ '-rotate-90': !calcOpen }" />
         </div>
-        <div class="collapse-wrap" :class="{ 'collapse-wrap--open': calcOpen }">
-        <div class="min-h-0 overflow-hidden">
-        <div v-for="calc in calculators" :key="calc.id" class="px-4 py-3 border-b border-stone-50 flex flex-wrap items-end gap-x-5 gap-y-2">
-          <span class="text-[13px] font-medium w-28 shrink-0 self-center">{{ calc.name }}</span>
 
-          <!-- Relevés -->
-          <div v-for="r in calc.readings" :key="r.defId" class="flex items-end gap-1.5">
-            <label class="field">
-              <span>{{ r.label || r.symbol }}<span v-if="r.unit" class="text-gray-300"> · {{ r.unit }}</span></span>
-              <span class="flex items-center gap-1">
-                <template v-if="r.kind === 'index'">
-                  <input v-model="r.previous" type="number" step="any" class="input w-24 text-gray-400" :disabled="current.isClosed" title="Index de début (reporté du mois précédent)" @change="saveReadings(calc)" />
-                  <span class="text-gray-300 text-[12px]">→</span>
-                </template>
-                <input v-model="r.current" type="number" step="any" class="input w-24" :disabled="current.isClosed" :title="r.kind === 'index' ? 'Index de fin' : 'Valeur du mois'" @change="saveReadings(calc)" />
-              </span>
-            </label>
-            <span v-if="r.kind === 'index' && r.consumption !== null" class="text-[11px] text-gray-400 pb-2">= {{ fmtNum(r.consumption) }}</span>
-          </div>
-
-          <!-- Résultat -->
-          <div class="ml-auto flex items-center gap-4 self-center">
-            <span v-if="calc.error" class="text-[12px] text-red-500">{{ calc.error }}</span>
-            <template v-else>
-              <span class="text-right">
-                <span class="block text-[15px] font-bold" :class="calc.estimate === null ? 'text-gray-300' : 'text-gray-900'">{{ calc.estimate === null ? '—' : fmt(calc.estimate) }}</span>
-                <span class="block text-[10.5px] text-gray-400">estimé</span>
-              </span>
-              <template v-if="calc.line">
-                <span class="text-right">
-                  <span class="block text-[13px] font-semibold text-gray-500">{{ fmt(calc.line.planned) }}</span>
-                  <span class="block text-[10.5px] text-gray-400 truncate max-w-28">{{ calc.line.label }}</span>
-                </span>
-                <span class="text-right">
-                  <span class="block text-[13px] font-semibold" :class="calc.gap === null ? 'text-gray-300' : calc.gap > 0 ? 'text-red-500' : 'text-emerald-600'">
-                    {{ calc.gap === null ? '—' : (calc.gap > 0 ? '+' : '') + fmt(calc.gap) }}
-                  </span>
-                  <span class="block text-[10.5px] text-gray-400">écart</span>
-                </span>
+        <!-- ─── Colonne latérale : Enveloppes & Investissements — §5.11 ── -->
+        <aside class="month-aside">
+          <div v-if="envelopes.length" class="panel side-panel">
+            <div class="side-head"><span class="side-title">Enveloppes</span><span class="num side-total">{{ fmt(monthContribTotal) }}</span></div>
+            <div v-for="env in envelopes" :key="env.id" class="side-item" @click="toggleEnvelope(env)">
+              <div class="side-row1">
                 <button
-                  v-if="!current.isClosed && calc.gap !== null && Math.abs(calc.gap) >= 0.01 && Math.abs((calc.line.regularisation || 0) - calc.gap) >= 0.01"
-                  class="btn-secondary"
-                  :title="calc.line.regularisation ? 'Régularisation déjà posée : ' + fmt(calc.line.regularisation) : ''"
-                  @click="regularize(calc)"
-                >{{ calc.line.regularisation ? 'Mettre à jour' : 'Régulariser' }}</button>
-                <span v-else-if="calc.line.regularisation" class="text-[11px] text-emerald-600">✓ régularisé</span>
-              </template>
-            </template>
+                  v-if="env.monthlySuggestion > 0 && !current.isClosed && !contribsForEnvelope(env).some((c) => c.kind === 'normale')"
+                  class="pointbox pointbox-sm"
+                  :aria-label="'Verser la mensualité de ' + env.name"
+                  :title="'Verser la mensualité suggérée : ' + fmt(env.monthlySuggestion)"
+                  @click.stop="contributeSuggested(env)"
+                ></button>
+                <span v-else-if="contribsForEnvelope(env).some((c) => c.kind === 'normale')" class="pointbox pointbox-sm is-checked"><PhCheck :size="10" weight="bold" /></span>
+                <span class="side-name">{{ env.name }}</span>
+                <span class="num side-amounts"><span class="ink">{{ fmt(env.total) }}</span><span v-if="env.targetAmount" class="meta"> / {{ fmt(env.effectiveTarget) }}</span></span>
+              </div>
+              <div v-if="env.targetAmount" class="goal-bar"><div class="goal-fill" :style="{ width: Math.min(100, envelopePct(env) || 0) + '%' }" /></div>
+              <div class="side-meta">
+                <span v-if="env.accountName">{{ env.accountName }}</span><span v-if="env.monthlySuggestion" class="num"> · {{ fmt(env.monthlySuggestion) }}/mois</span>
+                <span v-if="contribsForEnvelope(env).length" class="tag tag-credit num">{{ contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? '+' : '' }}{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois</span>
+                <span v-if="env.targetAmount" class="side-rest num">reste {{ fmt(Math.max(0, Math.round((env.effectiveTarget - env.total) * 100) / 100)) }}</span>
+              </div>
+              <div v-if="openEnvelopeId === env.id" class="side-expand" @click.stop>
+                <div v-for="c in contribsForEnvelope(env)" :key="c.id" class="entry-row">
+                  <span class="entry-date num">{{ shortDate(c.date) }}</span>
+                  <span class="entry-label">{{ c.kind !== 'normale' ? c.kind : (c.notes || '') }}</span>
+                  <span class="entry-amount num" :class="c.amount >= 0 ? 'is-credit' : 'is-over'">{{ fmt(c.amount) }}</span>
+                  <span class="entry-account">{{ c.fromAccountName || '' }}</span>
+                  <span class="entry-actions"><button v-if="!current.isClosed" class="btn-icon is-danger" title="Supprimer la contribution" @click.stop="deleteContribution(c)">×</button></span>
+                </div>
+                <p v-if="!contribsForEnvelope(env).length" class="entries-empty">Aucune contribution ce mois.</p>
+                <div v-if="!current.isClosed" class="side-form">
+                  <input v-model="contribForm.amount" type="number" step="0.01" class="input w-20" :placeholder="env.monthlySuggestion ? String(env.monthlySuggestion) : 'Montant'" @keyup.enter="submitContribution(env)" />
+                  <input v-model="contribForm.date" type="date" class="input w-32" />
+                  <select v-model="contribForm.fromAccountId" class="input flex-1" title="Compte source">
+                    <option value="">— depuis</option>
+                    <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                  </select>
+                  <button class="btn-secondary" @click="submitContribution(env)">Ajouter</button>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-        </div>
-        </div>
+
+          <div v-if="assets.length" class="panel side-panel">
+            <div class="side-head"><span class="side-title">Investissements</span><span class="num side-total">{{ fmt(monthInvestedTotal) }}</span></div>
+            <div v-for="asset in assets" :key="asset.id" class="side-item" @click="toggleAsset(asset)">
+              <div class="side-row1">
+                <button
+                  v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed"
+                  class="pointbox pointbox-sm"
+                  :aria-label="'Verser le DCA de ' + asset.name"
+                  title="Marquer le versement mensuel comme fait (annulation : supprimer le mouvement)"
+                  @click.stop="toggleDca(asset)"
+                ></button>
+                <span v-else-if="movementsForAsset(asset).length" class="pointbox pointbox-sm is-checked"><PhCheck :size="10" weight="bold" /></span>
+                <span class="side-name">{{ asset.name }}</span>
+                <span v-if="asset.type" class="tag tag-neutral">{{ asset.type }}</span>
+                <span class="num side-amounts">
+                  <span class="ink">{{ fmt(movementsForAsset(asset).length ? movementsForAsset(asset).reduce((s, m) => s + (m.kind === 'versement' ? m.amount : -m.amount), 0) : asset.monthlyDca) }}</span>
+                  <span v-if="!movementsForAsset(asset).length && asset.monthlyDca" class="meta"> prévu</span>
+                </span>
+              </div>
+              <div class="side-meta"><span v-if="asset.accountName">{{ asset.accountName }}</span></div>
+              <div v-if="openAssetId === asset.id" class="side-expand" @click.stop>
+                <div v-for="m in movementsForAsset(asset)" :key="m.id" class="entry-row">
+                  <span class="entry-date num">{{ shortDate(m.date) }}</span>
+                  <span class="entry-label"><span v-if="m.source === 'dca'" class="tag tag-info">DCA</span></span>
+                  <span class="entry-amount num" :class="m.kind === 'versement' ? 'is-credit' : 'is-over'">{{ m.kind === 'retrait' ? '−' : '+' }}{{ fmt(m.amount) }}</span>
+                  <span class="entry-account">{{ m.kind === 'versement' ? (m.counterpartAccountName || '?') + ' → ' + (asset.accountName || asset.name) : (asset.accountName || asset.name) + ' → ' + (m.counterpartAccountName || '?') }}</span>
+                  <span class="entry-actions"><button v-if="!current.isClosed" class="btn-icon is-danger" title="Supprimer le mouvement" @click.stop="deleteAssetMovement(m)">×</button></span>
+                </div>
+                <p v-if="!movementsForAsset(asset).length" class="entries-empty">Aucun mouvement ce mois.</p>
+                <div v-if="!current.isClosed" class="side-form">
+                  <select v-model="assetMovementForm.kind" class="input w-24">
+                    <option value="versement">Versement</option>
+                    <option value="retrait">Retrait</option>
+                  </select>
+                  <input v-model="assetMovementForm.amount" type="number" step="0.01" class="input w-20" placeholder="Montant" @keyup.enter="submitAssetMovement(asset)" />
+                  <input v-model="assetMovementForm.date" type="date" class="input w-32" />
+                  <select v-model="assetMovementForm.counterpartAccountId" class="input flex-1" :title="assetMovementForm.kind === 'versement' ? 'Compte source' : 'Compte destination'">
+                    <option value="">— compte</option>
+                    <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
+                  </select>
+                  <button class="btn-secondary" @click="submitAssetMovement(asset)">Ajouter</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   </div>
@@ -1424,39 +1376,306 @@ const mainEnvelopesTotal = computed(() => {
 <style scoped>
 @reference "@/style.css";
 
-.card { @apply bg-white rounded-xl border border-stone-200; }
-.subheader { @apply bg-white/95 backdrop-blur rounded-xl border border-stone-200 px-5 py-3 sticky top-3 z-20 shadow-sm; }
-.month-select { @apply text-[16px] font-bold text-gray-900 bg-transparent border border-transparent hover:border-stone-200 rounded-lg py-1 pl-1 pr-1 outline-none cursor-pointer; }
-.kpi { @apply flex flex-col leading-tight; }
-.kpi-value { @apply text-[17px] font-bold tracking-tight; }
-.kpi-label { @apply text-[11px] text-gray-400 font-medium; }
-.kpi-hint { @apply text-[10.5px] text-gray-400; }
-.kpi-sep { @apply w-px self-stretch bg-stone-200; }
-.tab { @apply flex-1 flex items-center justify-center gap-2 px-4 py-3 cursor-pointer text-gray-400 hover:bg-stone-50 border-b-2 border-transparent; }
-.tab--violet { @apply border-violet-500 text-gray-900 bg-stone-50/60; }
-.tab--teal { @apply border-teal-500 text-gray-900 bg-stone-50/60; }
-.tab-body { @apply overflow-hidden; transition: height 0.3s ease; }
-.tab-panel { animation: tab-in 0.25s ease; }
-@keyframes tab-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
+/* ─── Panneaux & utilitaires ─── */
+.panel { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-container); }
+.panel-title { font-size: var(--t-small); font-weight: 600; color: var(--c-ink-2); margin-bottom: var(--s-3); }
+.meta { color: var(--c-ink-3); font-weight: 400; }
+.ink { color: var(--c-ink); }
+.is-over { color: var(--c-over); }
+.is-credit { color: var(--c-credit); }
+.is-warn-text { color: var(--c-warn); font-weight: 600; }
+.strong { font-weight: 600; color: var(--c-ink); }
+
+/* ─── Barre de synthèse (sticky opaque) ─── */
+.synth {
+  position: sticky; top: 0; z-index: 30;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-container);
+  padding: var(--s-4) var(--s-5);
+  display: flex; align-items: center; gap: var(--s-5);
+  margin-bottom: var(--s-5);
 }
-.badge { @apply text-[10.5px] font-semibold px-1.5 py-px rounded-full shrink-0; }
-.line-row { @apply flex items-center gap-2 px-4 py-2.5 border-b border-stone-50 cursor-pointer hover:bg-stone-50 transition-colors; }
-.line-row--pot { @apply bg-amber-50/60 hover:bg-amber-50 border-l-2 border-l-amber-400; }
-.edit-panel { @apply mx-2 mb-2 mt-1 px-3 py-3 bg-stone-50 rounded-lg border border-stone-100; animation: tab-in 0.2s ease; }
-.cat-chip { @apply w-7 h-7 rounded-lg flex items-center justify-center shrink-0; }
-.add-row { @apply flex items-center justify-center gap-1.5 mx-3 my-2 py-1.5 rounded-lg border border-dashed border-stone-300 text-gray-400 hover:text-violet-600 hover:border-violet-300 text-[12px] font-medium cursor-pointer transition-colors; width: calc(100% - 1.5rem); }
-.add-row--inset { @apply mx-0 mt-2 mb-0 w-full bg-white; }
-.collapse-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.3s ease; }
+.synth.is-scrolled { box-shadow: var(--shadow-sticky); border-radius: 0 0 var(--r-container) var(--r-container); }
+.synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
+.synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
+.synth-solde.is-over { color: var(--c-over); }
+.synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; }
+.synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
+.synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
+.synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
+.has-tip { text-decoration: underline dotted var(--c-ink-3); text-underline-offset: 3px; cursor: help; }
+.synth-v { font-size: var(--t-amount); color: var(--c-ink); }
+.synth-meta { font-size: var(--t-small); color: var(--c-ink-3); font-weight: 400; }
+.mini-track { width: 64px; height: 4px; border-radius: var(--r-pill); background: var(--c-track); overflow: hidden; }
+.mini-fill { display: block; height: 100%; background: var(--c-fill-goal); transition: width var(--dur-base) var(--ease); }
+.synth-right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-2); }
+.synth-month { display: flex; align-items: center; gap: var(--s-1); }
+.month-select {
+  font-size: 15px; font-weight: 600; color: var(--c-ink);
+  background: transparent; border: none; outline: none; cursor: pointer;
+  padding: 2px var(--s-1); border-radius: var(--r-control);
+}
+.month-select:hover { background: var(--c-surface-hover); }
+.synth-status { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); margin-left: var(--s-3); }
+.status-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--c-credit); }
+.status-dot.is-closed { background: var(--c-ink-disabled); }
+.synth-actions { display: flex; align-items: center; gap: var(--s-4); }
+
+/* ─── Soldes des comptes ─── */
+.accounts-panel { padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); }
+.accounts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-3); }
+.account-tile { background: var(--c-surface-sunken); border-radius: var(--r-control); padding: var(--s-3) var(--s-4); }
+.account-name { font-size: var(--t-small); font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-star { color: var(--c-accent); }
+.account-balances { font-size: var(--t-small); }
+.account-balances .sep { color: var(--c-ink-disabled); }
+.account-meta { font-size: var(--t-meta); color: var(--c-ink-3); }
+.snapshot-form { display: flex; flex-wrap: wrap; gap: var(--s-4); margin-bottom: var(--s-4); }
+
+/* ─── Grille de page ─── */
+.month-layout { display: grid; grid-template-columns: minmax(0, 1fr) var(--w-aside); gap: var(--s-7); align-items: start; }
+.reg-col { min-width: 0; display: flex; flex-direction: column; gap: var(--s-5); }
+.month-aside { display: flex; flex-direction: column; gap: var(--s-5); position: sticky; top: calc(var(--h-summary) + var(--s-5) + 16px); }
+@media (max-width: 1119px) {
+  .month-layout { grid-template-columns: 1fr; }
+  .month-aside { position: static; }
+}
+
+/* ─── Registre ─── */
+.reg-panel { overflow: hidden; }
+.reg-grid {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 92px 112px 32px;
+  align-items: center;
+  gap: var(--s-3);
+  padding-inline: var(--s-5);
+  min-height: var(--h-row);
+}
+.reg-head { min-height: 30px; border-bottom: 1px solid var(--c-line); background: var(--c-surface-sunken); border-radius: var(--r-container) var(--r-container) 0 0; }
+.colh { font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); text-align: right; }
+.reg-section + .reg-section { border-top: 1px solid var(--c-line-strong); }
+.reg-sec-head { position: relative; background: var(--c-surface-sunken); cursor: pointer; user-select: none; }
+.reg-sec-head:hover { background: var(--c-surface-hover); }
+.reg-sec-head .reg-grid { min-height: 48px; }
+.cat-dot { width: 8px; height: 8px; border-radius: var(--r-pill); justify-self: center; }
+.reg-sec-title { font-size: var(--t-section); font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reg-sec-count { font-size: var(--t-small); font-weight: 400; color: var(--c-ink-3); margin-left: var(--s-2); }
+.reg-sec-prev { font-size: var(--t-small); color: var(--c-ink-3); text-align: right; }
+.reg-sec-real { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); text-align: right; }
+.chev { color: var(--c-ink-3); justify-self: center; transition: transform var(--dur-fast) var(--ease); transform: rotate(-90deg); }
+.chev.is-open { transform: rotate(0deg); }
+.sec-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--c-track); }
+.sec-fill { height: 100%; background: var(--c-fill); transition: width var(--dur-base) var(--ease); }
+.sec-fill.is-warn { background: var(--c-fill-warn); }
+.sec-fill.is-over { background: var(--c-fill-over); box-shadow: inset -2px 0 0 var(--c-over); }
+
+.reg-row { border-bottom: 1px solid var(--c-line); cursor: pointer; transition: background-color var(--dur-fast) var(--ease); position: relative; }
+.reg-rowwrap:last-of-type .reg-row { border-bottom: none; }
+.reg-row:hover { background: var(--c-surface-hover); }
+.reg-row.is-alert::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c-over); }
+.cell-point { display: flex; justify-content: center; }
+.cell-label { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.row-label { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-label.is-pointed { color: var(--c-ink-3); }
+.row-label.is-empty { color: var(--c-ink-3); font-style: italic; }
+.row-detail { color: var(--c-ink-3); font-weight: 400; }
+.cell-prev { font-size: var(--t-small); color: var(--c-ink-3); text-align: right; }
+.cell-real { font-size: var(--t-amount); color: var(--c-ink); text-align: right; }
+.cell-dash { color: var(--c-ink-disabled); }
+.cell-actions { display: flex; justify-content: center; }
+.row-action { opacity: 0; }
+.reg-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
+
+/* Case de pointage — §5.10 */
+.pointbox {
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--c-line-strong);
+  border-radius: 4px;
+  background: var(--c-surface);
+  cursor: pointer;
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: transparent;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.pointbox::after { content: ''; position: absolute; inset: -11px -5px; }
+.pointbox:hover:not(:disabled) { border-color: var(--c-accent); }
+.pointbox:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--c-accent-ring); }
+.pointbox:disabled { opacity: 0.4; cursor: default; }
+.pointbox.is-checked { background: var(--c-accent); border-color: var(--c-accent); color: #fff; cursor: default; }
+.pointbox-sm { width: 15px; height: 15px; }
+
+/* Entrées (niveau 3) */
+.entries-block {
+  margin: var(--s-1) var(--s-5) var(--s-3) calc(28px + var(--s-5));
+  background: var(--c-surface-sunken);
+  border-radius: var(--r-control);
+  padding: var(--s-2) var(--s-4);
+  animation: reg-in var(--dur-base) var(--ease);
+}
+.entry-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 92px minmax(0, 160px) 52px; gap: var(--s-3); align-items: center; min-height: 32px; }
+.entry-row.is-transfer .entry-label { color: var(--c-ink-3); }
+.entry-date { font-size: var(--t-small); color: var(--c-ink-3); }
+.entry-label { font-size: var(--t-small); color: var(--c-ink-2); display: flex; align-items: center; gap: var(--s-2); min-width: 0; white-space: nowrap; overflow: hidden; }
+.entry-amount { font-size: var(--t-small); color: var(--c-ink); text-align: right; }
+.entry-account { font-size: var(--t-meta); color: var(--c-ink-3); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry-actions { display: flex; justify-content: flex-end; gap: 2px; }
+.entries-empty { font-size: var(--t-small); color: var(--c-ink-3); padding: var(--s-2) 0; }
+.pot-detail { display: grid; grid-template-columns: auto auto; justify-content: start; column-gap: var(--s-7); row-gap: 2px; font-size: var(--t-small); color: var(--c-ink-2); padding: var(--s-2) 0 var(--s-3); border-bottom: 1px solid var(--c-line); margin-bottom: var(--s-2); }
+.pot-detail .num { text-align: right; }
+
+/* États vides & ajout */
+.reg-empty { font-size: 13px; color: var(--c-ink-2); text-align: center; padding: var(--s-7) 0 var(--s-3); }
+.btn-addline {
+  display: flex; align-items: center; justify-content: center; gap: var(--s-2);
+  width: calc(100% - var(--s-5) * 2);
+  margin: var(--s-3) var(--s-5);
+  height: 36px;
+  border: 1px dashed var(--c-line-strong);
+  border-radius: var(--r-control);
+  color: var(--c-ink-3);
+  font-size: var(--t-small); font-weight: 500;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.btn-addline:hover { color: var(--c-accent); border-color: var(--c-accent); }
+.btn-discret {
+  display: inline-flex; align-items: center; gap: var(--s-1);
+  color: var(--c-accent); font-size: var(--t-small); font-weight: 500;
+  padding: var(--s-2) 0; cursor: pointer;
+}
+.btn-discret:hover { color: var(--c-accent-hover); }
+
+/* Tags — §5.9 */
+.tag {
+  display: inline-flex; align-items: center; gap: var(--s-1);
+  height: 20px; padding: 0 var(--s-3);
+  border-radius: var(--r-control);
+  font-size: var(--t-tag); font-weight: 500;
+  white-space: nowrap; flex-shrink: 0;
+}
+.tag-neutral { background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); }
+.tag-info { background: var(--c-accent-soft); color: var(--c-accent); }
+.tag-credit { background: var(--c-credit-soft); color: var(--c-credit); }
+.tag-alert { background: var(--c-over-soft); color: var(--c-over); }
+.tag-dot { width: 6px; height: 6px; border-radius: var(--r-pill); }
+
+/* Repli animé */
+.collapse-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease); }
 .collapse-wrap--open { grid-template-rows: 1fr; }
-.field { @apply flex flex-col gap-1 text-[11px] font-medium text-gray-500; }
-.input { @apply py-1.5 px-2 border border-stone-200 rounded-md text-[13px] text-gray-900 bg-white outline-none focus:border-violet-400 disabled:opacity-50; }
-.checkbox { @apply flex items-center gap-1 text-[12.5px] text-gray-600 cursor-pointer; }
-.btn-primary { @apply py-1.5 px-3 bg-violet-600 hover:bg-violet-700 text-white rounded-md text-[12.5px] font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed; }
-.btn-secondary { @apply py-1.5 px-3 bg-white border border-stone-200 hover:bg-stone-100 text-gray-600 rounded-md text-[12.5px] font-medium cursor-pointer; }
-.icon-btn { @apply w-6 h-6 rounded hover:bg-stone-200 cursor-pointer text-[13px]; }
-.progress { @apply h-1 bg-stone-200 rounded-full overflow-hidden; }
-.progress-bar { @apply h-full rounded-full; }
-.link { @apply text-violet-600 hover:underline cursor-pointer; }
+@keyframes reg-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ─── Relevés du mois ─── */
+.calc-head { display: flex; align-items: center; gap: var(--s-2); min-height: 48px; padding-inline: var(--s-5); }
+.calc-head .chev { margin-left: auto; }
+.calc-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-5); padding: var(--s-4) var(--s-5); border-top: 1px solid var(--c-line); }
+.calc-name { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); width: 110px; flex-shrink: 0; align-self: center; }
+.calc-reading { display: flex; align-items: flex-end; gap: var(--s-2); }
+.calc-inputs { display: flex; align-items: center; gap: var(--s-1); }
+.calc-inputs .is-prev { color: var(--c-ink-3); }
+.calc-inputs .sep { color: var(--c-ink-disabled); font-size: var(--t-small); }
+.calc-conso { font-size: var(--t-meta); color: var(--c-ink-3); padding-bottom: 8px; }
+.calc-result { margin-left: auto; display: flex; align-items: center; gap: var(--s-5); align-self: center; }
+.calc-cell { display: flex; flex-direction: column; align-items: flex-end; line-height: var(--lh-tight); }
+.calc-cell .meta { font-size: var(--t-meta); max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calc-error { font-size: var(--t-small); color: var(--c-over); }
+.calc-ok { font-size: var(--t-meta); color: var(--c-credit); }
+
+/* ─── Colonne latérale ─── */
+.side-panel { overflow: hidden; }
+.side-head { display: flex; align-items: baseline; justify-content: space-between; padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--c-line); }
+.side-title { font-size: 13px; font-weight: 600; color: var(--c-ink); }
+.side-total { font-size: 13px; color: var(--c-ink-2); }
+.side-item { padding: var(--s-3) var(--s-5); cursor: pointer; }
+.side-item + .side-item { border-top: 1px solid var(--c-line); }
+.side-item:hover { background: var(--c-surface-hover); }
+.side-row1 { display: flex; align-items: center; gap: var(--s-2); }
+.side-name { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-amounts { margin-left: auto; font-size: 13px; white-space: nowrap; }
+.goal-bar { height: 4px; border-radius: var(--r-pill); background: var(--c-track); overflow: hidden; margin-top: var(--s-2); }
+.goal-fill { height: 100%; background: var(--c-fill-goal); transition: width var(--dur-base) var(--ease); }
+.side-meta { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-meta); color: var(--c-ink-3); margin-top: var(--s-1); flex-wrap: wrap; }
+.side-rest { margin-left: auto; }
+.side-expand { margin-top: var(--s-3); background: var(--c-surface-sunken); border-radius: var(--r-control); padding: var(--s-2) var(--s-3); cursor: default; animation: reg-in var(--dur-base) var(--ease); }
+.side-expand .entry-row { grid-template-columns: 48px minmax(0, 1fr) 76px minmax(0, 90px) 26px; }
+.side-form { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2); flex-wrap: wrap; }
+
+/* ─── Boutons & champs — §5.12 ─── */
+.btn-primary {
+  height: 34px; padding: 0 var(--s-5);
+  background: var(--c-accent); color: #fff;
+  border-radius: var(--r-control);
+  font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.btn-primary:hover { background: var(--c-accent-hover); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary {
+  height: 30px; padding: 0 var(--s-4);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  color: var(--c-ink);
+  font-size: var(--t-small); font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.btn-secondary:hover { background: var(--c-surface-hover); }
+.btn-danger {
+  height: 30px; padding: 0 var(--s-4);
+  background: var(--c-surface);
+  border: 1px solid var(--c-over);
+  border-radius: var(--r-control);
+  color: var(--c-over);
+  font-size: var(--t-small); font-weight: 500;
+  cursor: pointer;
+}
+.btn-danger:hover { background: var(--c-over-soft); }
+.btn-icon {
+  width: 26px; height: 26px;
+  border-radius: var(--r-control);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--c-ink-3); font-size: 13px;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.btn-icon:hover { background: var(--c-surface-hover); color: var(--c-ink); }
+.btn-icon.is-danger:hover { background: var(--c-over-soft); color: var(--c-over); }
+.btn-icon:disabled { opacity: 0.4; cursor: default; }
+.link-accent { color: var(--c-accent); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
+.link-accent:hover { color: var(--c-accent-hover); text-decoration: underline; }
+.link { color: var(--c-accent); font-size: var(--t-small); cursor: pointer; }
+.link:hover { text-decoration: underline; }
+
+.field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
+.input {
+  padding: 6px var(--s-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  font-size: 13px; color: var(--c-ink);
+  background: var(--c-surface);
+  outline: none;
+  font-family: var(--font-ui);
+}
+.input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
+.input:disabled { opacity: 0.5; }
+.checkbox { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); cursor: pointer; }
+.badge {
+  display: inline-flex; align-items: center;
+  font-size: var(--t-meta); font-weight: 500;
+  padding: 1px var(--s-3);
+  border-radius: var(--r-control);
+  background: var(--c-surface-sunken); color: var(--c-ink-2);
+  border: 1px solid var(--c-line);
+  flex-shrink: 0;
+}
+
+/* Focus visible partout */
+button:focus-visible, select:focus-visible, a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--c-accent-ring);
+  border-radius: var(--r-control);
+}
 </style>
