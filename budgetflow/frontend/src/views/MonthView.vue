@@ -76,8 +76,7 @@ async function openMonth(month) {
   current.value = month
   const [sRes] = await Promise.all([getMonthSnapshots(month.id), loadMonthData(month.id)])
   snapshots.value = sRes.data
-  // §5.5 : les sections avec activité s'ouvrent d'office, les autres restent repliées
-  openCats.value = new Set(groups.value.filter((g) => g.actual !== 0).map((g) => g.category.id ?? 'none'))
+  applyOpenDefaults()
 }
 
 async function reload() {
@@ -332,15 +331,75 @@ const displayGroups = computed(() =>
   [...groups.value].sort((a, b) => (TYPE_ORDER[a.category.type] ?? 9) - (TYPE_ORDER[b.category.type] ?? 9))
 )
 
-// Catégories repliables : header seul visible, fermées par défaut (l'état suit la catégorie)
+// Sections repliables — règle corrigée (addendum §1) : une section avec des lignes ou un prévu
+// est dépliée par défaut ; le choix manuel prime et survit au rechargement (localStorage).
+const CATS_LS = 'budgetflow.sections.open'
+let manualOpen = {}
+try { manualOpen = JSON.parse(localStorage.getItem(CATS_LS) || '{}') } catch { manualOpen = {} }
 const openCats = ref(new Set())
 const isCatOpen = (group) => openCats.value.has(group.category.id ?? 'none')
+const defaultOpen = (group) => group.lines.length > 0 || group.planned > 0
 function toggleCatOpen(group) {
   const key = group.category.id ?? 'none'
   const set = new Set(openCats.value)
   set.has(key) ? set.delete(key) : set.add(key)
   openCats.value = set
+  manualOpen[key] = set.has(key)
+  try { localStorage.setItem(CATS_LS, JSON.stringify(manualOpen)) } catch { /* stockage indisponible */ }
 }
+function applyOpenDefaults() {
+  openCats.value = new Set(
+    groups.value.filter((g) => manualOpen[g.category.id ?? 'none'] ?? defaultOpen(g)).map((g) => g.category.id ?? 'none')
+  )
+}
+
+// En-têtes enrichis (addendum §2) : avancement du pointage et aperçu des sections repliées
+const pointableLines = (group) => group.lines.filter((l) => l.plannedAmount > 0 || l.isPot)
+const pointedCount = (group) => pointableLines(group).filter((l) => isPaid(l)).length
+const sectionPreview = (group) => {
+  const names = group.lines.slice(0, 3).map((l) => l.label || 'Sans libellé')
+  return names.join(', ') + (group.lines.length > 3 ? ' +' + (group.lines.length - 3) : '')
+}
+
+// Reste à vivre (addendum §4) : solde actuel − sorties prévues non réalisées
+// (prevusRestants vient du backend et inclut déjà cagnottes, DCA et mensualités)
+const resteAVivre = computed(() => {
+  const t = summaryData.value?.tiles
+  if (!t || t.disponible === null) return null
+  return Math.round((t.disponible - t.detail.prevusRestants) * 100) / 100
+})
+
+// À faire ce mois (addendum §5) : retards, cagnottes à régler, échéances ≤ 7 jours
+const todoLines = computed(() => {
+  if (!current.value) return []
+  const today = new Date().toISOString().substring(0, 10)
+  const inMonth = today.startsWith(current.value.period)
+  const list = []
+  for (const g of groups.value) {
+    for (const l of g.lines) {
+      if (isPaid(l)) continue
+      if (l.isPot && l.pot && l.pot.toSend > 0) {
+        list.push({ line: l, cat: g.category, kind: 'send', due: l.recurringDay && current.value ? current.value.period + '-' + String(l.recurringDay).padStart(2, '0') : null })
+        continue
+      }
+      if (!(l.plannedAmount > 0) || !l.recurringDay || !inMonth) continue
+      const due = current.value.period + '-' + String(l.recurringDay).padStart(2, '0')
+      if (due < today) list.push({ line: l, cat: g.category, kind: 'late', due })
+      else if ((new Date(due) - new Date(today)) / 86400000 <= 7) list.push({ line: l, cat: g.category, kind: 'soon', due })
+    }
+  }
+  return list.sort((a, b) => ((a.due || '') < (b.due || '') ? -1 : 1)).slice(0, 6)
+})
+async function jumpToLine(t) {
+  const key = t.cat.id ?? 'none'
+  if (!openCats.value.has(key)) toggleCatOpen({ category: t.cat })
+  await nextTick()
+  document.getElementById('sec-' + key)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+// Total dépenses du registre (addendum §3 — limité aux catégories de type dépense :
+// additionner revenus et dépenses n'aurait pas de sens)
+const plannedDepenses = computed(() => groups.value.filter((g) => g.category.type === 'depense').reduce((s, g) => s + g.planned, 0))
 
 // Part de chaque catégorie dépense — et des enveloppes — dans les sorties réelles du mois
 // (dépenses réelles + mis de côté en enveloppes), barre sous chaque titre
@@ -1072,6 +1131,11 @@ const mainEnvelopesTotal = computed(() => {
         </div>
         <div class="synth-sep" />
         <div class="synth-kv">
+          <span class="synth-k has-tip" title="Ce qu'il reste une fois toutes les dépenses prévues du mois honorées.">Reste à vivre</span>
+          <span class="num synth-v" :class="{ 'is-over': (resteAVivre ?? 0) < 0 }">{{ resteAVivre === null ? '—' : fmt(resteAVivre) }}</span>
+        </div>
+        <div class="synth-sep" />
+        <div class="synth-kv">
           <span class="synth-k has-tip" title="Épargne réalisée sur l'objectif du mois.">Épargne du mois</span>
           <span class="num synth-v">{{ fmt(summaryData?.tiles.misDeCote || 0) }} <span class="synth-meta">sur {{ fmt(summaryData?.tiles.objectifEpargne || 0) }}</span></span>
           <span v-if="summaryData?.tiles.objectifEpargne" class="mini-track"><span class="mini-fill" :style="{ width: Math.min(100, objectifPct) + '%' }" /></span>
@@ -1120,6 +1184,31 @@ const mainEnvelopesTotal = computed(() => {
         <button v-if="!current.isClosed" class="btn-primary" @click="saveSnapshots">Enregistrer les soldes</button>
       </div>
 
+      <!-- À faire ce mois (addendum §5) : absent quand il n'y a rien à faire -->
+      <div v-if="todoLines.length" class="panel todo-panel">
+        <div class="side-head"><span class="side-title">À faire ce mois</span><span class="num side-total">{{ todoLines.length }}</span></div>
+        <div v-for="t in todoLines" :key="'todo' + t.line.id" class="reg-grid reg-row" :class="t.kind === 'soon' ? 'is-soon' : 'is-alert'" @click="jumpToLine(t)">
+          <span class="cell-point">
+            <button
+              v-if="showCheckbox(t.line)"
+              class="pointbox"
+              :disabled="current.isClosed"
+              :aria-label="'Pointer ' + (t.line.label || 'la ligne')"
+              title="Pointer : crée l'entrée au montant prévu"
+              @click.stop="togglePaid(t.line)"
+            ></button>
+          </span>
+          <span class="cell-label">
+            <span class="row-label">{{ t.line.label || 'Sans libellé' }}</span>
+            <span class="tag" :class="t.kind === 'soon' ? 'tag-neutral' : 'tag-alert'">{{ t.kind === 'send' ? 'à envoyer' : t.kind === 'late' ? 'en retard' : 'échéance proche' }}</span>
+            <span class="tag tag-neutral">{{ t.cat.name }}</span>
+          </span>
+          <span class="num cell-prev">{{ t.due ? shortDate(t.due) : '' }}</span>
+          <span class="num cell-real"><span :class="{ 'is-over': t.kind !== 'soon' }">{{ fmt(t.line.isPot && t.line.pot ? Math.abs(t.line.pot.toSend) : t.line.plannedAmount) }}</span></span>
+          <span class="cell-actions"></span>
+        </div>
+      </div>
+
       <!-- ─── Grille : registre + colonne latérale — §5.1 ── -->
       <div class="month-layout">
         <div class="reg-col">
@@ -1129,18 +1218,23 @@ const mainEnvelopesTotal = computed(() => {
               <span></span><span></span><span class="colh">prévu</span><span class="colh">réel</span><span></span>
             </div>
 
-            <section v-for="group in displayGroups" :key="group.category.id ?? 'none'" class="reg-section">
-              <!-- En-tête de section — §5.5 -->
+            <section v-for="group in displayGroups" :key="group.category.id ?? 'none'" :id="'sec-' + (group.category.id ?? 'none')" class="reg-section">
+              <!-- En-tête de section — §5.5, enrichi (addendum §2) -->
               <div class="reg-sec-head" @click="toggleCatOpen(group)">
                 <div class="reg-grid">
                   <span class="cat-dot" :style="{ background: desat(group.category.color) }" />
-                  <span class="reg-sec-title">{{ group.category.name }} <span class="reg-sec-count num">{{ group.lines.length }}</span></span>
+                  <span class="reg-sec-main">
+                    <span class="reg-sec-title">{{ group.category.name }}</span>
+                    <span class="reg-sec-count num">{{ group.lines.length }}</span>
+                    <span v-if="isCatOpen(group) && pointableLines(group).length" class="sec-pointed num">{{ pointedCount(group) }}/{{ pointableLines(group).length }} pointées</span>
+                    <span v-if="!isCatOpen(group) && group.lines.length" class="sec-preview">{{ sectionPreview(group) }}</span>
+                    <span v-if="group.planned > 0 && group.category.type === 'depense'" class="sec-inline-track" :title="Math.round((group.actual / group.planned) * 100) + ' % du prévu consommé'">
+                      <span class="sec-inline-fill" :class="barVariant(group)" :style="{ width: Math.min(100, Math.round((group.actual / group.planned) * 100)) + '%' }" />
+                    </span>
+                  </span>
                   <span class="num reg-sec-prev">{{ group.planned ? fmt(group.planned) : '' }}</span>
                   <span class="num reg-sec-real" :class="{ 'is-credit': group.category.type === 'revenu' && group.actual > 0 }">{{ fmt(group.actual) }}</span>
                   <PhCaretDown :size="14" class="chev" :class="{ 'is-open': isCatOpen(group) }" />
-                </div>
-                <div v-if="group.planned > 0 && group.category.type === 'depense'" class="sec-bar">
-                  <div class="sec-fill" :class="barVariant(group)" :style="{ width: Math.min(100, Math.round((group.actual / group.planned) * 100)) + '%' }" />
                 </div>
               </div>
 
@@ -1226,6 +1320,19 @@ const mainEnvelopesTotal = computed(() => {
               </div>
               </div>
             </section>
+
+            <!-- Ligne de totaux (addendum §3) — dépenses uniquement, un total mêlant
+                 revenus et dépenses n'aurait pas de sens -->
+            <div class="reg-grid reg-total">
+              <span></span>
+              <span class="reg-total-label">Total dépenses du mois</span>
+              <span class="num reg-total-prev">{{ fmt(plannedDepenses) }}</span>
+              <span class="reg-total-realwrap">
+                <span class="num reg-total-real">{{ fmt(totalDepenses) }}</span>
+                <span class="num reg-total-rest" :class="{ 'is-over': plannedDepenses - totalDepenses < 0 }">reste {{ fmt(plannedDepenses - totalDepenses) }}</span>
+              </span>
+              <span></span>
+            </div>
           </div>
 
           <!-- Relevés du mois (calculateurs) -->
@@ -1455,6 +1562,27 @@ const mainEnvelopesTotal = computed(() => {
 .reg-head { min-height: 30px; border-bottom: 1px solid var(--c-line); background: var(--c-surface-sunken); border-radius: var(--r-container) var(--r-container) 0 0; }
 .colh { font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); text-align: right; }
 .reg-section + .reg-section { border-top: 1px solid var(--c-line-strong); }
+.reg-section { scroll-margin-top: calc(var(--h-summary) + 24px); }
+.reg-sec-main { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }
+.sec-pointed { font-size: var(--t-small); color: var(--c-ink-3); flex-shrink: 0; }
+.sec-preview { font-size: var(--t-small); color: var(--c-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sec-inline-track { margin-left: auto; width: 160px; height: 4px; border-radius: var(--r-pill); background: var(--c-track); overflow: hidden; flex-shrink: 0; }
+.sec-inline-fill { display: block; height: 100%; background: var(--c-fill); transition: width var(--dur-base) var(--ease); }
+.sec-inline-fill.is-warn { background: var(--c-fill-warn); }
+.sec-inline-fill.is-over { background: var(--c-fill-over); }
+
+/* Ligne de totaux (sticky en pied de registre) */
+.reg-total { position: sticky; bottom: 0; background: var(--c-surface-sunken); border-top: 1px solid var(--c-line-strong); min-height: 44px; border-radius: 0 0 var(--r-container) var(--r-container); }
+.reg-total-label { font-size: var(--t-small); font-weight: 600; color: var(--c-ink-2); }
+.reg-total-prev { font-size: var(--t-amount); font-weight: 600; color: var(--c-ink-3); text-align: right; }
+.reg-total-realwrap { display: flex; flex-direction: column; align-items: flex-end; line-height: var(--lh-tight); }
+.reg-total-real { font-size: var(--t-amount); font-weight: 600; color: var(--c-ink); }
+.reg-total-rest { font-size: var(--t-small); color: var(--c-ink-3); }
+
+/* À faire ce mois */
+.todo-panel { margin-bottom: var(--s-5); overflow: hidden; }
+.todo-panel .reg-row:last-child { border-bottom: none; }
+.reg-row.is-soon::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c-warn); }
 .reg-sec-head { position: relative; background: var(--c-surface-sunken); cursor: pointer; user-select: none; }
 .reg-sec-head:hover { background: var(--c-surface-hover); }
 .reg-sec-head .reg-grid { min-height: 48px; }

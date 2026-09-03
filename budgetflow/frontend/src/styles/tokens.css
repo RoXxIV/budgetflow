@@ -73,6 +73,11 @@
   --w-aside:      340px;
 }
 
+/* Grand écran : on élargit sans dépasser 1440 (au-delà, les montants s'éloignent des libellés) */
+@media (min-width: 1600px) {
+  :root { --w-content: 1440px; --w-aside: 380px; }
+}
+
 /* Thème sombre : tokens prêts — la bascule sera activée quand toutes les pages
    seront tokenisées (une app mi-sombre mi-blanche est pire que pas de sombre). */
 :root[data-theme="dark"] {
