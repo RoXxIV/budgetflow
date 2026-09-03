@@ -7,6 +7,7 @@ import {
   PhCube,
   PhPiggyBank,
   PhChartLineUp,
+  PhPlus,
 } from '@phosphor-icons/vue'
 
 export const icons = {
@@ -15,6 +16,7 @@ export const icons = {
   PhCube,
   PhPiggyBank,
   PhChartLineUp,
+  PhPlus,
 }
 
 // Plugin Vue : enregistre chaque icône du registre comme composant global

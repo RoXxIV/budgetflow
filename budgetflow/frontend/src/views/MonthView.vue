@@ -1226,11 +1226,17 @@ const mainEnvelopesTotal = computed(() => {
           <div v-for="group in column" :key="group.category.id ?? 'none'" class="card p-0 overflow-hidden">
 
             <!-- En-tête catégorie -->
-            <div class="px-4 py-2.5 border-b border-stone-100">
-              <div class="flex items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ background: group.category.color }" />
+            <div class="px-4 py-3 border-b border-stone-100">
+              <div class="flex items-center gap-2.5">
+                <span class="cat-chip" :style="{ background: group.category.color + '1c' }">
+                  <span class="w-2.5 h-2.5 rounded-full" :style="{ background: group.category.color }" />
+                </span>
                 <span class="font-semibold text-[13.5px]">{{ group.category.name }}</span>
-                <span class="ml-auto text-[12.5px] text-gray-400">{{ fmt(group.actual) }} <span class="text-gray-300">/ {{ fmt(group.planned) }}</span></span>
+                <span v-if="group.lines.length" class="badge bg-stone-100 text-gray-400">{{ group.lines.length }}</span>
+                <span class="ml-auto text-right leading-tight">
+                  <span class="block text-[14px] font-bold" style="font-variant-numeric: tabular-nums">{{ fmt(group.actual) }}</span>
+                  <span class="block text-[10.5px] text-gray-400">prévu {{ fmt(group.planned) }}</span>
+                </span>
               </div>
               <!-- Part de la catégorie dans les dépenses réelles du mois -->
               <div v-if="depensePct(group) !== null" class="flex items-center gap-2 mt-1.5" :title="fmt(group.actual) + ' sur ' + fmt(totalSorties) + ' de sorties réelles ce mois (dépenses + enveloppes)'">
@@ -1322,12 +1328,12 @@ const mainEnvelopesTotal = computed(() => {
                   <span class="truncate">{{ t.label }}</span>
                   <button v-if="!current.isClosed" class="icon-btn text-red-300 hover:text-red-500 shrink-0 ml-auto" title="Supprimer ce virement (le mouvement entre comptes est annulé)" @click="removeEntry(t)">×</button>
                 </div>
-                <button v-if="!current.isClosed" class="btn-secondary mt-2" @click="openAddEntry(line)">+ entrée</button>
+                <button v-if="!current.isClosed" class="add-row add-row--inset" @click="openAddEntry(line)"><PhPlus :size="13" weight="bold" /> Ajouter une entrée</button>
               </div>
             </div>
 
             <p v-if="!group.lines.length" class="text-xs text-gray-400 px-4 py-2.5">Aucune ligne.</p>
-            <button v-if="!current.isClosed" class="link text-xs px-4 py-2 block" @click="openAddLine(group.category)">+ ligne</button>
+            <button v-if="!current.isClosed" class="add-row" @click="openAddLine(group.category)"><PhPlus :size="13" weight="bold" /> Ajouter une ligne</button>
           </div>
         </div>
       </div>
@@ -1414,9 +1420,12 @@ const mainEnvelopesTotal = computed(() => {
   to { opacity: 1; transform: none; }
 }
 .badge { @apply text-[10.5px] font-semibold px-1.5 py-px rounded-full shrink-0; }
-.line-row { @apply flex items-center gap-2 px-4 py-2 border-b border-stone-50 cursor-pointer hover:bg-stone-50; }
+.line-row { @apply flex items-center gap-2 px-4 py-2.5 border-b border-stone-50 cursor-pointer hover:bg-stone-50 transition-colors; }
 .line-row--pot { @apply bg-amber-50/60 hover:bg-amber-50 border-l-2 border-l-amber-400; }
-.edit-panel { @apply px-4 py-3 bg-stone-50 border-b border-stone-100; }
+.edit-panel { @apply mx-2 mb-2 mt-1 px-3 py-3 bg-stone-50 rounded-lg border border-stone-100; animation: tab-in 0.2s ease; }
+.cat-chip { @apply w-7 h-7 rounded-lg flex items-center justify-center shrink-0; }
+.add-row { @apply flex items-center justify-center gap-1.5 mx-3 my-2 py-1.5 rounded-lg border border-dashed border-stone-300 text-gray-400 hover:text-violet-600 hover:border-violet-300 text-[12px] font-medium cursor-pointer transition-colors; width: calc(100% - 1.5rem); }
+.add-row--inset { @apply mx-0 mt-2 mb-0 w-full bg-white; }
 .field { @apply flex flex-col gap-1 text-[11px] font-medium text-gray-500; }
 .input { @apply py-1.5 px-2 border border-stone-200 rounded-md text-[13px] text-gray-900 bg-white outline-none focus:border-violet-400 disabled:opacity-50; }
 .checkbox { @apply flex items-center gap-1 text-[12.5px] text-gray-600 cursor-pointer; }
