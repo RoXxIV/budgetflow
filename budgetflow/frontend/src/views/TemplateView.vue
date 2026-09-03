@@ -10,6 +10,7 @@ import { getEnvelopes, updateEnvelope } from '@/api/envelopes.js'
 import AppModal from '@/components/AppModal.vue'
 import HelpTip from '@/components/HelpTip.vue'
 import { confirmDialog, apiError, toast } from '@/composables/useDialog.js'
+import { eur } from '@/lib/format.js'
 
 // ─── Data ────────────────────────────────────────────────
 const lines = ref([])
@@ -50,13 +51,55 @@ async function applyToCurrentMonth(line, { ask = true } = {}) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────
-const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+const fmt = eur
 const themeById = (id) => themes.value.find((t) => t.id === id) || null
 const activeAccounts = computed(() => accounts.value.filter((a) => a.isActive)) // saisies : comptes actifs seulement
 
+// Point de couleur désaturé à 65 % : la couleur reste une identité, jamais une donnée
+function desat(hex) {
+  if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return 'var(--c-ink-3)'
+  const n = parseInt(hex.slice(1), 16)
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  const gray = 0.299 * r + 0.587 * g + 0.114 * b
+  const mix = (c) => Math.round(c * 0.65 + gray * 0.35)
+  return 'rgb(' + mix(r) + ',' + mix(g) + ',' + mix(b) + ')'
+}
+
+// Cagnottes du template : les ½ n'existent que s'il y en a au moins une
+const pots = computed(() => lines.value.filter((l) => l.isPot))
+const sharingOn = computed(() => pots.value.length > 0)
+
+// ─── Cagnotte : prévu théorique, même formule que le mois (pot.service) ───
+// payé par moi = Σ prévus des lignes ½ ; total = + part du partenaire ; à envoyer = ma part − payé par moi.
+// Compté dans les totaux pour que le template et le mois affichent le même chiffre.
+const potCalc = (pot) => {
+  const defaultPotId = pots.value[0]?.id ?? null
+  const sharedByMe = lines.value.reduce((s, l) => {
+    if (!l.isShared || l.isPot) return s
+    return (l.potLineId || defaultPotId) === pot.id ? s + (l.plannedAmount || 0) : s
+  }, 0)
+  const partnerPaid = pot.potPartnerPaid || 0
+  const total = sharedByMe + partnerPaid
+  const myShare = pot.potMyShare ?? 50
+  const myPart = (total * myShare) / 100
+  return {
+    sharedByMe, partnerPaid, total, myShare, myPart,
+    partnerName: pot.potPartnerName || 'partenaire',
+    toSend: Math.round((myPart - sharedByMe) * 100) / 100,
+  }
+}
+const lineAmount = (l) => (l.isPot ? potCalc(l).toSend : (l.plannedAmount || 0))
+const potTip = (l) => {
+  const p = potCalc(l)
+  return `Calculé — cagnotte : ${fmt(p.total)} en commun (dont ${fmt(p.partnerPaid)} payés par ${p.partnerName}), ma part ${p.myShare} % = ${fmt(p.myPart)}, moins ${fmt(p.sharedByMe)} déjà sur mes lignes ½ → ${fmt(p.toSend)} à envoyer.`
+}
+
 // ─── Lignes groupées par catégorie ───────────────────────
 const NO_CATEGORY = { id: null, name: 'Sans catégorie', type: 'depense', color: '#9ca3af' }
+const TYPE_ORDER = { revenu: 0, depense: 1, epargne: 2, transfert: 3 }
+const TYPE_LABELS = { depense: 'dépenses', revenu: 'revenus', epargne: 'épargne', transfert: 'transferts' }
 
+// Ordre de lecture d'un budget (brief §4) : revenus, puis dépenses par total décroissant, transferts en dernier
 const groups = computed(() => {
   const result = categories.value.map((c) => ({
     category: c,
@@ -64,23 +107,110 @@ const groups = computed(() => {
   }))
   const orphans = lines.value.filter((l) => !l.categoryId || !categories.value.some((c) => c.id === l.categoryId))
   if (orphans.length) result.push({ category: NO_CATEGORY, lines: orphans })
-  return result.map((g) => ({ ...g, total: g.lines.reduce((s, l) => s + (l.plannedAmount || 0), 0) }))
+  return result
+    .map((g) => ({ ...g, total: g.lines.reduce((s, l) => s + lineAmount(l), 0) }))
+    .sort((a, b) => (TYPE_ORDER[a.category.type] - TYPE_ORDER[b.category.type])
+      || (a.category.type === 'depense' ? b.total - a.total : 0))
 })
-
-const groupsLeft = computed(() => groups.value.filter((_, i) => i % 2 === 0))
-const groupsRight = computed(() => groups.value.filter((_, i) => i % 2 === 1))
 
 // ─── Totaux prévisionnels (le type de la catégorie pilote) ─
 const totals = computed(() => {
   const byType = { depense: 0, revenu: 0, epargne: 0, transfert: 0 }
-  groups.value.forEach((g) => { byType[g.category.type] += g.total })
+  const counts = { depense: 0, revenu: 0, epargne: 0, transfert: 0 }
+  groups.value.forEach((g) => { byType[g.category.type] += g.total; counts[g.category.type] += g.lines.length })
   return {
-    ...byType,
+    ...byType, counts,
     reste: byType.revenu - byType.depense - byType.epargne - byType.transfert,
   }
 })
 
-// ─── Édition (panneau déplié par ligne) ──────────────────
+// Barre de composition sur la base des revenus (brief §2) — segments d'une même encre
+const compo = computed(() => {
+  const t = totals.value
+  if (!(t.revenu > 0)) return null
+  const pct = (v) => Math.max(0, (v / t.revenu) * 100)
+  const segs = [
+    { key: 'depense', label: 'Dépenses', pct: pct(t.depense), opacity: 1 },
+    { key: 'epargne', label: 'Épargne', pct: pct(t.epargne), opacity: 0.65 },
+    { key: 'transfert', label: 'Transferts', pct: pct(t.transfert), opacity: 0.4 },
+  ].filter((s) => s.pct > 0)
+  return { segs, restePct: (t.reste / t.revenu) * 100 }
+})
+
+// ─── Colonnes de ligne (brief §5) ────────────────────────
+const periodLabel = (l) => {
+  const n = l.intervalMonths || 1
+  const base = n === 1 ? 'mensuel' : n === 3 ? 'trimestriel' : n === 6 ? 'semestriel' : n === 12 ? 'annuel' : `tous les ${n} mois`
+  return l.envelopeId ? base + ', lissé' : base
+}
+const periodTip = (l) => {
+  const n = l.intervalMonths || 1
+  if (n <= 1) return ''
+  let tip = `${fmt(l.plannedAmount)} ${n === 12 ? 'par an' : 'tous les ' + n + ' mois'}, soit ${fmt((l.plannedAmount || 0) / n)} par mois`
+  if (l.envelopeId) {
+    const env = envelopeById(l.envelopeId)
+    if (env) tip += ` — l'enveloppe « ${env.name} » met de côté (${fmt(env.total)} / ${fmt(env.targetAmount)})`
+  }
+  if (l.nextDue) tip += ` · prochaine échéance ${fmtDue(l.nextDue)}`
+  return tip
+}
+const fmtDue = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '')
+const fmtDueShort = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '')
+// Un seul format par nature : « le 10 » pour le mensuel, « 1 juil. » pour le cyclique (l'année en infobulle)
+const dueLabel = (l) => ((l.intervalMonths || 1) > 1 ? (l.nextDue ? fmtDueShort(l.nextDue) : '—') : (l.recurringDay ? 'le ' + l.recurringDay : '—'))
+const dueTip = (l) => ((l.intervalMonths || 1) > 1 && l.nextDue ? 'Prochaine échéance ' + fmtDue(l.nextDue) : (l.recurringDay ? 'Jour du prélèvement : date par défaut du ☐ payé' : ''))
+const shareTip = (l) => {
+  const p = pots.value.find((x) => x.id === l.potLineId) || pots.value[0]
+  return p ? `Dépense partagée (cagnotte « ${p.label} »${p.potPartnerName ? ' avec ' + p.potPartnerName : ''}), ${p.potMyShare ?? 50} % à ma charge.` : 'Dépense partagée.'
+}
+
+// ─── Vue par catégorie / par échéance (brief §8) ─────────
+const viewMode = ref('categorie')
+const dayGroups = computed(() => {
+  const map = new Map()
+  for (const l of lines.value) {
+    const n = l.intervalMonths || 1
+    const day = n > 1 ? (l.nextDue ? Number(l.nextDue.slice(8, 10)) : null) : (l.recurringDay || null)
+    const key = day ?? 'none'
+    if (!map.has(key)) map.set(key, { day, lines: [] })
+    map.get(key).lines.push(l)
+  }
+  return [...map.values()]
+    .sort((a, b) => (a.day ?? 99) - (b.day ?? 99))
+    .map((g) => ({ ...g, total: g.lines.reduce((s, l) => s + lineAmount(l), 0) }))
+})
+const displayGroups = computed(() => (viewMode.value === 'categorie'
+  ? groups.value.map((g) => ({
+      key: 'c' + (g.category.id ?? 'none'), title: g.category.name, dot: g.category.color,
+      typeLabel: TYPE_LABELS[g.category.type], count: g.lines.length, total: g.total, lines: g.lines, orig: g,
+    }))
+  : dayGroups.value.map((g) => ({
+      key: 'd' + (g.day ?? 'none'), title: g.day ? 'Le ' + g.day : 'Sans date', dot: null,
+      typeLabel: '', count: g.lines.length, total: g.total, lines: g.lines, orig: null,
+    }))))
+
+// ─── Édition du montant en place (brief §6) : enregistré au blur ───
+function startAmountEdit(line, e) {
+  e.target.value = String(line.plannedAmount ?? 0).replace('.', ',')
+  e.target.select()
+}
+async function commitAmount(line, e) {
+  const raw = e.target.value.replace(/[\s  €]/g, '').replace(',', '.')
+  const v = parseFloat(raw)
+  if (!isFinite(v) || v === line.plannedAmount) { e.target.value = fmt(line.plannedAmount); return }
+  try {
+    await updateTemplateLine(line.id, { plannedAmount: v })
+    lines.value = (await getTemplateLines()).data
+  } catch (err) {
+    apiError(err)
+    e.target.value = fmt(line.plannedAmount)
+  }
+}
+
+// ─── Menu ⋯ par ligne ────────────────────────────────────
+const menuLineId = ref(null)
+
+// ─── Édition (modal par ligne) ───────────────────────────
 const openLineId = ref(null)   // id de ligne existante en édition, ou 'new-<catId>' pour un ajout
 const form = ref({})
 
@@ -116,7 +246,6 @@ const INTERVALS = [
   { value: 12, label: 'Une fois par an' },
 ]
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']
-const fmtDue = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '')
 
 // Modal de ligne (ajout et édition) — même composant que dans le Mois
 const modalLine = ref(null)       // ligne en édition (null = ajout)
@@ -135,6 +264,9 @@ function openAdd(category) {
   modalLine.value = null
   modalCategory.value = category
   form.value = defaultForm(category)
+}
+function openAddGlobal() {
+  if (categories.value.length) openAdd(categories.value[0])
 }
 
 function openEdit(line) {
@@ -269,10 +401,6 @@ async function moveLine(group, index, delta) {
   } catch (e) { apiError(e) }
 }
 
-// Cagnottes du template : les ½ n'existent que s'il y en a au moins une
-const pots = computed(() => lines.value.filter((l) => l.isPot))
-const sharingOn = computed(() => pots.value.length > 0)
-
 // Le type de la catégorie du formulaire (adapte les champs affichés)
 const formCategoryType = computed(() => {
   const c = categories.value.find((x) => x.id === form.value.categoryId)
@@ -281,35 +409,70 @@ const formCategoryType = computed(() => {
 </script>
 
 <template>
-  <div>
-    <!-- ─── En-tête + totaux ─────────────────────────── -->
-    <div class="flex items-start justify-between mb-5">
+  <div @click="menuLineId = null">
+    <!-- ─── En-tête ──────────────────────────────────── -->
+    <div class="flex items-start justify-between mb-6">
       <div>
         <h1 class="text-[22px] font-semibold">Template</h1>
-        <p class="text-[13px] text-gray-400 mt-0.5 flex items-center gap-1.5">
-          La base dupliquée à chaque nouveau mois
-          <HelpTip wide text="Vos lignes récurrentes (loyer, salaire, courses, abonnements…) avec leur montant prévu. À chaque nouveau mois, elles sont copiées ; dans le mois vous saisissez le réel. Une modification ici ne touche que les mois suivants — « Appliquer à <mois> » pour le mois en cours." />
-        </p>
+        <p class="page-sub">Les lignes recopiées dans chaque nouveau mois. Les modifier n'affecte pas les mois déjà créés.</p>
       </div>
-      <div class="flex gap-4 text-right">
-        <div class="tile"><span class="tile-value text-emerald-600">{{ fmt(totals.revenu) }}</span><span class="tile-label">Revenus prévus</span></div>
-        <div class="tile"><span class="tile-value text-red-500">{{ fmt(totals.depense) }}</span><span class="tile-label">Dépenses prévues</span></div>
-        <div class="tile"><span class="tile-value text-violet-600">{{ fmt(totals.epargne) }}</span><span class="tile-label">Épargne prévue</span></div>
-        <div class="tile" title="Revenus − dépenses − épargne − transferts">
-          <span class="tile-value" :class="totals.reste >= 0 ? 'text-gray-900' : 'text-red-500'">{{ fmt(totals.reste) }}</span>
-          <span class="tile-label">Reste théorique</span>
+      <button v-if="categories.length" class="btn-primary" @click="openAddGlobal">+ Ligne</button>
+    </div>
+
+    <!-- ─── Bandeau : le reste théorique en héros — brief §2 ── -->
+    <div v-if="lines.length" class="panel bandeau">
+      <div class="bandeau-row">
+        <div class="synth-hero">
+          <span class="num synth-solde" :class="{ 'is-over': totals.reste < 0 }">{{ fmt(totals.reste) }}</span>
+          <span class="synth-sub has-tip" title="Revenus − dépenses − épargne − transferts, cagnottes calculées comprises. Ce que le template laisse chaque mois avant imprévus.">Reste théorique</span>
+        </div>
+        <div class="synth-sep" />
+        <div class="synth-kv">
+          <span class="synth-k">Revenus</span>
+          <span class="num synth-v">{{ fmt(totals.revenu) }}</span>
+        </div>
+        <div class="synth-sep" />
+        <div class="synth-kv">
+          <span class="synth-k">Dépenses</span>
+          <span class="num synth-v">{{ fmt(totals.depense) }}</span>
+        </div>
+        <template v-if="totals.counts.epargne">
+          <div class="synth-sep" />
+          <div class="synth-kv">
+            <span class="synth-k">Épargne</span>
+            <span class="num synth-v">{{ fmt(totals.epargne) }}</span>
+          </div>
+        </template>
+        <template v-if="totals.counts.transfert">
+          <div class="synth-sep" />
+          <div class="synth-kv">
+            <span class="synth-k">Transferts</span>
+            <span class="num synth-v">{{ fmt(totals.transfert) }}</span>
+          </div>
+        </template>
+      </div>
+      <!-- Composition sur la base des revenus -->
+      <div v-if="compo" class="compo">
+        <div class="compo-bar">
+          <span v-for="s in compo.segs" :key="s.key" class="compo-seg" :style="{ width: Math.min(100, s.pct) + '%', opacity: s.opacity }" />
+        </div>
+        <div class="compo-legend">
+          <span v-for="s in compo.segs" :key="'l' + s.key" class="compo-item">
+            <span class="compo-dot" :style="{ opacity: s.opacity }" />{{ s.label }} <span class="num meta">{{ Math.round(s.pct) }}&#8239;%</span>
+          </span>
+          <span class="compo-item"><span class="compo-dot is-track" />Reste <span class="num" :class="compo.restePct < 0 ? 'is-over' : 'meta'">{{ Math.round(compo.restePct) }}&#8239;%</span></span>
         </div>
       </div>
     </div>
 
     <!-- ─── Ligne du template (modal : ajout et édition) ── -->
-    <AppModal :open="modalOpen" :title="modalAdding ? 'Nouvelle ligne — ' + (modalCategory?.name || '') : 'Modifier « ' + (modalLine?.label || '') + ' »'" wide @close="closePanel">
+    <AppModal :open="modalOpen" :title="modalAdding ? 'Nouvelle ligne' : 'Modifier « ' + (modalLine?.label || '') + ' »'" wide @close="closePanel">
       <div class="flex flex-col gap-4">
         <div class="flex flex-wrap gap-3 items-end">
           <label class="field"><span>Libellé</span><input v-model="form.label" type="text" class="input w-44" placeholder="Loyer, Courses…" @keyup.enter="submit" /></label>
           <label v-if="!form.isPot" class="field"><span class="flex items-center gap-1">Prévu (€) <HelpTip text="Le montant attendu chaque mois. Dans le mois, une ligne avec un prévu et aucune entrée a une case ☐ : cocher = payé au prévu. Dès qu'une entrée existe, le réel remplace le prévu." /></span><input v-model="form.plannedAmount" type="number" step="0.01" class="input w-24" @keyup.enter="submit" /></label>
           <label class="field"><span class="flex items-center gap-1">Jour du mois <HelpTip :text="form.isPot ? 'Jour où vous réglez la cagnotte : date par défaut du ☐ payé.' : 'Jour du prélèvement : date par défaut quand vous cochez ☐ payé dans le mois.'" /></span><input v-model="form.recurringDay" type="number" min="1" max="31" class="input w-20" placeholder="—" /></label>
-          <label v-if="!modalAdding" class="field"><span>Catégorie</span>
+          <label class="field"><span>Catégorie</span>
             <select v-model="form.categoryId" class="input w-40">
               <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
             </select>
@@ -345,7 +508,7 @@ const formCategoryType = computed(() => {
             </label>
           </template>
         </div>
-        <p v-if="Number(form.intervalMonths) > 1" class="text-[11.5px] text-gray-400 -mt-2">
+        <p v-if="Number(form.intervalMonths) > 1" class="modal-hint -mt-2">
           Apparaît {{ form.anchorMonth ? (Number(form.intervalMonths) === 12 ? 'chaque ' + MONTHS[form.anchorMonth - 1] : 'en ' + MONTHS[form.anchorMonth - 1] + ' puis tous les ' + form.intervalMonths + ' mois') : 'les mois du cycle' }}.
           <template v-if="form.monthlyize && modalLine?.envelopeId && envelopeById(modalLine.envelopeId)">
             Enveloppe « {{ envelopeById(modalLine.envelopeId).name }} » : {{ fmt(envelopeById(modalLine.envelopeId).total) }} / {{ fmt(envelopeById(modalLine.envelopeId).targetAmount) }}, ≈ {{ fmt(envelopeById(modalLine.envelopeId).monthlySuggestion) }}/mois.
@@ -399,86 +562,252 @@ const formCategoryType = computed(() => {
         <button class="btn-primary" @click="submit">{{ modalAdding ? 'Ajouter' : 'Sauver' }}</button>
         <button class="btn-secondary" @click="closePanel">Annuler</button>
         <template v-if="!modalAdding && modalLine">
-          <button v-if="currentMonth" class="link text-xs" title="Copie ou met à jour cette ligne dans le mois en cours (sauvez d'abord vos modifications)" @click="applyToCurrentMonth(modalLine)">Appliquer à {{ currentMonth.name }}</button>
+          <button v-if="currentMonth" class="link-accent" title="Copie ou met à jour cette ligne dans le mois en cours (sauvez d'abord vos modifications)" @click="applyToCurrentMonth(modalLine)">Appliquer à {{ currentMonth.name }}</button>
           <button class="btn-danger ml-auto" @click="removeLineConfirm(modalLine)">Supprimer</button>
         </template>
       </template>
     </AppModal>
 
     <!-- ─── Aucune catégorie ─────────────────────────── -->
-    <div v-if="!categories.length" class="text-center py-16 text-gray-400">
-      <p class="mb-3">Créez d'abord vos catégories dans les Paramètres.</p>
-      <router-link to="/parametres" class="btn-primary inline-block">Aller aux Paramètres</router-link>
+    <div v-if="!categories.length" class="panel empty-panel">
+      <p>Créez d'abord vos catégories dans les Paramètres.</p>
+      <router-link to="/parametres" class="btn-primary inline-flex items-center">Aller aux Paramètres</router-link>
     </div>
 
-    <!-- ─── Catégories en 2 colonnes ─────────────────── -->
-    <div v-else class="grid grid-cols-2 gap-4 items-start">
-      <div v-for="column in [groupsLeft, groupsRight]" :key="column === groupsLeft ? 'L' : 'R'" class="flex flex-col gap-4">
-        <div v-for="group in column" :key="group.category.id ?? 'none'" class="card p-0 overflow-hidden">
-
-          <!-- En-tête catégorie -->
-          <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
-            <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="{ background: group.category.color }" />
-            <span class="font-semibold text-[13.5px]">{{ group.category.name }}</span>
-            <span class="badge" :class="{
-              'bg-red-50 text-red-600': group.category.type === 'depense',
-              'bg-emerald-50 text-emerald-700': group.category.type === 'revenu',
-              'bg-violet-50 text-violet-700': group.category.type === 'epargne',
-              'bg-gray-100 text-gray-500': group.category.type === 'transfert',
-            }">{{ { depense: 'dépense', revenu: 'revenu', epargne: 'épargne', transfert: 'transfert' }[group.category.type] }}</span>
-            <span class="ml-auto text-[13px] font-semibold">{{ fmt(group.total) }}</span>
-          </div>
-
-          <!-- Lignes -->
-          <div v-for="(line, i) in group.lines" :key="line.id">
-            <div class="line-row" :class="{ 'line-row--pot': line.isPot }" @click="openEdit(line)">
-              <span class="text-[13px] font-medium truncate">{{ line.label }}</span>
-              <span v-if="line.recurringDay" class="badge bg-blue-50 text-blue-600" title="Jour du mois (date par défaut du « payé »)">le {{ line.recurringDay }}</span>
-              <span v-if="line.intervalMonths > 1" class="badge bg-cyan-50 text-cyan-700" :title="'N\'apparaît que les mois du cycle · prochaine échéance ' + fmtDue(line.nextDue)">
-                {{ line.intervalMonths === 12 ? 'annuel' : 'tous les ' + line.intervalMonths + ' mois' }} · {{ fmtDue(line.nextDue) }}
-              </span>
-              <span v-if="line.envelopeId" class="badge bg-violet-50 text-violet-700" title="Mensualisée : une enveloppe lisse la charge, le ☐ payé en sortira">mensualisée</span>
-              <span v-if="line.isPot" class="badge bg-amber-50 text-amber-600" title="Cagnotte : le prévu est calculé chaque mois">cagnotte · {{ line.potPartnerName || '?' }} paie {{ fmt(line.potPartnerPaid) }}</span>
-              <span v-if="sharingOn && line.isShared && !line.isPot" class="badge bg-amber-50 text-amber-600" :title="'Cagnotte : ' + (pots.find((p) => p.id === line.potLineId) || pots[0]).label">
-                ½{{ pots.length > 1 ? ' ' + ((pots.find((p) => p.id === line.potLineId) || pots[0]).potPartnerName || '') : '' }}
-              </span>
-              <span v-if="themeById(line.themeId)" class="badge" :style="{ background: themeById(line.themeId).color + '22', color: themeById(line.themeId).color }">
-                {{ themeById(line.themeId).name }}
-              </span>
-              <span class="ml-auto text-[13px] font-semibold shrink-0" :class="{ 'text-gray-400 font-normal text-[11px]': line.isPot }">{{ line.isPot ? 'calculé' : fmt(line.plannedAmount) }}</span>
-              <span class="flex flex-col shrink-0" @click.stop>
-                <button class="order-btn" :disabled="i === 0" @click="moveLine(group, i, -1)">▲</button>
-                <button class="order-btn" :disabled="i === group.lines.length - 1" @click="moveLine(group, i, 1)">▼</button>
-              </span>
-            </div>
-
-          </div>
-
-          <p v-if="!group.lines.length" class="text-xs text-gray-400 px-4 py-2.5">Aucune ligne.</p>
-          <button class="link text-xs px-4 py-2 block" @click="openAdd(group.category)">+ ligne</button>
-        </div>
+    <!-- ─── Registre du template — brief §4/§5 ───────── -->
+    <div v-else class="panel tpl-panel" :class="{ 'no-share': !sharingOn }">
+      <!-- Bascule de vue (brief §8) -->
+      <div class="tpl-toolbar">
+        <button class="view-tab" :class="{ 'is-active': viewMode === 'categorie' }" @click="viewMode = 'categorie'">Par catégorie</button>
+        <button class="view-tab" :class="{ 'is-active': viewMode === 'echeance' }" @click="viewMode = 'echeance'">Par échéance</button>
       </div>
+      <div class="tpl-grid tpl-head">
+        <span></span>
+        <span class="colh is-left">thème</span>
+        <span class="colh is-left">périodicité</span>
+        <span class="colh is-left">échéance</span>
+        <span v-if="sharingOn" class="colh is-center">partagé</span>
+        <span class="colh">montant</span>
+        <span></span>
+      </div>
+
+      <section v-for="grp in displayGroups" :key="grp.key" class="tpl-section">
+        <div class="tpl-grid tpl-sec-head">
+          <span class="sec-title">
+            <span v-if="grp.dot" class="sec-dot" :style="{ background: desat(grp.dot) }" />
+            {{ grp.title }}
+            <span class="sec-count num">{{ grp.count }}</span>
+            <span v-if="grp.typeLabel" class="sec-type">{{ grp.typeLabel }}</span>
+          </span>
+          <span></span><span></span><span></span>
+          <span v-if="sharingOn"></span>
+          <span class="num sec-total">{{ fmt(grp.total) }}</span>
+          <span></span>
+        </div>
+
+        <div v-for="(line, i) in grp.lines" :key="line.id" class="tpl-grid tpl-row" @click="openEdit(line)">
+          <span class="cell-label">
+            <span class="row-label" :title="line.label">{{ line.label }}</span>
+            <span v-if="line.isPot" class="tag tag-info" :title="potTip(line)">calculé</span>
+          </span>
+          <span class="cell-theme">
+            <template v-if="themeById(line.themeId)">
+              <span class="theme-dot" :style="{ background: desat(themeById(line.themeId).color) }" />{{ themeById(line.themeId).name }}
+            </template>
+            <span v-else class="meta">—</span>
+          </span>
+          <span class="cell-period" :class="{ 'has-tip': (line.intervalMonths || 1) > 1 }" :title="periodTip(line)">{{ periodLabel(line) }}</span>
+          <span class="cell-due num" :title="dueTip(line)">{{ dueLabel(line) }}</span>
+          <span v-if="sharingOn" class="cell-share" :title="line.isShared && !line.isPot ? shareTip(line) : ''">{{ line.isShared && !line.isPot ? '½' : '—' }}</span>
+          <span class="cell-amount" @click.stop>
+            <span v-if="line.isPot" class="num amount-calc" :title="potTip(line)">{{ fmt(lineAmount(line)) }}</span>
+            <input v-else class="num amount-input" type="text" inputmode="decimal" :value="fmt(line.plannedAmount)"
+              @focus="startAmountEdit(line, $event)" @blur="commitAmount(line, $event)" @keyup.enter="$event.target.blur()" />
+          </span>
+          <span class="cell-actions" @click.stop>
+            <button class="btn-icon row-action" title="Modifier" @click="openEdit(line)">✎</button>
+            <span class="menu-wrap">
+              <button class="btn-icon" title="Actions" @click="menuLineId = menuLineId === line.id ? null : line.id">⋯</button>
+              <div v-if="menuLineId === line.id" class="menu">
+                <button class="menu-item" @click="menuLineId = null; openEdit(line)">Modifier</button>
+                <button v-if="currentMonth" class="menu-item" @click="menuLineId = null; applyToCurrentMonth(line)">Appliquer à {{ currentMonth.name }}</button>
+                <template v-if="grp.orig">
+                  <button class="menu-item" :disabled="i === 0" @click="menuLineId = null; moveLine(grp.orig, i, -1)">Monter</button>
+                  <button class="menu-item" :disabled="i === grp.lines.length - 1" @click="menuLineId = null; moveLine(grp.orig, i, 1)">Descendre</button>
+                </template>
+                <div class="menu-sep" />
+                <button class="menu-item is-danger" @click="menuLineId = null; removeLineConfirm(line)">Supprimer</button>
+              </div>
+            </span>
+          </span>
+        </div>
+
+        <p v-if="!grp.lines.length" class="tpl-empty">Aucune ligne récurrente.</p>
+        <button v-if="grp.orig" class="btn-discret tpl-add" @click="openAdd(grp.orig.category)"><PhPlus :size="12" weight="bold" /> Ajouter une ligne</button>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-@reference "@/style.css";
+/* ─── Page ─── */
+.page-sub { font-size: 13px; color: var(--c-ink-2); margin-top: 2px; }
+.panel { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-container); }
+.meta { color: var(--c-ink-3); font-weight: 400; }
+.is-over { color: var(--c-over); }
 
-.card { @apply bg-white rounded-xl border border-stone-200; }
-.tile { @apply flex flex-col items-end; }
-.tile-value { @apply text-[17px] font-bold tracking-tight; }
-.tile-label { @apply text-[11px] text-gray-400 font-medium; }
-.badge { @apply text-[10.5px] font-semibold px-1.5 py-px rounded-full shrink-0; }
-.line-row { @apply flex items-center gap-1.5 px-4 py-2 border-b border-stone-50 cursor-pointer hover:bg-stone-50; }
-.line-row--pot { @apply bg-amber-50/60 hover:bg-amber-50 border-l-2 border-l-amber-400; }
-.edit-panel { @apply px-4 py-3 bg-stone-50 border-b border-stone-100; }
-.field { @apply flex flex-col gap-1 text-[11px] font-medium text-gray-500; }
-.input { @apply py-1.5 px-2 border border-stone-200 rounded-md text-[13px] text-gray-900 bg-white outline-none focus:border-violet-400; }
-.checkbox { @apply flex items-center gap-1.5 text-[12.5px] text-gray-600 cursor-pointer; }
-.btn-primary { @apply py-1.5 px-3 bg-violet-600 hover:bg-violet-700 text-white rounded-md text-[12.5px] font-medium cursor-pointer; }
-.btn-secondary { @apply py-1.5 px-3 bg-white border border-stone-200 hover:bg-stone-100 text-gray-600 rounded-md text-[12.5px] font-medium cursor-pointer; }
-.btn-danger { @apply py-1.5 px-3 bg-white border border-red-200 hover:bg-red-50 text-red-500 rounded-md text-[12.5px] font-medium cursor-pointer; }
-.order-btn { @apply text-[8px] leading-3 text-gray-300 hover:text-gray-600 cursor-pointer disabled:opacity-20 disabled:cursor-default; }
-.link { @apply text-violet-600 hover:underline cursor-pointer; }
+/* ─── Bandeau ─── */
+.bandeau { padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); }
+.bandeau-row { display: flex; align-items: center; gap: var(--s-6); }
+.synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
+.synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
+.synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; align-self: flex-start; }
+.has-tip { text-decoration: underline dotted var(--c-ink-3); text-underline-offset: 3px; cursor: help; }
+.synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
+.synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
+.synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
+.synth-v { font-size: var(--t-amount); color: var(--c-ink); }
+
+/* ─── Composition ─── */
+.compo { margin-top: var(--s-4); border-top: 1px solid var(--c-line); padding-top: var(--s-4); }
+.compo-bar { display: flex; height: 10px; border-radius: var(--r-pill); overflow: hidden; background: var(--c-track); }
+.compo-seg { display: block; background: var(--c-fill); }
+.compo-seg + .compo-seg { border-left: 2px solid var(--c-surface); }
+.compo-legend { display: flex; flex-wrap: wrap; gap: var(--s-5); margin-top: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); }
+.compo-item { display: inline-flex; align-items: center; gap: var(--s-2); }
+.compo-dot { width: 8px; height: 8px; border-radius: var(--r-pill); background: var(--c-fill); flex-shrink: 0; }
+.compo-dot.is-track { background: var(--c-track); }
+
+/* ─── Registre ─── */
+.tpl-panel { overflow: visible; }
+.tpl-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 148px 120px 84px 64px 120px 64px;
+  align-items: center;
+  gap: var(--s-3);
+  padding-inline: var(--s-5);
+}
+.tpl-panel.no-share .tpl-grid { grid-template-columns: minmax(0, 1fr) 148px 120px 84px 120px 64px; }
+.tpl-toolbar { display: flex; gap: var(--s-5); padding: var(--s-3) var(--s-5) 0; }
+.view-tab { font-size: 13px; font-weight: 500; color: var(--c-ink-3); padding: var(--s-2) 0 var(--s-3); cursor: pointer; border-bottom: 2px solid transparent; }
+.view-tab:hover { color: var(--c-ink); }
+.view-tab.is-active { color: var(--c-ink); border-bottom-color: var(--c-accent); }
+.tpl-head { min-height: 30px; border-block: 1px solid var(--c-line); background: var(--c-surface-sunken); }
+.colh { font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); text-align: right; }
+.colh.is-left { text-align: left; }
+.colh.is-center { text-align: center; }
+
+.tpl-section + .tpl-section { border-top: 1px solid var(--c-line-strong); }
+.tpl-sec-head { min-height: 44px; background: var(--c-surface-sunken); position: sticky; top: 0; z-index: 10; }
+.sec-title { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-section); font-weight: 600; color: var(--c-ink); min-width: 0; }
+.sec-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex-shrink: 0; }
+.sec-count { font-size: var(--t-small); font-weight: 400; color: var(--c-ink-3); }
+.sec-type { font-size: var(--t-small); font-weight: 400; color: var(--c-ink-3); }
+.sec-total { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); text-align: right; }
+
+.tpl-row { min-height: var(--h-row); border-bottom: 1px solid var(--c-line); cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.tpl-row:hover { background: var(--c-surface-hover); }
+.tpl-section .tpl-row:last-of-type { border-bottom: none; }
+.cell-label { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.row-label { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell-theme { display: flex; align-items: center; gap: var(--s-2); font-size: 13px; color: var(--c-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.theme-dot { width: 6px; height: 6px; border-radius: var(--r-pill); flex-shrink: 0; }
+.cell-period { font-size: 13px; color: var(--c-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell-period.has-tip { text-decoration: underline dotted var(--c-ink-3); text-underline-offset: 3px; cursor: help; }
+.cell-due { font-size: 13px; color: var(--c-ink-2); text-align: left; white-space: nowrap; }
+.cell-share { font-size: 13px; color: var(--c-ink-2); text-align: center; }
+.cell-amount { display: flex; justify-content: flex-end; }
+.amount-calc { font-size: var(--t-amount); color: var(--c-ink-2); cursor: not-allowed; padding: 2px var(--s-2); }
+.amount-input {
+  width: 100%; max-width: 120px; text-align: right;
+  font-size: var(--t-amount); color: var(--c-ink);
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-control);
+  padding: 2px var(--s-2); outline: none; font-family: var(--font-ui);
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.amount-input:hover { border-color: var(--c-line-strong); background: var(--c-surface); }
+.amount-input:focus { border-color: var(--c-accent); background: var(--c-surface); box-shadow: 0 0 0 3px var(--c-accent-ring); }
+.cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.row-action { opacity: 0; }
+.tpl-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
+
+.tpl-empty { font-size: 13px; color: var(--c-ink-2); padding: var(--s-3) var(--s-5); }
+.tpl-add { margin: var(--s-1) var(--s-5) var(--s-3); }
+
+/* Menu ⋯ */
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 40;
+  min-width: 210px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-container);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--s-2);
+}
+.menu-item {
+  display: block; width: 100%; text-align: left;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-control);
+  font-size: 13px; color: var(--c-ink);
+  cursor: pointer;
+}
+.menu-item:hover { background: var(--c-surface-hover); }
+.menu-item:disabled { color: var(--c-ink-disabled); cursor: default; }
+.menu-item:disabled:hover { background: none; }
+.menu-item.is-danger { color: var(--c-over); }
+.menu-item.is-danger:hover { background: var(--c-over-soft); }
+.menu-sep { height: 1px; background: var(--c-line); margin: var(--s-2) 0; }
+
+/* ─── États vides ─── */
+.empty-panel { text-align: center; padding: var(--s-8); font-size: 13px; color: var(--c-ink-2); display: flex; flex-direction: column; align-items: center; gap: var(--s-4); }
+
+/* ─── Tags ─── */
+.tag {
+  display: inline-flex; align-items: center; gap: var(--s-1);
+  height: 20px; padding: 0 var(--s-3);
+  border-radius: var(--r-control);
+  font-size: var(--t-tag); font-weight: 500;
+  white-space: nowrap; flex-shrink: 0;
+}
+.tag-info { background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); cursor: help; }
+
+/* ─── Boutons, liens, champs (partagés avec la modale) ─── */
+.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: #fff; border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-primary:hover { background: var(--c-accent-hover); }
+.btn-secondary { height: 30px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); color: var(--c-ink); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-secondary:hover { background: var(--c-surface-hover); }
+.btn-danger { height: 30px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-over); border-radius: var(--r-control); color: var(--c-over); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-danger:hover { background: var(--c-over-soft); }
+.btn-icon { width: 26px; height: 26px; border-radius: var(--r-control); display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-3); font-size: 13px; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-icon:hover { background: var(--c-surface-hover); color: var(--c-ink); }
+.btn-discret { display: inline-flex; align-items: center; gap: var(--s-1); color: var(--c-accent); font-size: var(--t-small); font-weight: 500; padding: var(--s-2) 0; cursor: pointer; }
+.btn-discret:hover { color: var(--c-accent-hover); }
+.link-accent { color: var(--c-accent); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
+.link-accent:hover { color: var(--c-accent-hover); text-decoration: underline; }
+.field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
+.input { padding: 6px var(--s-3); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); font-size: 13px; color: var(--c-ink); background: var(--c-surface); outline: none; font-family: var(--font-ui); }
+.input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
+.checkbox { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); cursor: pointer; }
+.modal-hint { font-size: 11.5px; color: var(--c-ink-3); }
+
+button:focus-visible, select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--c-accent-ring); border-radius: var(--r-control); }
+
+/* ─── Responsive — brief §5 ─── */
+@media (max-width: 1199px) {
+  /* la colonne thème disparaît */
+  .tpl-grid { grid-template-columns: minmax(0, 1fr) 120px 84px 64px 120px 64px; }
+  .tpl-panel.no-share .tpl-grid { grid-template-columns: minmax(0, 1fr) 120px 84px 120px 64px; }
+  .tpl-grid > :nth-child(2) { display: none; }
+}
+@media (max-width: 979px) {
+  /* partagé et échéance disparaissent : libellé, périodicité, montant, actions */
+  .tpl-grid { grid-template-columns: minmax(0, 1fr) 120px 120px 64px; min-height: var(--h-row-touch); }
+  .tpl-panel.no-share .tpl-grid { grid-template-columns: minmax(0, 1fr) 120px 120px 64px; }
+  .tpl-grid > :nth-child(4) { display: none; }
+  .tpl-panel:not(.no-share) .tpl-grid > :nth-child(5) { display: none; }
+  .tpl-panel.no-share .tpl-grid > :nth-child(1) { grid-column: 1; }
+  .bandeau-row { flex-wrap: wrap; gap: var(--s-4); }
+  .synth-sep { display: none; }
+}
 </style>
