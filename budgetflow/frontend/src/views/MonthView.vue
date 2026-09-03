@@ -973,17 +973,27 @@ const mainEnvelopesTotal = computed(() => {
       <!-- ─── Sous-header : mois, statut, bilan et actions en une barre (sticky) ── -->
       <div class="subheader mb-4">
         <div class="flex items-center gap-x-5 gap-y-2 flex-wrap">
-          <div class="flex items-center gap-2">
-            <select
-              class="month-select"
-              :value="current?.id"
-              @change="openMonth(monthsList.find((m) => m.id === Number($event.target.value)))"
-            >
-              <option v-for="m in monthsList" :key="m.id" :value="m.id">{{ m.name }}{{ m.isClosed ? ' 🔒' : '' }}</option>
-            </select>
-            <span class="badge" :class="current.isClosed ? 'bg-gray-100 text-gray-500' : 'bg-emerald-50 text-emerald-700'">
-              {{ current.isClosed ? 'Clôturé' : 'Ouvert' }}
-            </span>
+          <!-- Colonne mois : nom + statut, actions dessous -->
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center gap-2">
+              <select
+                class="month-select"
+                :value="current?.id"
+                @change="openMonth(monthsList.find((m) => m.id === Number($event.target.value)))"
+              >
+                <option v-for="m in monthsList" :key="m.id" :value="m.id">{{ m.name }}{{ m.isClosed ? ' 🔒' : '' }}</option>
+              </select>
+              <span class="badge" :class="current.isClosed ? 'bg-gray-100 text-gray-500' : 'bg-emerald-50 text-emerald-700'">
+                {{ current.isClosed ? 'Clôturé' : 'Ouvert' }}
+              </span>
+            </div>
+            <div class="flex items-center gap-3 pl-1">
+              <button class="link text-xs" @click="showAccounts = !showAccounts">{{ showAccounts ? '▲' : '▼' }} Comptes</button>
+              <button class="link text-xs" @click="openSnapshots">Soldes de début</button>
+              <button class="link text-xs" @click="toggleClosed">{{ current.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
+              <button class="btn-primary" @click="openCreateForm">+ Nouveau mois</button>
+              <HelpTip wide text="Chaque ligne a un prévu (du template) et un réel (vos entrées). ☐ = prévu pas encore réalisé : cocher crée l'entrée au prévu. Cliquez une ligne pour voir ses entrées, « + entrée » pour en ajouter, ✎ pour modifier la ligne. « + ligne » ajoute une dépense propre à ce mois. Un mois clôturé est verrouillé." />
+            </div>
           </div>
 
           <template v-if="summaryData">
@@ -1012,13 +1022,6 @@ const mainEnvelopesTotal = computed(() => {
             </div>
           </template>
 
-          <div class="ml-auto flex items-center gap-3">
-            <button class="link text-xs" @click="showAccounts = !showAccounts">{{ showAccounts ? '▲' : '▼' }} Comptes</button>
-            <button class="link text-xs" @click="openSnapshots">Soldes de début</button>
-            <button class="link text-xs" @click="toggleClosed">{{ current.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
-            <button class="btn-primary" @click="openCreateForm">+ Nouveau mois</button>
-            <HelpTip wide text="Chaque ligne a un prévu (du template) et un réel (vos entrées). ☐ = prévu pas encore réalisé : cocher crée l'entrée au prévu. Cliquez une ligne pour voir ses entrées, « + entrée » pour en ajouter, ✎ pour modifier la ligne. « + ligne » ajoute une dépense propre à ce mois. Un mois clôturé est verrouillé." />
-          </div>
         </div>
 
         <!-- Soldes des comptes (déplié dans la barre) -->
