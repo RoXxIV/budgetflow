@@ -5,12 +5,16 @@ import {
   PhHorse,
   PhHeart,
   PhCube,
+  PhPiggyBank,
+  PhChartLineUp,
 } from '@phosphor-icons/vue'
 
 export const icons = {
   PhHorse,
   PhHeart,
   PhCube,
+  PhPiggyBank,
+  PhChartLineUp,
 }
 
 // Plugin Vue : enregistre chaque icône du registre comme composant global

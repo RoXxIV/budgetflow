@@ -158,6 +158,13 @@ function potStatus(line) {
 // ─── Enveloppes (contribution rapide depuis le mois) ─────
 const openEnvelopeId = ref(null)
 const contribForm = ref({})
+// Onglet actif du bloc Enveloppes / Investissements (repli sur celui qui a du contenu)
+const epargneTab = ref('env')
+const shownTab = computed(() => {
+  if (epargneTab.value === 'env' && envelopes.value.length) return 'env'
+  if (epargneTab.value === 'inv' && assets.value.length) return 'inv'
+  return envelopes.value.length ? 'env' : 'inv'
+})
 const contribsForEnvelope = (env) => monthContribs.value.filter((c) => c.envelopeId === env.id)
 const monthContribTotal = computed(() => monthContribs.value.filter((c) => c.kind === 'normale').reduce((s, c) => s + c.amount, 0))
 const envelopePct = (env) => (env.effectiveTarget ? Math.min(100, Math.round((env.total / env.effectiveTarget) * 100)) : null)
@@ -1039,21 +1046,27 @@ const mainEnvelopesTotal = computed(() => {
         </div>
       </div>
 
-      <!-- ─── Enveloppes & Investissements (2 colonnes, même gabarit que les catégories) ─ -->
-      <div class="grid grid-cols-2 gap-4 items-start mb-4">
-      <div v-if="envelopes.length" class="card p-0 overflow-hidden">
-        <div class="px-4 py-2.5 border-b border-stone-100">
-          <div class="flex items-center gap-2">
-            <span class="font-semibold text-[13.5px]">Enveloppes</span>
-            <span class="badge bg-violet-50 text-violet-700">épargne</span>
-            <HelpTip text="Vos projets d'épargne. ☐ versé pose la mensualité suggérée en un clic ; cliquez une enveloppe pour voir ou ajouter une contribution. Une dépense « depuis l'enveloppe » (dans une entrée) la fait baisser." />
-            <span class="ml-auto text-[12.5px] text-gray-400">ce mois : <span class="font-semibold text-violet-600">{{ fmt(monthContribTotal) }}</span></span>
-          </div>
-          <!-- Part du mis de côté dans les sorties réelles du mois -->
-          <div v-if="envelopesPct !== null" class="flex items-center gap-2 mt-1.5" :title="fmt(monthContribTotal) + ' sur ' + fmt(totalSorties) + ' de sorties réelles ce mois (dépenses + enveloppes)'">
-            <div class="progress flex-1"><div class="progress-bar bg-violet-500" :style="{ width: envelopesPct + '%' }" /></div>
-            <span class="text-[10.5px] text-gray-400 shrink-0" style="font-variant-numeric: tabular-nums">{{ envelopesPct }} %</span>
-          </div>
+      <!-- ─── Enveloppes & Investissements : une carte, deux onglets ── -->
+      <div v-if="envelopes.length || assets.length" class="card p-0 overflow-hidden mb-4">
+        <div class="flex border-b border-stone-100">
+          <button v-if="envelopes.length" class="tab" :class="{ 'tab--violet': shownTab === 'env' }" @click="epargneTab = 'env'">
+            <PhPiggyBank :size="18" :weight="shownTab === 'env' ? 'fill' : 'regular'" :class="shownTab === 'env' ? 'text-violet-600' : ''" />
+            <span class="font-semibold text-[13px]">Enveloppes</span>
+            <span class="text-[12.5px]" :class="shownTab === 'env' ? 'text-violet-600 font-semibold' : 'text-gray-400'">{{ fmt(monthContribTotal) }}</span>
+          </button>
+          <button v-if="assets.length" class="tab" :class="{ 'tab--teal': shownTab === 'inv' }" @click="epargneTab = 'inv'">
+            <PhChartLineUp :size="18" :weight="shownTab === 'inv' ? 'fill' : 'regular'" :class="shownTab === 'inv' ? 'text-teal-600' : ''" />
+            <span class="font-semibold text-[13px]">Investissements</span>
+            <span class="text-[12.5px]" :class="shownTab === 'inv' ? 'text-teal-600 font-semibold' : 'text-gray-400'">{{ fmt(monthInvestedTotal) }}</span>
+          </button>
+        </div>
+
+        <template v-if="shownTab === 'env'">
+        <!-- Part du mis de côté dans les sorties réelles du mois -->
+        <div v-if="envelopesPct !== null" class="px-4 pt-2.5 flex items-center gap-2" :title="fmt(monthContribTotal) + ' sur ' + fmt(totalSorties) + ' de sorties réelles ce mois (dépenses + enveloppes)'">
+          <div class="progress flex-1"><div class="progress-bar bg-violet-500" :style="{ width: envelopesPct + '%' }" /></div>
+          <span class="text-[10.5px] text-gray-400 shrink-0" style="font-variant-numeric: tabular-nums">{{ envelopesPct }} %</span>
+          <HelpTip text="Vos projets d'épargne. ☐ versé pose la mensualité suggérée en un clic ; cliquez une enveloppe pour voir ou ajouter une contribution. Une dépense « depuis l'enveloppe » (dans une entrée) la fait baisser." />
         </div>
 
         <div v-for="env in envelopes" :key="env.id">
@@ -1113,15 +1126,10 @@ const mainEnvelopesTotal = computed(() => {
             </div>
           </div>
         </div>
-      </div>
+        </template>
 
-      <!-- ─── Investissements ──────────────────────── -->
-      <div v-if="assets.length" class="card p-0 overflow-hidden">
-        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
-          <span class="font-semibold text-[13.5px]">Investissements</span>
-          <span class="badge bg-teal-50 text-teal-700">versements</span>
-          <span class="ml-auto text-[12.5px] text-gray-400">ce mois : <span class="font-semibold text-teal-600">{{ fmt(monthInvestedTotal) }}</span></span>
-        </div>
+        <!-- ─── Onglet Investissements ───────────────── -->
+        <template v-else>
         <div v-for="asset in assets" :key="asset.id">
           <div class="line-row" @click="toggleAsset(asset)">
             <!-- ☐ versé : le DCA prévu — disparaît dès qu'un mouvement existe ce mois (le réel remplace le prévu) -->
@@ -1172,10 +1180,8 @@ const mainEnvelopesTotal = computed(() => {
             </div>
           </div>
         </div>
+        </template>
       </div>
-
-      </div>
-
 
       <!-- Snapshots -->
       <div v-if="snapshotsOpen" class="card px-5 py-4 mb-4">
@@ -1373,6 +1379,9 @@ const mainEnvelopesTotal = computed(() => {
 .kpi-label { @apply text-[11px] text-gray-400 font-medium; }
 .kpi-hint { @apply text-[10.5px] text-gray-400; }
 .kpi-sep { @apply w-px self-stretch bg-stone-200; }
+.tab { @apply flex-1 flex items-center justify-center gap-2 px-4 py-3 cursor-pointer text-gray-400 hover:bg-stone-50 border-b-2 border-transparent; }
+.tab--violet { @apply border-violet-500 text-gray-900 bg-stone-50/60; }
+.tab--teal { @apply border-teal-500 text-gray-900 bg-stone-50/60; }
 .badge { @apply text-[10.5px] font-semibold px-1.5 py-px rounded-full shrink-0; }
 .line-row { @apply flex items-center gap-2 px-4 py-2 border-b border-stone-50 cursor-pointer hover:bg-stone-50; }
 .line-row--pot { @apply bg-amber-50/60 hover:bg-amber-50 border-l-2 border-l-amber-400; }
