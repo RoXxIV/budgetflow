@@ -1,0 +1,119 @@
+/* ─── Tokens de la refonte « registre » (refonte-ui-budgetflow.md §4) ───
+   Aucun hex en dur dans les composants : tout passe par ces variables. */
+
+:root {
+  /* Surfaces */
+  --c-canvas:          #F1F3F1;
+  --c-surface:         #FFFFFF;
+  --c-surface-sunken:  #F7F8F7;
+  --c-surface-hover:   #EEF1EF;
+  --c-line:            #E2E6E3;
+  --c-line-strong:     #CBD2CD;
+
+  /* Encre */
+  --c-ink:             #14201C;
+  --c-ink-2:           #46554F;
+  --c-ink-3:           #77857F;
+  --c-ink-disabled:    #A3AEA9;
+
+  /* Marque / interaction — JAMAIS une donnée */
+  --c-accent:          #5A31C4;
+  --c-accent-hover:    #4A27A8;
+  --c-accent-soft:     #EFEAFB;
+  --c-accent-ring:     #5A31C466;
+
+  /* Sémantique de donnée */
+  --c-credit:          #0B6B52;
+  --c-credit-soft:     #E4F1EC;
+  --c-warn:            #A66A00;
+  --c-warn-soft:       #FBF0DC;
+  --c-over:            #B03024;
+  --c-over-soft:       #FBE9E7;
+
+  /* Progression */
+  --c-track:           #E2E6E3;
+  --c-fill:            #4A5A55;
+  --c-fill-warn:       var(--c-warn);
+  --c-fill-over:       var(--c-over);
+  --c-fill-goal:       var(--c-credit);
+
+  /* Typographie */
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --t-meta:      0.6875rem;
+  --t-small:     0.75rem;
+  --t-tag:       0.75rem;
+  --t-body:      0.875rem;
+  --t-amount:    0.9375rem;
+  --t-section:   1rem;
+  --t-section-n: 1.125rem;
+  --t-hero:      1.75rem;
+  --lh-tight: 1.15;
+  --lh-body:  1.45;
+
+  /* Espacement, rayons, ombres, durées */
+  --s-1: 4px;  --s-2: 6px;  --s-3: 8px;  --s-4: 12px;
+  --s-5: 16px; --s-6: 20px; --s-7: 24px; --s-8: 32px; --s-9: 48px;
+
+  --r-control:   6px;
+  --r-container: 12px;
+  --r-pill:      999px;
+
+  --shadow-overlay: 0 8px 24px -8px rgba(16, 32, 26, 0.18);
+  --shadow-sticky:  0 1px 0 var(--c-line), 0 6px 12px -10px rgba(16, 32, 26, 0.22);
+
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --ease:     cubic-bezier(0.2, 0, 0, 1);
+
+  --h-row:        40px;
+  --h-row-touch:  48px;
+  --h-topbar:     52px;
+  --h-summary:    64px;
+  --w-content:    1240px;
+  --w-aside:      340px;
+}
+
+/* Thème sombre : tokens prêts — la bascule sera activée quand toutes les pages
+   seront tokenisées (une app mi-sombre mi-blanche est pire que pas de sombre). */
+:root[data-theme="dark"] {
+  --c-canvas:         #0E1412;
+  --c-surface:        #151C1A;
+  --c-surface-sunken: #1B2422;
+  --c-surface-hover:  #202A27;
+  --c-line:           #26302C;
+  --c-line-strong:    #354039;
+
+  --c-ink:            #E8EEEB;
+  --c-ink-2:          #A6B3AE;
+  --c-ink-3:          #7A8781;
+  --c-ink-disabled:   #5A665F;
+
+  --c-accent:         #A88BFF;
+  --c-accent-hover:   #BCA4FF;
+  --c-accent-soft:    #2A2244;
+  --c-accent-ring:    #A88BFF66;
+
+  --c-credit:         #4CC79F;
+  --c-credit-soft:    #12332A;
+  --c-warn:           #E0A83C;
+  --c-warn-soft:      #33280F;
+  --c-over:           #FF8A7A;
+  --c-over-soft:      #3A1A16;
+
+  --c-track:          #26302C;
+  --c-fill:           #8A9A94;
+}
+
+/* Utilitaires du registre */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

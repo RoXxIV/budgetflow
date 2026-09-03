@@ -9,6 +9,8 @@ import {
   PhChartLineUp,
   PhPlus,
   PhCaretDown,
+  PhGearSix,
+  PhCheck,
 } from '@phosphor-icons/vue'
 
 export const icons = {
@@ -19,6 +21,8 @@ export const icons = {
   PhChartLineUp,
   PhPlus,
   PhCaretDown,
+  PhGearSix,
+  PhCheck,
 }
 
 // Plugin Vue : enregistre chaque icône du registre comme composant global
