@@ -1,11 +1,20 @@
 import { all, get, run, httpError } from "../db/index.js";
 
 function serialize(row) {
-  return { id: row.id, name: row.name, color: row.color };
+  return {
+    id: row.id, name: row.name, color: row.color,
+    ...(row.lines_n !== undefined ? { lines: row.lines_n, entries: row.entries_n } : {}),
+  };
 }
 
+// La liste porte les compteurs d'usage (colonne « utilisé par » de la page Paramètres)
 export function list() {
-  return all("SELECT * FROM themes ORDER BY name COLLATE NOCASE").map(serialize);
+  return all(
+    `SELECT t.*,
+       (SELECT COUNT(*) FROM budget_lines b WHERE b.theme_id = t.id) AS lines_n,
+       (SELECT COUNT(*) FROM entries e WHERE e.theme_id = t.id) AS entries_n
+     FROM themes t ORDER BY t.name COLLATE NOCASE`
+  ).map(serialize);
 }
 
 export function create({ name, color = "#6b7280" }) {

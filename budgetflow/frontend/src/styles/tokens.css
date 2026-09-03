@@ -47,6 +47,11 @@
   --chart-6: #B04A3F; /* brique */
   --chart-other: #B8C0BB; /* « Autres » — toujours ce gris */
 
+  /* Palette fermée des catégories (page Paramètres §1.A) — le sélecteur libre est mort */
+  --cat-1:  #3B6EA5; --cat-2:  #4B8A6E; --cat-3:  #C97B2C; --cat-4:  #A05270;
+  --cat-5:  #6E7A88; --cat-6:  #B04A3F; --cat-7:  #7C6BB0; --cat-8:  #2F8C8C;
+  --cat-9:  #8C7A3F; --cat-10: #5A7D3F; --cat-11: #96566B; --cat-12: #55606B;
+
   /* Typographie */
   --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --t-meta:      0.6875rem;

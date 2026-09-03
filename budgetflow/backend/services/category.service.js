@@ -9,11 +9,18 @@ function serialize(row) {
     type: row.type,
     color: row.color,
     sortOrder: row.sort_order,
+    ...(row.tpl_n !== undefined ? { templateLines: row.tpl_n, monthLines: row.month_n } : {}),
   };
 }
 
+// La liste porte les compteurs d'usage (colonne « utilisé par » de la page Paramètres)
 export function list() {
-  return all("SELECT * FROM categories ORDER BY sort_order, id").map(serialize);
+  return all(
+    `SELECT c.*,
+       (SELECT COUNT(*) FROM budget_lines b WHERE b.category_id = c.id AND b.month_id IS NULL) AS tpl_n,
+       (SELECT COUNT(*) FROM budget_lines b WHERE b.category_id = c.id AND b.month_id IS NOT NULL) AS month_n
+     FROM categories c ORDER BY c.sort_order, c.id`
+  ).map(serialize);
 }
 
 export function create({ name, type = "depense", color = "#6b7280" }) {

@@ -44,6 +44,15 @@ test("thèmes : unicité (casse ignorée), suppression protégée, fusion", () =
   th = th2;
 });
 
+test("listes : compteurs d'usage portés par catégories et thèmes (page Paramètres)", () => {
+  const c = categories.list().find((x) => x.id === catDep.id);
+  assert.equal(c.templateLines, 1, "Courses est rattachée au template");
+  assert.equal(typeof c.monthLines, "number");
+  const t = themes.list().find((x) => x.id === th.id);
+  assert.ok(t.lines >= 1, `le thème est porté par au moins la ligne Courses (${t.lines})`);
+  assert.equal(typeof t.entries, "number");
+});
+
 test("calculateur : formule fermée (symboles déclarés uniquement)", () => {
   calc = calculators.save(null, {
     name: "Élec", formula: "(hp × prixHP) × (1 + tva / 100) + abo", lineId: courses.id,
