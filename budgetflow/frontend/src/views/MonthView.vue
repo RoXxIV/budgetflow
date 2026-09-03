@@ -998,12 +998,9 @@ const mainEnvelopesTotal = computed(() => {
             </div>
           </template>
 
-          <!-- Colonne mois à droite : nom + statut, actions dessous -->
-          <div class="ml-auto flex flex-col items-end gap-1.5">
+          <!-- Colonne mois à droite (contenu aligné à gauche) : nom + statut, actions dessous -->
+          <div class="ml-auto flex flex-col items-start gap-1.5">
             <div class="flex items-center gap-2">
-              <span class="badge" :class="current.isClosed ? 'bg-gray-100 text-gray-500' : 'bg-emerald-50 text-emerald-700'">
-                {{ current.isClosed ? 'Clôturé' : 'Ouvert' }}
-              </span>
               <select
                 class="month-select"
                 :value="current?.id"
@@ -1011,6 +1008,9 @@ const mainEnvelopesTotal = computed(() => {
               >
                 <option v-for="m in monthsList" :key="m.id" :value="m.id">{{ m.name }}{{ m.isClosed ? ' 🔒' : '' }}</option>
               </select>
+              <span class="badge" :class="current.isClosed ? 'bg-gray-100 text-gray-500' : 'bg-emerald-50 text-emerald-700'">
+                {{ current.isClosed ? 'Clôturé' : 'Ouvert' }}
+              </span>
             </div>
             <div class="flex items-center gap-3">
               <button class="link text-xs" @click="showAccounts = !showAccounts">{{ showAccounts ? '▲' : '▼' }} Comptes</button>
