@@ -47,3 +47,4 @@ pnpm-debug.log*
 # ─── Nouvelle app budgetflow ─────────────────
 # Base SQLite locale (données réelles, jamais versionnées)
 budgetflow/backend/data/
+trie/
