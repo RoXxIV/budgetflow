@@ -41,6 +41,17 @@ début de mois, courbe par compte masquable) ; ② dépenses par thème (1er act
 exclus (le point 7 ci-dessous est réglé). Chaque bloc a son tableau. **Evan a des points de
 décision critiques à discuter — V1 à ajuster.**
 
+## Refonte UI « registre » — en cours (03/09)
+Brief : `refonte-ui-budgetflow.md` + addendum densité (regard extérieur validé par Evan).
+**Fait sur la page Mois** (`e0f41a9`, `b1e92cd`, `a091eb3`) : tokens (`src/styles/tokens.css`,
+zéro hex en dur), IBM Plex, `eur()` espaces fines, nav §5.2, synthèse sticky opaque avec
+Reste à vivre, registre unique à colonnes alignées, sections dépliées selon la règle corrigée
+(+ localStorage), en-têtes enrichis, totaux sticky, « À faire ce mois », colonne latérale
+Enveloppes/Investissements. Adaptations logiques : pointage à sens unique conservé, thèmes en
+point de couleur, total = dépenses uniquement, reste à vivre via prevusRestants.
+**Différé** : thème sombre (tokens prêts, bascule quand toutes les pages seront tokenisées),
+addendum §6/§8. **À venir** : md pour la page Comptes, puis Stats/Template/Paramètres.
+
 ## Reportés
 - **6. Suppression de mois** : à brainstormer après tests (échéances avancées, effets de bord).
 - Réactivation des comptes aussi depuis les Paramètres (plus tard, si utile — pour l'instant bas de la page Comptes).
