@@ -51,6 +51,7 @@ const envelopes = ref([])          // enveloppes ouvertes
 const monthContribs = ref([])      // contributions datées dans le mois
 
 const calculators = ref([])        // état des calculateurs sur ce mois (relevés, estimé, écart)
+const calcOpen = ref(false)        // bloc calculateurs replié par défaut
 const assets = ref([])             // actifs ouverts
 const monthAssetMovements = ref([]) // versements / retraits datés dans le mois
 
@@ -1355,13 +1356,16 @@ const mainEnvelopesTotal = computed(() => {
           </div>
       </div>
 
-      <!-- ─── Calculateurs (en bas de page, demi-largeur) ── -->
-      <div v-if="calculators.length" class="grid grid-cols-2 gap-4 items-start mt-4">
-        <div class="card p-0 overflow-hidden">
-          <div class="flex items-center gap-2 px-4 py-2.5 border-b border-stone-100">
-            <span class="font-semibold text-[13.5px]">Calculateurs</span>
-            <span class="badge bg-cyan-50 text-cyan-700">relevés du mois</span>
-          </div>
+      <!-- ─── Calculateurs (en bas, pleine largeur, repliables) ── -->
+      <div v-if="calculators.length" class="card p-0 overflow-hidden mt-4">
+        <div class="flex items-center gap-2.5 px-4 py-3 border-b border-stone-100 cursor-pointer select-none hover:bg-stone-50/60 transition-colors" @click="calcOpen = !calcOpen">
+          <span class="font-semibold text-[13.5px]">Calculateurs</span>
+          <span class="badge bg-cyan-50 text-cyan-700">relevés du mois</span>
+          <span class="badge bg-stone-100 text-gray-400">{{ calculators.length }}</span>
+          <PhCaretDown :size="14" weight="bold" class="ml-auto text-gray-300 shrink-0 transition-transform duration-300" :class="{ '-rotate-90': !calcOpen }" />
+        </div>
+        <div class="collapse-wrap" :class="{ 'collapse-wrap--open': calcOpen }">
+        <div class="min-h-0 overflow-hidden">
         <div v-for="calc in calculators" :key="calc.id" class="px-4 py-3 border-b border-stone-50 flex flex-wrap items-end gap-x-5 gap-y-2">
           <span class="text-[13px] font-medium w-28 shrink-0 self-center">{{ calc.name }}</span>
 
@@ -1409,6 +1413,7 @@ const mainEnvelopesTotal = computed(() => {
               </template>
             </template>
           </div>
+        </div>
         </div>
         </div>
       </div>
