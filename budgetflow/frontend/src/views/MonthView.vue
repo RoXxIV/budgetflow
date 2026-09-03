@@ -1098,7 +1098,7 @@ const mainEnvelopesTotal = computed(() => {
             <input
               v-if="env.monthlySuggestion > 0 && !current.isClosed && !contribsForEnvelope(env).some((c) => c.kind === 'normale')"
               type="checkbox"
-              class="shrink-0 accent-violet-600 cursor-pointer"
+              class="shrink-0 text-violet-600 cursor-pointer"
               :title="'Verser la mensualité suggérée : ' + fmt(env.monthlySuggestion)"
               @click.stop="contributeSuggested(env)"
             />
@@ -1159,7 +1159,7 @@ const mainEnvelopesTotal = computed(() => {
             <input
               v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed"
               type="checkbox"
-              class="shrink-0 accent-teal-600 cursor-pointer"
+              class="shrink-0 text-teal-600 cursor-pointer"
               title="Marquer le versement mensuel comme fait (pour annuler ensuite : supprimez le mouvement ×)"
               @click.stop="toggleDca(asset)"
             />
@@ -1252,7 +1252,7 @@ const mainEnvelopesTotal = computed(() => {
                 <input
                   v-if="showCheckbox(line)"
                   type="checkbox"
-                  class="shrink-0 accent-violet-600 cursor-pointer"
+                  class="shrink-0 text-violet-600 cursor-pointer"
                   :checked="isPaid(line)"
                   :disabled="current.isClosed"
                   title="Marquer payé au montant prévu (pour annuler ensuite : supprimez l'entrée ×)"
