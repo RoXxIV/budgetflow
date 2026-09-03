@@ -279,8 +279,11 @@ const groups = computed(() => {
       actual: g.lines.reduce((s, l) => s + (l.actualAmount || 0), 0),
     }))
 })
-const groupsLeft = computed(() => groups.value.filter((_, i) => i % 2 === 0))
-const groupsRight = computed(() => groups.value.filter((_, i) => i % 2 === 1))
+// Revenus d'abord, en pleine largeur ; les autres catégories suivent en 2 colonnes
+const displayGroups = computed(() => [
+  ...groups.value.filter((g) => g.category.type === 'revenu'),
+  ...groups.value.filter((g) => g.category.type !== 'revenu'),
+])
 
 // Catégories repliables : header seul visible, fermées par défaut (l'état suit la catégorie)
 const openCats = ref(new Set())
@@ -1232,8 +1235,7 @@ const mainEnvelopesTotal = computed(() => {
 
       <!-- Catégories -->
       <div class="grid grid-cols-2 gap-4 items-start">
-        <div v-for="column in [groupsLeft, groupsRight]" :key="column === groupsLeft ? 'L' : 'R'" class="flex flex-col gap-4">
-          <div v-for="group in column" :key="group.category.id ?? 'none'" class="card p-0 overflow-hidden">
+          <div v-for="group in displayGroups" :key="group.category.id ?? 'none'" class="card p-0 overflow-hidden" :class="{ 'col-span-2': group.category.type === 'revenu' }">
 
             <!-- En-tête catégorie (clic = replier / déplier) -->
             <div class="px-4 py-3 border-b border-stone-100 cursor-pointer select-none hover:bg-stone-50/60 transition-colors" @click="toggleCatOpen(group)">
@@ -1351,7 +1353,6 @@ const mainEnvelopesTotal = computed(() => {
             </div>
             </div>
           </div>
-        </div>
       </div>
 
       <!-- ─── Calculateurs (en bas de page, demi-largeur) ── -->
