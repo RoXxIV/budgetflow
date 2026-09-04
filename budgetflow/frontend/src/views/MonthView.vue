@@ -1547,9 +1547,16 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                 </div>
                 <!-- Mensualisée : le geste qui ferme la boucle — le virement réel est passé,
                      on vide l'enveloppe vers le compte remboursé et le cycle repart -->
-                <div v-if="!current.isClosed && (env.linkedTemplateLineId || env.monthlySuggestion > 0)" class="side-liquidate">
-                  <button v-if="env.linkedTemplateLineId && env.total > 0" class="link-accent" @click.stop="openLiquidation(env)">Liquider et renouveler</button>
-                  <button v-if="env.linkedTemplateLineId && env.monthlySuggestion > 0 && !contribsForEnvelope(env).some((c) => c.kind === 'normale')" class="link-accent" :title="isSkipped('envelope', env.id) ? 'Re-déduire la mensualité du Reste à vivre' : 'Ce mois-ci, pas de versement : le Reste à vivre ne le déduira plus'" @click.stop="toggleSkip('envelope', env.id)">{{ isSkipped('envelope', env.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
+                <div v-if="!current.isClosed && env.linkedTemplateLineId" class="side-liquidate">
+                  <button v-if="env.total > 0" class="link-accent" @click.stop="openLiquidation(env)">Liquider et renouveler</button>
+                  <!-- « Rétablir » reste accessible même après un versement : un état « annulé + versé »
+                       serait contradictoire et impossible à nettoyer (retour de test d'Evan) -->
+                  <button
+                    v-if="isSkipped('envelope', env.id) || (env.monthlySuggestion > 0 && !contribsForEnvelope(env).some((c) => c.kind === 'normale'))"
+                    class="link-accent"
+                    :title="isSkipped('envelope', env.id) ? 'Re-déduire la mensualité du Reste à vivre' : 'Ce mois-ci, pas de versement : le Reste à vivre ne le déduira plus'"
+                    @click.stop="toggleSkip('envelope', env.id)"
+                  >{{ isSkipped('envelope', env.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
                 </div>
               </div>
             </div>
@@ -1585,7 +1592,8 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                   <span class="entry-actions"><button v-if="!current.isClosed" class="btn-icon is-danger" title="Supprimer le mouvement" @click.stop="deleteAssetMovement(m)">×</button></span>
                 </div>
                 <p v-if="!movementsForAsset(asset).length" class="entries-empty">Aucun mouvement ce mois.</p>
-                <div v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed" class="side-liquidate">
+                <!-- « Rétablir » reste accessible même après un versement (état contradictoire sinon) -->
+                <div v-if="asset.monthlyDca > 0 && !current.isClosed && (isSkipped('asset', asset.id) || !movementsForAsset(asset).length)" class="side-liquidate">
                   <button class="link-accent" :title="isSkipped('asset', asset.id) ? 'Re-déduire le DCA du Reste à vivre' : 'Ce mois-ci, pas de versement : le Reste à vivre ne le déduira plus'" @click.stop="toggleSkip('asset', asset.id)">{{ isSkipped('asset', asset.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
                 </div>
                 <div v-if="!current.isClosed" class="side-form">
