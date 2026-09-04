@@ -1,8 +1,17 @@
 <script setup>
+import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 import DialogHost from '@/components/DialogHost.vue'
+import { getPrivacy, setPrivacy } from '@/lib/privacy.js'
 
 const route = useRoute()
+
+// Mode discret : floute tous les chiffres, sur toutes les pages (voir lib/privacy.js)
+const privacyOn = ref(getPrivacy())
+function togglePrivacy() {
+  privacyOn.value = !privacyOn.value
+  setPrivacy(privacyOn.value)
+}
 
 const navLinks = [
   { name: 'Mois', to: '/mois' },
@@ -28,9 +37,20 @@ const navLinks = [
           {{ link.name }}
         </router-link>
       </nav>
-      <router-link to="/parametres" class="topbar-icon" title="Paramètres" :class="{ 'is-active': route.path.startsWith('/parametres') }">
-        <PhGearSix :size="18" />
-      </router-link>
+      <span class="topbar-right">
+        <button
+          class="topbar-icon"
+          :class="{ 'is-active': privacyOn }"
+          :title="privacyOn ? 'Mode discret actif — cliquez pour réafficher les chiffres' : 'Mode discret : flouter tous les chiffres (écran partagé, transports)'"
+          @click="togglePrivacy"
+        >
+          <PhEyeSlash v-if="privacyOn" :size="18" />
+          <PhEye v-else :size="18" />
+        </button>
+        <router-link to="/parametres" class="topbar-icon" title="Paramètres" :class="{ 'is-active': route.path.startsWith('/parametres') }">
+          <PhGearSix :size="18" />
+        </router-link>
+      </span>
     </header>
     <main class="flex-1 px-6 py-6 w-full mx-auto" :style="{ maxWidth: 'var(--w-content)' }">
       <router-view />
@@ -69,8 +89,8 @@ const navLinks = [
   color: var(--c-ink);
   border-bottom-color: var(--c-accent);
 }
+.topbar-right { justify-self: end; display: flex; gap: var(--s-2); }
 .topbar-icon {
-  justify-self: end;
   width: 28px;
   height: 28px;
   border-radius: var(--r-control);
