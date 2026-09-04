@@ -13,7 +13,17 @@ function serialize(row) {
   const invested = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM asset_movements WHERE asset_id = ? AND kind = 'versement'", row.id).s;
   const withdrawn = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM asset_movements WHERE asset_id = ? AND kind = 'retrait'", row.id).s;
   const last = get("SELECT * FROM asset_valuations WHERE asset_id = ? ORDER BY date DESC, id DESC LIMIT 1", row.id);
-  const value = last ? last.value_cents : null;
+  // Valeur vivante : la dernière valorisation saisie est le point d'ancrage, ajusté des
+  // versements et retraits STRICTEMENT postérieurs à sa date (un versement d'hier n'est
+  // pas une moins-value). Ressaisir une valorisation remplace l'ancrage ; une valorisation
+  // datée du jour d'un mouvement est présumée le refléter déjà.
+  let value = last ? last.value_cents : null;
+  if (last) {
+    value += get(
+      `SELECT COALESCE(SUM(CASE WHEN kind = 'versement' THEN amount_cents ELSE -amount_cents END), 0) AS s
+       FROM asset_movements WHERE asset_id = ? AND date > ?`, row.id, last.date
+    ).s;
+  }
   // Performance = (valeur + retiré − investi) / investi — un retrait n'est pas une perte
   const gain = value !== null && invested > 0 ? value + withdrawn - invested : null;
   return {

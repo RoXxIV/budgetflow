@@ -253,7 +253,7 @@ async function deleteMovement(asset, m) {
         <div class="synth-hero">
           <span class="num synth-solde">{{ fmtOrDash(totals.value) }}</span>
           <span class="synth-sub">
-            Valeur actuelle<template v-if="latestValuationDate"> · <span :class="{ 'is-warn': valuationStale }">au {{ frDate(latestValuationDate) }}</span></template>
+            <span class="has-tip" title="Dernière valorisation saisie, ajustée des versements et retraits enregistrés depuis sa date. « Mettre à jour » repose un point exact.">Valeur actuelle</span><template v-if="latestValuationDate"> · <span :class="{ 'is-warn': valuationStale }">au {{ frDate(latestValuationDate) }}</span></template>
             <span v-if="valuationStale" class="tag tag-warn">à mettre à jour</span>
           </span>
         </div>
@@ -347,7 +347,7 @@ async function deleteMovement(asset, m) {
         <span class="colh is-left">support</span>
         <span class="colh">/ mois</span>
         <span class="colh">investi</span>
-        <span class="colh">valeur<template v-if="latestValuationDate"><br /><span :class="{ 'is-warn': valuationStale }">au {{ frDate(latestValuationDate) }}</span></template></span>
+        <span class="colh" title="Dernière valorisation de l'actif, ajustée des versements et retraits saisis depuis sa date">valeur<template v-if="latestValuationDate"><br /><span :class="{ 'is-warn': valuationStale }">au {{ frDate(latestValuationDate) }}</span></template></span>
         <span class="colh">écart</span>
         <span class="colh">poids</span>
         <span></span>

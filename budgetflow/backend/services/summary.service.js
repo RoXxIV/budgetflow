@@ -14,9 +14,20 @@ export function getNetWorth() {
   const { accounts } = getSummary(month.id);
   const rows = accounts.map((a) => {
     const valued = all(
-      `SELECT a.id, (SELECT value_cents FROM asset_valuations v WHERE v.asset_id = a.id ORDER BY v.date DESC, v.id DESC LIMIT 1) AS value_cents
+      `SELECT a.id,
+              (SELECT value_cents FROM asset_valuations v WHERE v.asset_id = a.id ORDER BY v.date DESC, v.id DESC LIMIT 1) AS value_cents,
+              (SELECT date FROM asset_valuations v WHERE v.asset_id = a.id ORDER BY v.date DESC, v.id DESC LIMIT 1) AS val_date
        FROM assets a WHERE a.account_id = ? AND a.closed_at IS NULL`, a.accountId
-    ).filter((x) => x.value_cents !== null);
+    ).filter((x) => x.value_cents !== null)
+      // Valeur vivante (même règle qu'asset.service) : ancrage = dernière valorisation,
+      // ajusté des versements/retraits postérieurs à sa date
+      .map((x) => ({
+        ...x,
+        value_cents: x.value_cents + get(
+          `SELECT COALESCE(SUM(CASE WHEN kind = 'versement' THEN amount_cents ELSE -amount_cents END), 0) AS s
+           FROM asset_movements WHERE asset_id = ? AND date > ?`, x.id, x.val_date
+        ).s,
+      }));
     const marketValue = valued.length ? fromCents(valued.reduce((s, x) => s + x.value_cents, 0)) : null;
     const used = marketValue !== null ? marketValue : a.current;
     return { accountId: a.accountId, name: a.name, type: a.type, includeInNetWorth: a.includeInNetWorth, start: a.start, balance: a.current, marketValue, used };

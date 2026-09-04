@@ -25,8 +25,27 @@ test("mouvements : versement et retrait avec contrepartie, soldes à jour", () =
 });
 
 test("performance : (valeur + retiré − investi) / investi, un retrait n'est pas une perte", () => {
-  assets.addValuation(etf.id, { value: 1000 });
+  // Valorisation datée APRÈS les mouvements : elle les reflète déjà (ancrage exact)
+  assets.addValuation(etf.id, { value: 1000, date: `${period}-06` });
   assert.ok(eq(assets.getById(etf.id).gainPct, 10), "(1000 + 100 − 1000) / 1000 = +10 %");
+});
+
+test("valeur vivante : les mouvements postérieurs à la valorisation l'ajustent, une nouvelle ré-ancre", () => {
+  // Compte dédié : ne pollue ni les soldes du PEA ni le test patrimoine
+  const cto = accounts.create({ name: "CTO vivant", type: "investissement" });
+  const live = assets.create({ name: "ETF vivant", accountId: cto.id });
+  assets.addMovement(live.id, { kind: "versement", amount: 500, date: `${period}-01`, counterpartAccountId: main.id });
+  assets.addValuation(live.id, { value: 490, date: `${period}-02` });
+  assets.addMovement(live.id, { kind: "versement", amount: 150, date: `${period}-03`, counterpartAccountId: main.id });
+  let a = assets.getById(live.id);
+  assert.ok(eq(a.value, 640), `490 + 150 versés après la valorisation (${a.value})`);
+  assert.ok(eq(a.gain, -10), "640 − 650 investis : le versement n'est pas compté en perte");
+  assets.addMovement(live.id, { kind: "retrait", amount: 40, date: `${period}-04`, counterpartAccountId: main.id });
+  a = assets.getById(live.id);
+  assert.ok(eq(a.value, 600), "un retrait postérieur réduit la valeur");
+  assert.ok(eq(a.gain, -10), "et ne change pas la performance (600 + 40 − 650)");
+  assets.addValuation(live.id, { value: 700, date: `${period}-05` });
+  assert.ok(eq(assets.getById(live.id).value, 700), "une nouvelle valorisation remplace l'ancrage");
 });
 
 test("DCA : refusé dès qu'un mouvement du mois existe (le réel remplace le prévu)", () => {
