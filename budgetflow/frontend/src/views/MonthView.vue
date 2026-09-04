@@ -893,6 +893,13 @@ const mainEnvelopesTotal = computed(() => {
 
     <!-- ─── Formulaire création ──────────────────────── -->
     <AppModal :open="createFormOpen" title="Nouveau mois" @close="createFormOpen = false">
+      <!-- Un mois suit des soldes : sans compte actif, on guide vers la page Comptes -->
+      <div v-if="!activeAccounts.length" class="flex flex-col gap-3 text-[13px]">
+        <p>Un mois suit les soldes de vos comptes — il en faut au moins un.</p>
+        <p class="text-gray-400 text-[12px]">Créez d'abord votre compte principal (celui de vos dépenses courantes), vous reviendrez ici juste après.</p>
+        <router-link to="/comptes" class="btn-primary self-start" @click="createFormOpen = false">Créer mon premier compte</router-link>
+      </div>
+      <template v-else>
       <div class="flex items-center gap-3 mb-3">
         <input v-model="newMonth.period" type="month" class="input" />
         <span v-if="newMonthName && !newMonthTaken" class="text-[13px] font-medium text-violet-600">→ {{ newMonthName }}</span>
@@ -934,8 +941,9 @@ const mainEnvelopesTotal = computed(() => {
           </div>
         </div>
       </template>
+      </template>
       <template #footer>
-        <button class="btn-primary" :disabled="!newMonth.period || newMonthTaken" @click="submitCreate">Créer depuis le template</button>
+        <button v-if="activeAccounts.length" class="btn-primary" :disabled="!newMonth.period || newMonthTaken" @click="submitCreate">Créer depuis le template</button>
         <button class="btn-secondary" @click="createFormOpen = false">Annuler</button>
       </template>
     </AppModal>

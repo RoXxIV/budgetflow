@@ -143,6 +143,10 @@ export function create({ period, snapshots = [], envelopes = [] }) {
   if (!PERIOD_RE.test(period || "")) throw httpError(400, "Période invalide (attendu : YYYY-MM)");
   const existing = get("SELECT id FROM months WHERE period = ?", period);
   if (existing) throw httpError(409, `Un mois existe déjà pour ${monthName(period)}`);
+  // Un mois sans compte n'a pas de sens : pas de solde à suivre, pas de bilan (retour de test à vide)
+  if (!get("SELECT id FROM accounts WHERE is_active = 1 LIMIT 1")) {
+    throw httpError(409, "Créez d'abord un compte (page Comptes) : un mois suit des soldes, il lui faut au moins un compte actif.");
+  }
 
   return tx(() => {
     const { lastInsertRowid: monthId } = run("INSERT INTO months (period) VALUES (?)", period);

@@ -13,6 +13,10 @@ let main, livret, livretEnv, virt, catDep, catRev, catEp, th;
 let salaire, loyer, courses, epargneLine, annuel, annEnv, potTpl;
 let m, mLines, mPot, mLoyer, mCourses;
 
+test("création refusée sans compte actif : un mois suit des soldes (retour de test à vide)", () => {
+  refuse(() => months.create({ period }), 409);
+});
+
 test("décor : comptes, enveloppes, catégories, template", () => {
   main = accounts.create({ name: "Courant" });
   livret = accounts.create({ name: "Livret", type: "epargne", initialBalance: 1000 });
