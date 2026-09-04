@@ -897,7 +897,7 @@ const mainEnvelopesTotal = computed(() => {
       <div v-if="!activeAccounts.length" class="flex flex-col gap-3 text-[13px]">
         <p>Un mois suit les soldes de vos comptes — il en faut au moins un.</p>
         <p class="text-gray-400 text-[12px]">Créez d'abord votre compte principal (celui de vos dépenses courantes), vous reviendrez ici juste après.</p>
-        <router-link to="/comptes" class="btn-primary self-start" @click="createFormOpen = false">Créer mon premier compte</router-link>
+        <router-link to="/comptes" class="btn-primary self-start inline-flex items-center" @click="createFormOpen = false">Créer mon premier compte</router-link>
       </div>
       <template v-else>
       <div class="flex items-center gap-3 mb-3">
