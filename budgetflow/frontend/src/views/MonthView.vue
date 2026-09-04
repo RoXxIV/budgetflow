@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { eur } from '@/lib/format.js'
 import {
-  getMonths, getMonthPrefill, createMonth, setMonthClosed, setMonthNotes,
+  getMonths, getMonthPrefill, createMonth, setMonthClosed, setMonthNotes, addMonthSkip, removeMonthSkip,
   getMonthLines, payLine,
   getMonthSnapshots, upsertMonthSnapshots,
   getMonthEntries, createEntry, updateEntry, deleteEntry,
@@ -254,6 +254,17 @@ const monthContribTotal = computed(() => monthContribs.value.filter((c) => c.kin
 const envelopePct = (env) => (env.effectiveTarget ? Math.min(100, Math.round((env.total / env.effectiveTarget) * 100)) : null)
 // Enveloppe mensualisée au-delà de sa cible (abonnement repoussé, jamais liquidé) : affichée en rouge
 const isOverfull = (env) => !!env.effectiveTarget && env.total > env.effectiveTarget
+
+// ─── « Annuler ce mois-ci » : cette mensualité / ce DCA ne sera pas versé ce mois ───
+// Le Reste à vivre cesse de le déduire ; rien d'autre ne bouge, tout revient le mois suivant.
+const isSkipped = (kind, id) => !!summaryData.value?.skips?.some((s) => s.kind === kind && s.targetId === id)
+async function toggleSkip(kind, id) {
+  try {
+    if (isSkipped(kind, id)) await removeMonthSkip(current.value.id, kind, id)
+    else await addMonthSkip(current.value.id, kind, id)
+    await reload()
+  } catch (e) { apiError(e) }
+}
 
 // ─── Liquider et renouveler (enveloppe mensualisée) : le geste manuel qui ferme la boucle ───
 // Vide l'enveloppe vers le compte choisi (virement système tracé), l'échéance repart d'un
@@ -1499,7 +1510,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
             <div v-for="env in envelopes" :key="env.id" class="side-item" @click="toggleEnvelope(env)">
               <div class="side-row1">
                 <button
-                  v-if="env.monthlySuggestion > 0 && !current.isClosed && !contribsForEnvelope(env).some((c) => c.kind === 'normale')"
+                  v-if="env.monthlySuggestion > 0 && !current.isClosed && !contribsForEnvelope(env).some((c) => c.kind === 'normale') && !isSkipped('envelope', env.id)"
                   class="pointbox pointbox-sm"
                   :aria-label="'Verser la mensualité de ' + env.name"
                   :title="'Verser la mensualité suggérée : ' + fmt(env.monthlySuggestion)"
@@ -1507,6 +1518,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                 ></button>
                 <span v-else-if="contribsForEnvelope(env).some((c) => c.kind === 'normale')" class="pointbox pointbox-sm is-checked"><PhCheck :size="10" weight="bold" /></span>
                 <span class="side-name">{{ env.name }}</span>
+                <span v-if="isSkipped('envelope', env.id)" class="tag tag-neutral" title="Pas de versement ce mois-ci : le Reste à vivre ne le déduit plus. Tout revient le mois prochain.">annulé ce mois</span>
                 <span class="num side-amounts" :title="isOverfull(env) ? 'Au-delà de la cible : à liquider quand le paiement passera' : ''"><span :class="isOverfull(env) ? 'is-over' : 'ink'">{{ fmt(env.total) }}</span><span v-if="env.targetAmount" :class="isOverfull(env) ? 'is-over' : 'meta'"> / {{ fmt(env.effectiveTarget) }}</span></span>
               </div>
               <div v-if="env.targetAmount" class="goal-bar"><div class="goal-fill" :class="{ 'is-overfill': isOverfull(env) }" :style="{ width: Math.min(100, envelopePct(env) || 0) + '%' }" /></div>
@@ -1535,8 +1547,9 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                 </div>
                 <!-- Mensualisée : le geste qui ferme la boucle — le virement réel est passé,
                      on vide l'enveloppe vers le compte remboursé et le cycle repart -->
-                <div v-if="env.linkedTemplateLineId && env.total > 0 && !current.isClosed" class="side-liquidate">
-                  <button class="link-accent" @click.stop="openLiquidation(env)">Liquider et renouveler</button>
+                <div v-if="!current.isClosed && (env.linkedTemplateLineId || env.monthlySuggestion > 0)" class="side-liquidate">
+                  <button v-if="env.linkedTemplateLineId && env.total > 0" class="link-accent" @click.stop="openLiquidation(env)">Liquider et renouveler</button>
+                  <button v-if="env.linkedTemplateLineId && env.monthlySuggestion > 0 && !contribsForEnvelope(env).some((c) => c.kind === 'normale')" class="link-accent" :title="isSkipped('envelope', env.id) ? 'Re-déduire la mensualité du Reste à vivre' : 'Ce mois-ci, pas de versement : le Reste à vivre ne le déduira plus'" @click.stop="toggleSkip('envelope', env.id)">{{ isSkipped('envelope', env.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
                 </div>
               </div>
             </div>
@@ -1547,7 +1560,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
             <div v-for="asset in assets" :key="asset.id" class="side-item" @click="toggleAsset(asset)">
               <div class="side-row1">
                 <button
-                  v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed"
+                  v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed && !isSkipped('asset', asset.id)"
                   class="pointbox pointbox-sm"
                   :aria-label="'Verser le DCA de ' + asset.name"
                   title="Marquer le versement mensuel comme fait (annulation : supprimer le mouvement)"
@@ -1555,6 +1568,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                 ></button>
                 <span v-else-if="movementsForAsset(asset).length" class="pointbox pointbox-sm is-checked"><PhCheck :size="10" weight="bold" /></span>
                 <span class="side-name">{{ asset.name }}</span>
+                <span v-if="isSkipped('asset', asset.id)" class="tag tag-neutral" title="Pas de versement ce mois-ci : le Reste à vivre ne le déduit plus. Tout revient le mois prochain.">annulé ce mois</span>
                 <span v-if="asset.type" class="tag tag-neutral">{{ asset.type }}</span>
                 <span class="num side-amounts">
                   <span class="ink">{{ fmt(movementsForAsset(asset).length ? movementsForAsset(asset).reduce((s, m) => s + (m.kind === 'versement' ? m.amount : -m.amount), 0) : asset.monthlyDca) }}</span>
@@ -1571,6 +1585,9 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                   <span class="entry-actions"><button v-if="!current.isClosed" class="btn-icon is-danger" title="Supprimer le mouvement" @click.stop="deleteAssetMovement(m)">×</button></span>
                 </div>
                 <p v-if="!movementsForAsset(asset).length" class="entries-empty">Aucun mouvement ce mois.</p>
+                <div v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed" class="side-liquidate">
+                  <button class="link-accent" :title="isSkipped('asset', asset.id) ? 'Re-déduire le DCA du Reste à vivre' : 'Ce mois-ci, pas de versement : le Reste à vivre ne le déduira plus'" @click.stop="toggleSkip('asset', asset.id)">{{ isSkipped('asset', asset.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
+                </div>
                 <div v-if="!current.isClosed" class="side-form">
                   <select v-model="assetMovementForm.kind" class="input w-24">
                     <option value="versement">Versement</option>

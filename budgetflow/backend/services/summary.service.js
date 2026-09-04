@@ -174,6 +174,10 @@ export function getSummary(monthId) {
       prevusRestants += plannedCents;
     }
   }
+  // « Annuler ce mois-ci » : les mensualités/DCA volontairement sautés ce mois ne comptent plus
+  const skips = all("SELECT kind, target_id FROM month_skips WHERE month_id = ?", monthId);
+  const skipSet = new Set(skips.map((s) => `${s.kind}:${s.target_id}`));
+
   // DCA prévu non encore versé ce mois : présumé versé depuis le compte principal.
   // N'IMPORTE QUEL versement du mois vaut « fait » — pas seulement le ☐ DCA : Evan
   // arrondit souvent à la main (155 au lieu de 150), et un versement saisi ne doit
@@ -181,7 +185,7 @@ export function getSummary(monthId) {
   const dcaDone = new Set(assetMovements.filter((m) => m.kind === "versement").map((m) => m.asset_id));
   let dcaRestants = 0;
   for (const a of openAssets) {
-    if (a.monthly_dca_cents && !dcaDone.has(a.id)) dcaRestants += a.monthly_dca_cents;
+    if (a.monthly_dca_cents && !dcaDone.has(a.id) && !skipSet.has(`asset:${a.id}`)) dcaRestants += a.monthly_dca_cents;
   }
   prevusRestants += dcaRestants;
 
@@ -191,7 +195,8 @@ export function getSummary(monthId) {
   if (linkedEnvelopeIds.length) {
     const { list: listEnvelopes } = envelopesModule;
     for (const e of listEnvelopes()) {
-      if (linkedEnvelopeIds.includes(e.id) && !e.isClosed && e.monthlySuggestion && !contributedThisMonth.has(e.id)) {
+      if (linkedEnvelopeIds.includes(e.id) && !e.isClosed && e.monthlySuggestion
+        && !contributedThisMonth.has(e.id) && !skipSet.has(`envelope:${e.id}`)) {
         prevusRestants += Math.round(e.monthlySuggestion * 100);
       }
     }
@@ -236,5 +241,7 @@ export function getSummary(monthId) {
     },
     mainAccount: main ? { id: main.accountId, name: main.name } : null,
     accounts: accountRows,
+    // Mensualités / DCA annulés ce mois-ci (le front affiche l'état et le lien « Rétablir »)
+    skips: skips.map((s) => ({ kind: s.kind, targetId: s.target_id })),
   };
 }

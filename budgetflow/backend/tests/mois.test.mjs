@@ -207,6 +207,25 @@ test("liquider et renouveler : virement tracé, enveloppe à zéro, échéance a
   assert.equal(restored.deadline, before.deadline, "l'échéance redescend au cycle courant");
 });
 
+test("« annuler ce mois-ci » : DCA et mensualité sautés ne comptent plus, et tout se rétablit", () => {
+  const pea2 = accounts.create({ name: "CTO skip", type: "investissement" });
+  const etf2 = assets.create({ name: "ETF skip", accountId: pea2.id, monthlyDca: 50 });
+  const base = summary.getSummary(m.id).tiles.detail.prevusRestants;
+  months.addSkip(m.id, { kind: "asset", targetId: etf2.id });
+  assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, base - 50), "DCA annulé : −50 des prévus restants");
+  months.removeSkip(m.id, "asset", etf2.id);
+  assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, base), "rétabli : tout revient");
+  // Mensualité d'une enveloppe liée
+  const lAnn = lines.create(null, { label: "Skip annuelle", categoryId: catDep.id, plannedAmount: 120, intervalMonths: 12, anchorMonth: Number(period2.split("-")[1]), fromAccountId: main.id });
+  const envId = lines.setMonthlyized(lAnn.id, { enabled: true }).envelopeId;
+  const sugg = envelopes.getById(envId).monthlySuggestion;
+  assert.ok(sugg > 0, "une mensualité est suggérée");
+  const withSugg = summary.getSummary(m.id).tiles.detail.prevusRestants;
+  months.addSkip(m.id, { kind: "envelope", targetId: envId });
+  assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, withSugg - sugg), "mensualité annulée ce mois");
+  lines.remove(lAnn.id); // l'enveloppe jamais vécue part avec la ligne
+});
+
 test("modifier une ligne de mois : thème/compte/paiement se propagent à toutes ses entrées", () => {
   const th2 = themes.create({ name: "Sport" });
   lines.update(mCourses.id, { themeId: th2.id });
