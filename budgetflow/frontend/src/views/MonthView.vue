@@ -379,13 +379,10 @@ const sectionPreview = (group) => {
   return names.join(', ') + (group.lines.length > 3 ? ' +' + (group.lines.length - 3) : '')
 }
 
-// Reste à vivre (addendum §4) : solde actuel − sorties prévues non réalisées
-// (prevusRestants vient du backend et inclut déjà cagnottes, DCA et mensualités)
-const resteAVivre = computed(() => {
-  const t = summaryData.value?.tiles
-  if (!t || t.disponible === null) return null
-  return Math.round((t.disponible - t.detail.prevusRestants) * 100) / 100
-})
+// Reste à vivre = le « projeté » du backend (fusion décidée le 04/09) : solde disponible
+// − sorties prévues restantes (cagnottes, DCA, mensualités comprises) + revenus prévus
+// non encaissés — si on compte les factures prévues, on compte les revenus prévus.
+const resteAVivre = computed(() => summaryData.value?.tiles.projete ?? null)
 
 // À faire ce mois (addendum §5) : retards, cagnottes à régler, échéances ≤ 7 jours
 const todoLines = computed(() => {
@@ -1168,7 +1165,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
         </div>
         <div class="synth-sep" />
         <div class="synth-kv">
-          <span class="synth-k has-tip" title="Ce que vous pouvez encore dépenser : solde du compte principal, moins l'argent réservé en enveloppes, moins tout ce qui est prévu et pas encore payé (dépenses, cagnottes, DCA, mensualités). Les revenus à venir ne sont pas comptés.">Reste à vivre</span>
+          <span class="synth-k has-tip" title="Ce qu'il vous restera une fois le mois déroulé : solde du compte principal, moins l'argent réservé en enveloppes, moins tout le prévu pas encore payé (dépenses, cagnottes, DCA, mensualités), plus les revenus prévus pas encore encaissés.">Reste à vivre</span>
           <span class="num synth-v" :class="{ 'is-over': (resteAVivre ?? 0) < 0 }">{{ resteAVivre === null ? '—' : fmt(resteAVivre) }}</span>
         </div>
         <div class="synth-sep" />

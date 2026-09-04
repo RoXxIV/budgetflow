@@ -145,5 +145,6 @@ rouge en dur) · commentaire du mode discret à jour.
 11. **Total « Enveloppes »** du panneau latéral du Mois : l'en-tête ne compte que les versements
     (mis de côté), les lignes affichent tous les mouvements (réaffectations comprises) — les lignes
     ne totalisent pas l'en-tête. Aligner l'un sur l'autre ?
-12. **`projete`** (fin de mois) : toujours calculé et testé côté backend mais plus affiché depuis le
-    passage à « Dépenses du mois ». Le réafficher quelque part, ou le retirer ?
+12. ~~**`projete`** (fin de mois) : toujours calculé mais plus affiché.~~ **Tranché le 04/09** :
+    fusionné dans le Reste à vivre — si on déduit les factures prévues, on ajoute les revenus prévus.
+    Le Reste à vivre affiche désormais le projeté (`= disponible + revenus restants − prévus restants`).
