@@ -163,8 +163,11 @@ export function getSummary(monthId) {
       prevusRestants += plannedCents;
     }
   }
-  // DCA prévu non encore versé ce mois : présumé versé depuis le compte principal
-  const dcaDone = new Set(assetMovements.filter((m) => m.source === "dca").map((m) => m.asset_id));
+  // DCA prévu non encore versé ce mois : présumé versé depuis le compte principal.
+  // N'IMPORTE QUEL versement du mois vaut « fait » — pas seulement le ☐ DCA : Evan
+  // arrondit souvent à la main (155 au lieu de 150), et un versement saisi ne doit
+  // pas rester compté « à venir » (l'argent a déjà quitté le solde).
+  const dcaDone = new Set(assetMovements.filter((m) => m.kind === "versement").map((m) => m.asset_id));
   let dcaRestants = 0;
   for (const a of openAssets) {
     if (a.monthly_dca_cents && !dcaDone.has(a.id)) dcaRestants += a.monthly_dca_cents;

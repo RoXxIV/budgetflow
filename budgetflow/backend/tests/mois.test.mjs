@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { boot, refuse, eq, currentPeriod, nextPeriodOf } from "./_setup.mjs";
 
-const { accounts, envelopes, months, categories, themes, budgetLines: lines, entries, pots, summary } = await boot();
+const { accounts, envelopes, months, categories, themes, budgetLines: lines, entries, pots, summary, assets } = await boot();
 
 const period = currentPeriod();
 const period2 = nextPeriodOf(period);
@@ -173,6 +173,19 @@ test("mensualité d'une enveloppe liée : provision de dépense, pas de l'éparg
   assert.ok(eq(summary.getSummary(m.id).tiles.misDeCote, before), "la mensualité vers l'enveloppe liée ne gonfle pas « mis de côté »");
   envelopes.addContribution(virt.id, { amount: 30, fromAccountId: main.id });
   assert.ok(eq(summary.getSummary(m.id).tiles.misDeCote, before + 30), "une enveloppe libre reste de l'épargne");
+});
+
+test("DCA : n'importe quel versement du mois vaut « versé » (arrondi manuel compris)", () => {
+  const base = summary.getSummary(m.id).tiles.detail.prevusRestants;
+  const pea = accounts.create({ name: "PEA test", type: "investissement" });
+  const etf = assets.create({ name: "ETF World", accountId: pea.id, monthlyDca: 150 });
+  assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, base + 150), "le DCA non versé est à venir");
+  // Versement manuel arrondi (155 au lieu de 150) : le DCA est fait, plus rien « à venir »
+  assets.addMovement(etf.id, { kind: "versement", amount: 155, date: `${period}-10`, counterpartAccountId: main.id });
+  assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, base), "le versement manuel compte comme DCA versé");
+  // Un versement de plus dans le mois ne recrée pas d'attendu
+  assets.addMovement(etf.id, { kind: "versement", amount: 20, date: `${period}-20`, counterpartAccountId: main.id });
+  assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, base), "rajouter des sous plus tard ne change rien");
 });
 
 test("modifier une ligne de mois : thème/compte/paiement se propagent à toutes ses entrées", () => {
