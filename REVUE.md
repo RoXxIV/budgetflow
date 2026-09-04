@@ -54,8 +54,11 @@ Template (eb48a28), Stats (c5f0c58 — nouveaux composants BarChart/StackedAreaC
 mois en cours exclu par défaut, prévu des cagnottes unifié backend+test), Paramètres (a900706 —
 palette fermée --cat-1..12, plus d'input color, compteurs d'usage backend, script
 `scripts/registre-parametres-donnees.mjs` passé sur dev + backup-propre, à rejouer en release).
-**Différé** : thème sombre (tokenisation finie → bascule prête à brancher), addendum §6/§8,
-TWR investissements (« Écart » renommé en attendant), bloc « versements du mois » page Invest.
+**Thème sombre livré (04/09, `1bd3123`)** : bascule Clair/Sombre/Système dans Paramètres → Général
+(localStorage + pré-script anti-flash, color-scheme natif), composants partagés tokenisés,
+`--c-on-accent`, couche de compat pour les utilitaires restants — 6 pages vérifiées en headless.
+**Différé** : addendum §6/§8, TWR investissements (« Écart » renommé en attendant),
+bloc « versements du mois » page Invest.
 
 ## Reportés
 - **6. Suppression de mois** : à brainstormer après tests (échéances avancées, effets de bord).
