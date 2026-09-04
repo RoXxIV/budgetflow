@@ -188,6 +188,19 @@ test("DCA : n'importe quel versement du mois vaut « versé » (arrondi manuel c
   assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, base), "rajouter des sous plus tard ne change rien");
 });
 
+test("liquider et renouveler : virement tracé, enveloppe à zéro, échéance avancée d'un cycle", () => {
+  refuse(() => envelopes.liquidate(virt.id, { toAccountId: livret.id }), 409); // pas mensualisée
+  const before = envelopes.getById(annEnv.id);
+  assert.ok(before.total > 0, "il y a de quoi liquider");
+  const after = envelopes.liquidate(annEnv.id, { toAccountId: livret.id });
+  assert.ok(eq(after.total, 0), "enveloppe vidée — la dépense reste à saisir par l'utilisateur");
+  assert.ok(after.deadline > before.deadline, `échéance avancée (${before.deadline} → ${after.deadline})`);
+  const vir = entries.listByMonth(m.id).find((e) => (e.label || "").includes("Liquidation"));
+  assert.ok(vir && eq(vir.amount, before.total) && vir.accountId === main.id && vir.toAccountId === livret.id,
+    "virement système hôte → compte choisi, tracé dans le mois");
+  refuse(() => envelopes.liquidate(annEnv.id, { toAccountId: livret.id }), 409); // vide : rien à liquider
+});
+
 test("modifier une ligne de mois : thème/compte/paiement se propagent à toutes ses entrées", () => {
   const th2 = themes.create({ name: "Sport" });
   lines.update(mCourses.id, { themeId: th2.id });

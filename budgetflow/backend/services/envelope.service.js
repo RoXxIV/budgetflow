@@ -1,4 +1,5 @@
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
+import { nextDueDate } from "./budgetLine.service.js";
 
 // Mois calendaires restants jusqu'à l'échéance (0 si dépassée)
 function monthsUntil(deadline) {
@@ -32,6 +33,8 @@ function serialize(row) {
     total: fromCents(row.total_cents ?? 0),
     monthlySuggestion: monthlySuggestion(effectiveTarget, row.total_cents, row.deadline),
     isClosed: !!row.closed_at,
+    // Enveloppe d'une ligne mensualisée du template : le front lui propose « Liquider et renouveler »
+    linkedTemplateLineId: row.linked_line_id ?? null,
     createdAt: row.created_at,
   };
 }
@@ -45,7 +48,8 @@ function assertPeriodOpen(date) {
 const LIST_SQL = `
   SELECT e.*, a.name AS account_name,
     COALESCE((SELECT SUM(c.amount_cents) FROM envelope_contributions c WHERE c.envelope_id = e.id), 0) AS total_cents,
-    COALESCE((SELECT SUM(c.amount_cents) FROM envelope_contributions c WHERE c.envelope_id = e.id AND c.kind = 'depense' AND c.in_target = 1), 0) AS spent_in_target_cents
+    COALESCE((SELECT SUM(c.amount_cents) FROM envelope_contributions c WHERE c.envelope_id = e.id AND c.kind = 'depense' AND c.in_target = 1), 0) AS spent_in_target_cents,
+    (SELECT b.id FROM budget_lines b WHERE b.envelope_id = e.id AND b.month_id IS NULL LIMIT 1) AS linked_line_id
   FROM envelopes e
   LEFT JOIN accounts a ON a.id = e.account_id
 `;
@@ -315,6 +319,57 @@ export function closeInto(id, { toEnvelopeId = null, toAccountId = null } = {}) 
       }
     }
     run("UPDATE envelopes SET closed_at = ? WHERE id = ?", new Date().toISOString(), id);
+    return getById(id);
+  });
+}
+
+// ─── Liquider et renouveler (enveloppes mensualisées) ─────────────────────────
+// Le geste manuel qui ferme la boucle d'une charge lissée (Strava, N26…) : l'argent
+// provisionné est viré vers le compte choisi (virement système tracé dans le mois,
+// visible dans « Mouvements internes »), l'enveloppe repart à 0 et son échéance avance
+// d'un cycle. AUCUNE dépense n'est créée : c'est l'utilisateur qui saisit ensuite sa
+// ligne de paiement là où la banque l'a prélevé. Décision d'Evan du 05/09 — remplace
+// le ☐ payé automatique pour son usage réel (provision sur un compte, paiement sur un autre).
+export function liquidate(id, { toAccountId = null } = {}) {
+  const existing = get("SELECT * FROM envelopes WHERE id = ?", id);
+  if (!existing) throw httpError(404, "Enveloppe introuvable");
+  if (existing.closed_at) throw httpError(409, "Enveloppe clôturée");
+  const line = get("SELECT * FROM budget_lines WHERE envelope_id = ? AND month_id IS NULL LIMIT 1", id);
+  if (!line) {
+    throw httpError(409, "Cette enveloppe n'est pas liée à une ligne mensualisée : utilisez la clôture ou la réaffectation");
+  }
+
+  const total = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ?", id).s;
+  if (total <= 0) throw httpError(409, "L'enveloppe est vide : rien à liquider");
+
+  const mainId = get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
+  const host = existing.account_id ?? mainId;
+  const account = get("SELECT * FROM accounts WHERE id = ? AND is_active = 1", toAccountId);
+  if (!account) throw httpError(400, "Compte destinataire invalide");
+
+  const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1");
+  if (!month) throw httpError(409, "Aucun mois ouvert pour enregistrer le virement de liquidation");
+
+  return tx(() => {
+    run("INSERT INTO envelope_contributions (envelope_id, amount_cents, kind, notes) VALUES (?, ?, 'reaffectation', ?)",
+      id, -total, `Liquidation vers « ${account.name} » — le cycle repart`);
+    // Trace bancaire : même sur le compte hôte, le « déblocage » reste visible dans le mois
+    if (host && host !== account.id) {
+      const accName = (aid) => get("SELECT name FROM accounts WHERE id = ?", aid)?.name || "?";
+      run(
+        `INSERT INTO entries (month_id, label, amount_cents, account_id, to_account_id, source)
+         VALUES (?, ?, ?, ?, ?, 'manuelle')`,
+        month.id, `Liquidation « ${existing.name} » : ${accName(host)} → ${accName(account.id)}`,
+        total, host, account.id
+      );
+    }
+    // Le cycle repart : l'échéance saute à l'occurrence qui SUIT celle qu'on vient de solder —
+    // même liquidée en avance (échéance le mois prochain), on part de l'échéance, pas du virement
+    const base = existing.deadline && existing.deadline.substring(0, 7) > month.period
+      ? existing.deadline.substring(0, 7)
+      : month.period;
+    const nextPeriod = (() => { const [y, m] = base.split("-").map(Number); const i = y * 12 + m; return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")}`; })();
+    run("UPDATE envelopes SET deadline = ? WHERE id = ?", nextDueDate(line, nextPeriod), id);
     return getById(id);
   });
 }

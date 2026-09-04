@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import AppModal from '@/components/AppModal.vue'
 import { getAccounts, createAccount, updateAccount, deleteAccount, setAccountActive, getNetWorth } from '@/api/accounts.js'
 import {
-  getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope, closeEnvelopeInto,
+  getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope, closeEnvelopeInto, liquidateEnvelope,
   getContributions, addContribution, removeContribution,
   getAvailability, reallocateEnvelope,
 } from '@/api/envelopes.js'
@@ -67,6 +67,23 @@ const fmt = eur // « 1 667,85 € », espaces fines insécables
 // « 4 mars » — jamais d'ISO à l'écran (même règle que la page Mois)
 const shortDate = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '')
 const pct = (e) => (e.effectiveTarget ? Math.min(100, Math.round((e.total / e.effectiveTarget) * 100)) : null)
+// Enveloppe mensualisée au-delà de sa cible (jamais liquidée) : affichée en rouge
+const isOverfull = (e) => { const t = e.effectiveTarget ?? e.targetAmount; return !!t && e.total > t }
+
+// ─── Liquider et renouveler : vide l'enveloppe vers un compte, le cycle repart ───
+const liquidation = ref(null) // { env, toAccountId }
+function openLiquidation(env) {
+  liquidation.value = { env, toAccountId: accounts.value.find((a) => a.isMain)?.id || '' }
+}
+async function confirmLiquidation() {
+  const l = liquidation.value
+  if (!l?.toAccountId) return
+  try {
+    await liquidateEnvelope(l.env.id, l.toAccountId)
+    liquidation.value = null
+    await load()
+  } catch (e) { apiError(e) }
+}
 
 // ─── Registre des comptes groupé par type (brief Comptes §2/§4) ───
 const GROUP_LABELS = { courant: 'Comptes courants', epargne: 'Épargne', investissement: 'Investissement', especes: 'Espèces' }
@@ -594,6 +611,29 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
       </template>
     </AppModal>
 
+    <!-- ─── Liquider et renouveler une enveloppe mensualisée ── -->
+    <AppModal :open="!!liquidation" title="Liquider et renouveler" @close="liquidation = null">
+      <div v-if="liquidation" class="flex flex-col gap-3 text-[13px]">
+        <p>
+          « <b>{{ liquidation.env.name }}</b> » contient <b class="num">{{ fmt(liquidation.env.total) }}</b>{{ liquidation.env.accountName ? ' sur ' + liquidation.env.accountName : ' (compte principal)' }}.
+        </p>
+        <label class="field"><span>Virer vers</span>
+          <select v-model="liquidation.toAccountId" class="input w-48">
+            <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}{{ a.id === (liquidation.env.accountId || accounts.find((x) => x.isMain)?.id) ? ' (compte hôte — juste libéré)' : '' }}</option>
+          </select>
+        </label>
+        <p class="text-[11.5px] text-gray-400">
+          L'enveloppe repart à zéro et son échéance avance d'un cycle — les mensualités reprennent.
+          Le virement est tracé dans le mois en cours. <b>Aucune dépense n'est créée</b> :
+          vous saisissez ensuite vous-même la ligne du paiement, sur le compte réellement prélevé.
+        </p>
+      </div>
+      <template #footer>
+        <button class="btn-primary" :disabled="!liquidation?.toAccountId" @click="confirmLiquidation">Liquider et renouveler</button>
+        <button class="btn-secondary" @click="liquidation = null">Annuler</button>
+      </template>
+    </AppModal>
+
     <!-- ─── Aucun compte ─────────────────────────────── -->
     <div v-if="!accounts.length && !virtualEnvelopes.length" class="panel empty-panel">
       <p>Aucun compte pour l'instant.</p>
@@ -650,12 +690,12 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
                 <span class="env-name">{{ envelope.name }}</span>
                 <span v-if="envelope.isClosed" class="tag tag-neutral">clôturée</span>
                 <span class="num env-amounts">
-                  <span class="ink">{{ fmt(envelope.total) }}</span><span v-if="envelope.targetAmount" class="meta"> / {{ fmt(envelope.effectiveTarget) }}</span>
+                  <span :class="isOverfull(envelope) ? 'is-over' : 'ink'">{{ fmt(envelope.total) }}</span><span v-if="envelope.targetAmount" :class="isOverfull(envelope) ? 'is-over' : 'meta'"> / {{ fmt(envelope.effectiveTarget) }}</span>
                   <span v-if="envelope.targetAmount" class="env-pct num">{{ pct(envelope) }} %</span>
                 </span>
               </div>
               <div v-if="envelope.targetAmount" class="env-row2">
-                <span class="goal-bar"><span class="goal-fill" :style="{ width: Math.min(100, pct(envelope) || 0) + '%' }" /></span>
+                <span class="goal-bar"><span class="goal-fill" :class="{ 'is-overfill': isOverfull(envelope) }" :style="{ width: Math.min(100, pct(envelope) || 0) + '%' }" /></span>
                 <span class="num env-rest">reste {{ fmt(Math.max(0, Math.round((envelope.effectiveTarget - envelope.total) * 100) / 100)) }}</span>
               </div>
 
@@ -684,6 +724,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
                   <button class="btn-secondary" @click="doReallocate(envelope)">OK</button>
                 </div>
                 <div class="env-actions">
+                  <button v-if="envelope.linkedTemplateLineId && envelope.total > 0" class="link-accent" title="Le virement réel est passé : vider l'enveloppe vers un compte et faire repartir le cycle" @click="openLiquidation(envelope)">Liquider et renouveler</button>
                   <button class="link-accent" @click="openEditEnvelope(envelope)">Modifier</button>
                   <button class="link-accent" @click="toggleClosed(envelope)">{{ envelope.isClosed ? 'Rouvrir' : 'Clôturer' }}</button>
                   <button class="link-danger" @click="removeEnvelopeConfirm(envelope)">Supprimer</button>
@@ -708,12 +749,12 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
               <span class="env-name">{{ envelope.name }}</span>
               <span v-if="envelope.isClosed" class="tag tag-neutral">clôturée</span>
               <span class="num env-amounts">
-                <span class="ink">{{ fmt(envelope.total) }}</span><span v-if="envelope.targetAmount" class="meta"> / {{ fmt(envelope.targetAmount) }}</span>
+                <span :class="isOverfull(envelope) ? 'is-over' : 'ink'">{{ fmt(envelope.total) }}</span><span v-if="envelope.targetAmount" :class="isOverfull(envelope) ? 'is-over' : 'meta'"> / {{ fmt(envelope.targetAmount) }}</span>
                 <span v-if="envelope.targetAmount" class="env-pct num">{{ pct(envelope) }} %</span>
               </span>
             </div>
             <div v-if="envelope.targetAmount" class="env-row2">
-              <span class="goal-bar"><span class="goal-fill" :style="{ width: Math.min(100, pct(envelope) || 0) + '%' }" /></span>
+              <span class="goal-bar"><span class="goal-fill" :class="{ 'is-overfill': isOverfull(envelope) }" :style="{ width: Math.min(100, pct(envelope) || 0) + '%' }" /></span>
               <span class="num env-rest">reste {{ fmt(Math.max(0, Math.round(((envelope.effectiveTarget ?? envelope.targetAmount) - envelope.total) * 100) / 100)) }}</span>
             </div>
             <div v-if="openEnvelopeId === envelope.id" class="env-expand" @click.stop>
@@ -864,6 +905,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 .env-row2 { display: flex; align-items: center; gap: var(--s-4); margin-top: 3px; }
 .goal-bar { width: 200px; height: 4px; border-radius: var(--r-pill); background: var(--c-track); overflow: hidden; flex-shrink: 0; }
 .goal-fill { display: block; height: 100%; background: var(--c-fill-goal); transition: width var(--dur-base) var(--ease); }
+.goal-fill.is-overfill { background: var(--c-fill-over); }
 .env-rest { font-size: var(--t-small); color: var(--c-ink-3); }
 .env-expand { margin-top: var(--s-3); border-top: 1px solid var(--c-line); padding-top: var(--s-2); cursor: default; }
 .entry-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) 96px 30px; gap: var(--s-3); align-items: center; min-height: 30px; }
