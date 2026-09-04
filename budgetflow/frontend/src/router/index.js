@@ -5,6 +5,7 @@ import TemplateView from '@/views/TemplateView.vue'
 import MonthView from '@/views/MonthView.vue'
 import InvestmentsView from '@/views/InvestmentsView.vue'
 import StatsView from '@/views/StatsView.vue'
+import SubscriptionsView from '@/views/SubscriptionsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -16,6 +17,8 @@ const router = createRouter({
     { path: '/stats', name: 'stats', component: StatsView },
     { path: '/template', name: 'template', component: TemplateView },
     { path: '/parametres', name: 'settings', component: SettingsView },
+    // Tracker d'abonnements (bac à sable) — accessible depuis la page Mois, pas dans la nav
+    { path: '/abonnements', name: 'subscriptions', component: SubscriptionsView },
   ],
 })
 
