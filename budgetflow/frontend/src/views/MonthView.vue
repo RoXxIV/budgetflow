@@ -1453,7 +1453,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
         <!-- ─── Colonne latérale : Enveloppes & Investissements — §5.11 ── -->
         <aside class="month-aside">
           <div v-if="envelopes.length" class="panel side-panel">
-            <div class="side-head"><span class="side-title">Enveloppes</span><span class="num side-total">{{ fmt(monthContribTotal) }}</span></div>
+            <div class="side-head"><span class="side-title has-tip" title="Total des versements du mois (mis de côté) — le même chiffre que la tuile Épargne. Les tags des lignes montrent, eux, le mouvement net de chaque enveloppe : les deux peuvent différer.">Enveloppes</span><span class="num side-total">{{ fmt(monthContribTotal) }}</span></div>
             <div v-for="env in envelopes" :key="env.id" class="side-item" @click="toggleEnvelope(env)">
               <div class="side-row1">
                 <button
@@ -1470,7 +1470,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
               <div v-if="env.targetAmount" class="goal-bar"><div class="goal-fill" :style="{ width: Math.min(100, envelopePct(env) || 0) + '%' }" /></div>
               <div class="side-meta">
                 <span v-if="env.accountName">{{ env.accountName }}</span><span v-if="env.monthlySuggestion" class="num"> · {{ fmt(env.monthlySuggestion) }}/mois</span>
-                <span v-if="contribsForEnvelope(env).length" class="tag num" :class="contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? 'tag-credit' : 'tag-alert'">{{ contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? '+' : '' }}{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois</span>
+                <span v-if="contribsForEnvelope(env).length" class="tag num" :class="contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? 'tag-credit' : 'tag-alert'" title="Mouvement net de l'enveloppe ce mois : versements, dépenses sorties, réaffectations et ajustements compris — pas seulement le mis de côté">{{ contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? '+' : '' }}{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois</span>
                 <span v-if="env.targetAmount" class="side-rest num">reste {{ fmt(Math.max(0, Math.round((env.effectiveTarget - env.total) * 100) / 100)) }}</span>
               </div>
               <div v-if="openEnvelopeId === env.id" class="side-expand" @click.stop>
