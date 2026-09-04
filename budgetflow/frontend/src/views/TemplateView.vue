@@ -35,7 +35,7 @@ async function load() {
   envelopes.value = eRes.data
 }
 const envelopeById = (id) => envelopes.value.find((e) => e.id === id) || null
-onMounted(load)
+onMounted(async () => { try { await load() } catch (e) { apiError(e) } })
 
 // ─── Propagation vers le mois en cours ───────────────────
 async function applyToCurrentMonth(line, { ask = true } = {}) {
@@ -109,7 +109,7 @@ const groups = computed(() => {
   if (orphans.length) result.push({ category: NO_CATEGORY, lines: orphans })
   return result
     .map((g) => ({ ...g, total: g.lines.reduce((s, l) => s + lineAmount(l), 0) }))
-    .sort((a, b) => (TYPE_ORDER[a.category.type] - TYPE_ORDER[b.category.type])
+    .sort((a, b) => ((TYPE_ORDER[a.category.type] ?? 9) - (TYPE_ORDER[b.category.type] ?? 9))
       || (a.category.type === 'depense' ? b.total - a.total : 0))
 })
 
@@ -515,7 +515,7 @@ const formCategoryType = computed(() => {
         <p v-if="Number(form.intervalMonths) > 1" class="modal-hint -mt-2">
           Apparaît {{ form.anchorMonth ? (Number(form.intervalMonths) === 12 ? 'chaque ' + MONTHS[form.anchorMonth - 1] : 'en ' + MONTHS[form.anchorMonth - 1] + ' puis tous les ' + form.intervalMonths + ' mois') : 'les mois du cycle' }}.
           <template v-if="form.monthlyize && modalLine?.envelopeId && envelopeById(modalLine.envelopeId)">
-            Enveloppe « {{ envelopeById(modalLine.envelopeId).name }} » : {{ fmt(envelopeById(modalLine.envelopeId).total) }} / {{ fmt(envelopeById(modalLine.envelopeId).targetAmount) }}, ≈ {{ fmt(envelopeById(modalLine.envelopeId).monthlySuggestion) }}/mois.
+            Enveloppe « {{ envelopeById(modalLine.envelopeId).name }} » : <span class="num">{{ fmt(envelopeById(modalLine.envelopeId).total) }} / {{ fmt(envelopeById(modalLine.envelopeId).targetAmount) }}</span>, ≈ <span class="num">{{ fmt(envelopeById(modalLine.envelopeId).monthlySuggestion) }}</span>/mois.
           </template>
           <template v-else-if="form.monthlyize">L'enveloppe « {{ form.label || '…' }} » sera créée à 0.</template>
           <template v-if="form.monthlyize"> Le jour J, ☐ payé règle depuis le compte « Depuis » et l'enveloppe le rembourse (virement système automatique).</template>

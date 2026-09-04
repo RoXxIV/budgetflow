@@ -4,12 +4,10 @@ export const getMonths = () => api.get('/months')
 export const getMonthPrefill = () => api.get('/months/prefill')
 export const getCurrentMonth = () => api.get('/months/current')
 export const createMonth = (data) => api.post('/months', data)
-export const getMonth = (id) => api.get(`/months/${id}`)
 export const getMonthSummary = (id) => api.get(`/months/${id}/summary`)
 export const getMonthEnvelopeContributions = (id) => api.get(`/months/${id}/envelope-contributions`)
 export const setMonthClosed = (id, isClosed) => api.put(`/months/${id}`, { isClosed })
 export const setMonthNotes = (id, notes) => api.put(`/months/${id}/notes`, { notes })
-export const deleteMonth = (id) => api.delete(`/months/${id}`)
 
 export const getMonthLines = (id) => api.get(`/months/${id}/lines`)
 export const createMonthLine = (id, data) => api.post(`/months/${id}/lines`, data)
@@ -18,7 +16,6 @@ export const deleteMonthLine = (id, lineId, force = false) => api.delete(`/month
 export const applyLineToTemplate = (id, lineId) => api.post(`/months/${id}/lines/${lineId}/apply-to-template`)
 
 export const payLine = (id, lineId, data = {}) => api.post(`/months/${id}/lines/${lineId}/pay`, data)
-export const unpayLine = (id, lineId) => api.delete(`/months/${id}/lines/${lineId}/pay`)
 
 export const getMonthSnapshots = (id) => api.get(`/months/${id}/snapshots`)
 export const upsertMonthSnapshots = (id, snapshots) => api.put(`/months/${id}/snapshots`, { snapshots })

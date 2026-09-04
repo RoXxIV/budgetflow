@@ -73,7 +73,7 @@ input[type='radio']:focus-visible {
 }
 
 /* ─── Mode discret ─────────────────────────────────────────
-   data-privacy="on" sur <html> (œil du sous-header de la page Mois) : tous les
+   data-privacy="on" sur <html> (œil de la barre de navigation, toutes pages) : tous les
    chiffres — la classe .num que porte chaque montant — sont floutés et
    non sélectionnables. Un seul attribut, zéro classe à ajouter. */
 :root[data-privacy='on'] .num {

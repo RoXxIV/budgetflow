@@ -1,12 +1,7 @@
 // Registre des icônes Phosphor utilisées dans l'app (https://phosphoricons.com pour le catalogue).
 // Pour en ajouter une : l'importer ici et la poser dans `icons` — elle devient dispo
-// via <AppIcon name="PhHeart" /> et en composant global <PhHeart /> (enregistré par install()).
+// en composant global (ex. <PhCheck />, enregistré par install()).
 import {
-  PhHorse,
-  PhHeart,
-  PhCube,
-  PhPiggyBank,
-  PhChartLineUp,
   PhPlus,
   PhCaretDown,
   PhGearSix,
@@ -16,11 +11,6 @@ import {
 } from '@phosphor-icons/vue'
 
 export const icons = {
-  PhHorse,
-  PhHeart,
-  PhCube,
-  PhPiggyBank,
-  PhChartLineUp,
   PhPlus,
   PhCaretDown,
   PhGearSix,

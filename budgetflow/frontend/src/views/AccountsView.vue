@@ -64,6 +64,8 @@ const inactiveAccounts = computed(() => accounts.value.filter((a) => !a.isActive
 
 // ─── Helpers ─────────────────────────────────────────────
 const fmt = eur // « 1 667,85 € », espaces fines insécables
+// « 4 mars » — jamais d'ISO à l'écran (même règle que la page Mois)
+const shortDate = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '')
 const pct = (e) => (e.effectiveTarget ? Math.min(100, Math.round((e.total / e.effectiveTarget) * 100)) : null)
 
 // ─── Registre des comptes groupé par type (brief Comptes §2/§4) ───
@@ -266,6 +268,7 @@ function openEditEnvelope(envelope) {
     targetAmount: envelope.targetAmount ?? '',
     deadline: envelope.deadline || '',
     initialAmount: '',
+    fromEnvelopeId: '', // même forme que defaultEnvelopeForm : initialTooHigh la lit
   }
   envelopeFormOpen.value = true
 }
@@ -366,7 +369,8 @@ async function toggleContribs(envelope) {
   if (openEnvelopeId.value === envelope.id) { openEnvelopeId.value = null; return }
   openEnvelopeId.value = envelope.id
   contribForm.value = { amount: '', date: new Date().toISOString().substring(0, 10), notes: '' }
-  contributions.value = (await getContributions(envelope.id)).data
+  contributions.value = [] // jamais les contributions de l'enveloppe précédente pendant le chargement
+  try { contributions.value = (await getContributions(envelope.id)).data } catch (e) { apiError(e) }
 }
 
 async function submitContribution(envelope) {
@@ -501,7 +505,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
         </label>
         <label v-if="!editingEnvelopeId" class="field">
           <span>Montant initial</span>
-          <input v-model="envelopeForm.initialAmount" type="number" step="0.01" class="input w-32" :class="{ 'border-red-400': initialTooHigh }" placeholder="0.00" />
+          <input v-model="envelopeForm.initialAmount" type="number" step="0.01" class="input w-32" :class="{ 'is-invalid': initialTooHigh }" placeholder="0.00" />
         </label>
         <label v-if="!editingEnvelopeId && siblingEnvelopes.length" class="field">
           <span>Pris dans une enveloppe du compte</span>
@@ -519,8 +523,8 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <span v-if="initialTooHigh"> Elle ne contient pas assez.</span>
         </template>
         <template v-else>
-          {{ availability.accountName }} : {{ fmt(availability.balance) }} · déjà en enveloppes {{ fmt(availability.envelopesTotal) }} ·
-          <b>disponible hors enveloppes {{ fmt(availability.available) }}</b>
+          {{ availability.accountName }} : <span class="num">{{ fmt(availability.balance) }}</span> · déjà en enveloppes <span class="num">{{ fmt(availability.envelopesTotal) }}</span> ·
+          <b class="num">disponible hors enveloppes {{ fmt(availability.available) }}</b>
           <span v-if="initialTooHigh"> — le montant initial dépasse le disponible.</span>
           <span v-else-if="initialOverdraws"> — au-delà du disponible : le hors enveloppes deviendra négatif (découvert autorisé).</span>
         </template>
@@ -535,7 +539,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
     <AppModal :open="!!deactivation" title="Le compte a encore un solde" @close="deactivation = null">
       <div v-if="deactivation" class="flex flex-col gap-3 text-[13px]">
         <p>
-          « <b>{{ deactivation.account.name }}</b> » a un solde de <b>{{ fmt(deactivation.balance) }}</b>.
+          « <b>{{ deactivation.account.name }}</b> » a un solde de <b class="num">{{ fmt(deactivation.balance) }}</b>.
           Avant de le désactiver, cet argent doit aller quelque part.
         </p>
         <label class="field"><span>Virer le solde vers</span>
@@ -544,7 +548,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           </select>
         </label>
         <p class="text-[11.5px] text-gray-400">
-          Un virement de {{ fmt(Math.abs(deactivation.balance)) }} sera enregistré dans le mois en cours, puis le compte sera désactivé (réactivable, historique conservé).
+          Un virement de <span class="num">{{ fmt(Math.abs(deactivation.balance)) }}</span> sera enregistré dans le mois en cours, puis le compte sera désactivé (réactivable, historique conservé).
         </p>
       </div>
       <template #footer>
@@ -557,7 +561,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
     <AppModal :open="!!envelopeDelete" title="L'enveloppe n'est pas vide" @close="envelopeDelete = null">
       <div v-if="envelopeDelete" class="flex flex-col gap-3 text-[13px]">
         <p>
-          « <b>{{ envelopeDelete.envelope.name }}</b> » contient <b>{{ fmt(envelopeDelete.total) }}</b>
+          « <b>{{ envelopeDelete.envelope.name }}</b> » contient <b class="num">{{ fmt(envelopeDelete.total) }}</b>
           ({{ envelopeDelete.contributions }} contribution{{ envelopeDelete.contributions > 1 ? 's' : '' }}).
           L'historique est conservé dans les deux cas.
         </p>
@@ -567,7 +571,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
         </label>
         <label v-if="envelopeDelete.total > 0" class="checkbox items-start">
           <input v-model="envelopeDelete.choice" type="radio" value="reallocate" class="mt-0.5" />
-          <span class="flex items-center gap-2 flex-wrap"><b>Clôturer et réaffecter</b> {{ fmt(envelopeDelete.total) }} vers
+          <span class="flex items-center gap-2 flex-wrap"><b>Clôturer et réaffecter</b> <span class="num">{{ fmt(envelopeDelete.total) }}</span> vers
             <select v-model="envelopeDelete.destination" class="input w-56" @focus="envelopeDelete.choice = 'reallocate'">
               <optgroup v-if="envelopeDeleteTargets.length" label="Mes enveloppes">
                 <option v-for="t in envelopeDeleteTargets" :key="'e' + t.id" :value="'e:' + t.id">{{ t.name }}{{ t.accountName ? ' (' + t.accountName + ')' : '' }}</option>
@@ -657,7 +661,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 
               <div v-if="openEnvelopeId === envelope.id" class="env-expand" @click.stop>
                 <div v-for="c in contributions" :key="c.id" class="entry-row">
-                  <span class="entry-date num">{{ c.date }}</span>
+                  <span class="entry-date num">{{ shortDate(c.date) }}</span>
                   <span class="entry-label">{{ KIND_LABELS[c.kind] ? KIND_LABELS[c.kind] + (c.notes ? ' · ' + c.notes : '') : (c.notes || '') }}</span>
                   <span class="entry-amount num" :class="c.amount >= 0 ? 'is-credit' : 'is-over'">{{ fmt(c.amount) }}</span>
                   <span class="entry-actions"><button class="btn-icon is-danger" title="Supprimer la contribution" @click.stop="deleteContribution(envelope, c.id)">×</button></span>
@@ -714,7 +718,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
             </div>
             <div v-if="openEnvelopeId === envelope.id" class="env-expand" @click.stop>
               <div v-for="c in contributions" :key="c.id" class="entry-row">
-                <span class="entry-date num">{{ c.date }}</span>
+                <span class="entry-date num">{{ shortDate(c.date) }}</span>
                 <span class="entry-label">{{ KIND_LABELS[c.kind] ? KIND_LABELS[c.kind] + (c.notes ? ' · ' + c.notes : '') : (c.notes || '') }}</span>
                 <span class="entry-amount num" :class="c.amount >= 0 ? 'is-credit' : 'is-over'">{{ fmt(c.amount) }}</span>
                 <span class="entry-actions"><button class="btn-icon is-danger" title="Supprimer la contribution" @click.stop="deleteContribution(envelope, c.id)">×</button></span>
@@ -901,13 +905,11 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 .link-accent:hover { color: var(--c-accent-hover); text-decoration: underline; }
 .link-danger { color: var(--c-over); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
 .link-danger:hover { text-decoration: underline; }
-.link { color: var(--c-accent); font-size: var(--t-small); cursor: pointer; }
-.link:hover { text-decoration: underline; }
 .field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
 .input { padding: 6px var(--s-3); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); font-size: 13px; color: var(--c-ink); background: var(--c-surface); outline: none; font-family: var(--font-ui); }
 .input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
+.input.is-invalid { border-color: var(--c-over); }
 .checkbox { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); cursor: pointer; }
-.badge { display: inline-flex; align-items: center; font-size: var(--t-meta); font-weight: 500; padding: 1px var(--s-3); border-radius: var(--r-control); background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); flex-shrink: 0; }
 
 @keyframes reg-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 

@@ -25,7 +25,7 @@ async function load() {
   settings.value = sRes.data
   await loadHistory()
 }
-onMounted(load)
+onMounted(async () => { try { await load() } catch (e) { apiError(e) } })
 
 // ─── Formats (brief §1 A3/A4 : virgule, vrai moins U+2212, espace fine avant %) ───
 const fmt = eur
@@ -94,8 +94,10 @@ const repartition = computed(() => {
 
 // ─── Évolution (brief §5b) : valorisations mensuelles vs investi cumulé ───
 const history = ref(null) // { labels, valeur[], investi[] } — null si < 3 mois de valorisations
+const historyError = ref(false) // panne API ≠ « pas encore 3 valorisations » : deux messages différents
 async function loadHistory() {
   const list = assets.value.filter((a) => !a.isClosed)
+  historyError.value = false
   if (!list.length) { history.value = null; return }
   try {
     const [valsRes, movsRes] = await Promise.all([
@@ -123,7 +125,7 @@ async function loadHistory() {
     const investi = months.map((m) => Math.round(movs.reduce(
       (s, mv) => (mv.date.slice(0, 7) <= m ? s + (mv.kind === 'retrait' ? -mv.amount : mv.amount) : s), 0) * 100) / 100)
     history.value = { labels, valeur, investi }
-  } catch { history.value = null }
+  } catch { history.value = null; historyError.value = true }
 }
 const chartSeries = computed(() => (history.value ? [
   { key: 'valeur', name: 'Valeur', color: 'var(--c-ink)', points: history.value.valeur },
@@ -142,10 +144,13 @@ async function submitBulkUpdate() {
   const entries = Object.entries(f.values).filter(([, v]) => v !== '' && v !== null)
   if (!entries.length) { updateOpen.value = false; return }
   try {
-    for (const [id, v] of entries) await addAssetValuation(Number(id), { value: parseFloat(v), date: f.date || null })
+    for (const [id, v] of entries) {
+      await addAssetValuation(Number(id), { value: parseFloat(v), date: f.date || null })
+      f.values[id] = '' // posée : un échec plus loin ne la re-postera pas au clic suivant
+    }
     updateOpen.value = false
     await load()
-  } catch (e) { apiError(e) }
+  } catch (e) { apiError(e); await load() }
 }
 
 // ─── Formulaire actif ────────────────────────────────────
@@ -200,6 +205,8 @@ async function togglePanel(asset) {
 }
 async function openPanel(asset) {
   openId.value = asset.id
+  movements.value = [] // jamais les données de l'actif précédent pendant le chargement
+  valuations.value = []
   valuationForm.value = { value: asset.value ?? '', date: today() }
   movementForm.value = { kind: 'versement', amount: '', date: today(), counterpartAccountId: accounts.value.find((a) => a.isMain)?.id || '', notes: '' }
   await refreshPanel(asset)
@@ -259,7 +266,7 @@ async function deleteMovement(asset, m) {
         </div>
         <div class="synth-sep" />
         <div class="synth-kv">
-          <span class="synth-k">Investi<template v-if="totals.withdrawn"> · retiré {{ fmt(totals.withdrawn) }}</template></span>
+          <span class="synth-k">Investi<template v-if="totals.withdrawn"> · retiré <span class="num">{{ fmt(totals.withdrawn) }}</span></template></span>
           <span class="num synth-v">{{ fmt(totals.invested) }}</span>
         </div>
         <div class="synth-sep" />
@@ -421,7 +428,7 @@ async function deleteMovement(asset, m) {
                 </select>
                 <button class="btn-secondary" @click="submitMovement(asset)">Ajouter</button>
               </div>
-              <div v-for="m in movements.slice(0, 8)" :key="m.id" class="entry-row is-movement">
+              <div v-for="m in movements.slice(0, 8)" :key="m.id" class="entry-row">
                 <span class="entry-date num">{{ frDate(m.date) }}</span>
                 <span class="entry-amount num" :class="m.kind === 'versement' ? 'is-credit' : 'is-over'">{{ m.kind === 'retrait' ? '−' : '+' }}{{ fmt(m.amount) }}</span>
                 <span v-if="m.source === 'dca'" class="tag tag-neutral">DCA</span>
@@ -483,6 +490,7 @@ async function deleteMovement(asset, m) {
         </span>
       </div>
       <LineChart v-if="history" :labels="history.labels" :series="chartSeries" :height="200" minimal-axis />
+      <p v-else-if="historyError" class="evo-empty">Impossible de charger l'historique — rechargez la page.</p>
       <p v-else class="evo-empty">L'évolution s'affichera après trois valorisations mensuelles.</p>
     </div>
   </div>

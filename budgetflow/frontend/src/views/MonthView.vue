@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { eur } from '@/lib/format.js'
 import {
   getMonths, getMonthPrefill, createMonth, setMonthClosed, setMonthNotes,
@@ -32,18 +32,20 @@ const accounts = ref([])
 const settings = ref(null)
 
 onMounted(async () => {
-  const [mRes, cRes, tRes, aRes, sRes] = await Promise.all([
-    getMonths(), getCategories(), getThemes(), getAccounts(), getSettings(),
-  ])
-  monthsList.value = mRes.data
-  categories.value = cRes.data
-  themes.value = tRes.data
-  accounts.value = aRes.data
-  settings.value = sRes.data
-  // Mois courant du calendrier si présent, sinon le plus récent
-  const nowPeriod = new Date().toISOString().substring(0, 7)
-  const target = monthsList.value.find((m) => m.period === nowPeriod) || monthsList.value[0]
-  if (target) await openMonth(target)
+  try {
+    const [mRes, cRes, tRes, aRes, sRes] = await Promise.all([
+      getMonths(), getCategories(), getThemes(), getAccounts(), getSettings(),
+    ])
+    monthsList.value = mRes.data
+    categories.value = cRes.data
+    themes.value = tRes.data
+    accounts.value = aRes.data
+    settings.value = sRes.data
+    // Mois courant du calendrier si présent, sinon le plus récent
+    const nowPeriod = new Date().toISOString().substring(0, 7)
+    const target = monthsList.value.find((m) => m.period === nowPeriod) || monthsList.value[0]
+    if (target) await openMonth(target)
+  } catch (e) { apiError(e) }
 })
 
 const summaryData = ref(null)
@@ -87,6 +89,7 @@ async function reload() {
 const monthNotes = ref('')
 const notesSaved = ref(false)
 let notesSavedTimer = null
+onUnmounted(() => clearTimeout(notesSavedTimer))
 watch(() => current.value?.id, () => { monthNotes.value = current.value?.notes || '' })
 async function saveNotes() {
   if (!current.value || monthNotes.value.trim() === (current.value.notes || '').trim()) return
@@ -103,7 +106,6 @@ async function saveNotes() {
 const openAssetId = ref(null)
 const assetMovementForm = ref({})
 const movementsForAsset = (asset) => monthAssetMovements.value.filter((m) => m.assetId === asset.id)
-const dcaDone = (asset) => movementsForAsset(asset).some((m) => m.source === 'dca')
 const monthInvestedTotal = computed(() => monthAssetMovements.value.filter((m) => m.kind === 'versement').reduce((s, m) => s + m.amount, 0))
 
 async function toggleDca(asset) {
@@ -164,7 +166,6 @@ const fmtNum = (n) => (n === null || n === undefined ? '—' : Number(n).toLocal
 // ─── Cagnottes (partage) : les ½ n'existent que s'il y a au moins une cagnotte dans le mois ─
 const pots = computed(() => lines.value.filter((l) => l.isPot))
 const sharingOn = computed(() => pots.value.length > 0)
-const potById = (id) => pots.value.find((p) => p.id === id) || null
 
 function potStatus(line) {
   const p = line.pot
@@ -181,7 +182,7 @@ const contribForm = ref({})
 const sortedMonths = computed(() => [...monthsList.value].sort((a, b) => a.period.localeCompare(b.period)))
 const curIdx = computed(() => sortedMonths.value.findIndex((m) => m.id === current.value?.id))
 const prevMonthTarget = computed(() => (curIdx.value > 0 ? sortedMonths.value[curIdx.value - 1] : null))
-const nextMonthTarget = computed(() => sortedMonths.value[curIdx.value + 1] || null)
+const nextMonthTarget = computed(() => (curIdx.value >= 0 ? sortedMonths.value[curIdx.value + 1] || null : null))
 function stepMonth(d) {
   const t = d < 0 ? prevMonthTarget.value : nextMonthTarget.value
   if (t) openMonth(t)
@@ -201,7 +202,8 @@ function onMonthSelect(e) {
     openCreateForm()
     return
   }
-  openMonth(monthsList.value.find((m) => m.id === Number(v)))
+  const target = monthsList.value.find((m) => m.id === Number(v))
+  if (target) openMonth(target)
 }
 const objectifPct = computed(() => {
   const t = summaryData.value?.tiles
@@ -448,18 +450,7 @@ const internalMovements = computed(() => {
 // additionner revenus et dépenses n'aurait pas de sens)
 const plannedDepenses = computed(() => groups.value.filter((g) => g.category.type === 'depense').reduce((s, g) => s + g.planned, 0))
 
-// Part de chaque catégorie dépense — et des enveloppes — dans les sorties réelles du mois
-// (dépenses réelles + mis de côté en enveloppes), barre sous chaque titre
 const totalDepenses = computed(() => groups.value.filter((g) => g.category.type === 'depense').reduce((s, g) => s + g.actual, 0))
-const totalSorties = computed(() => Math.round((totalDepenses.value + monthContribTotal.value) * 100) / 100)
-const depensePct = (group) => {
-  if (group.category.type !== 'depense' || !totalSorties.value || group.actual <= 0) return null
-  return Math.round((group.actual / totalSorties.value) * 100)
-}
-const envelopesPct = computed(() => {
-  if (!totalSorties.value || monthContribTotal.value <= 0) return null
-  return Math.round((monthContribTotal.value / totalSorties.value) * 100)
-})
 
 // ─── Création de mois ────────────────────────────────────
 const createFormOpen = ref(false)
@@ -591,10 +582,6 @@ function toggleEntries(line) {
   openEntriesLineId.value = openEntriesLineId.value === line.id ? null : line.id
 }
 
-// Cible corrigée d'une enveloppe : « 2 700 / 3 500 (4 500 − 1 000 dépensés) »
-const envelopeTargetLabel = (env) => env.spentInTarget
-  ? `${fmt(env.effectiveTarget)} (${fmt(env.targetAmount)} − ${fmt(env.spentInTarget)} dépensés)`
-  : fmt(env.targetAmount)
 const envelopeById = (id) => envelopes.value.find((e) => e.id === id) || null
 
 async function removeEntry(entry) {
@@ -883,7 +870,7 @@ function overBudget(line) {
 }
 function showCheckbox(line) {
   if (entriesForLine(line).length > 0) return false
-  if (line.isPot) return line.pot?.toSend !== 0 // cagnotte : dès qu'il y a quelque chose à régler
+  if (line.isPot) return !!line.pot && line.pot.toSend !== 0 // cagnotte : dès qu'il y a quelque chose à régler (rien sans calcul)
   return line.plannedAmount > 0
 }
 
@@ -911,12 +898,7 @@ async function saveSnapshots() {
   } catch (e) { apiError(e) }
 }
 
-const amountClass = (n) => (n === null ? 'text-gray-300' : n >= 0 ? 'text-emerald-600' : 'text-red-500')
 const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
-const mainEnvelopesTotal = computed(() => {
-  const main = summaryData.value?.accounts.find((a) => a.isMain)
-  return main?.envelopesTotal || 0
-})
 </script>
 
 <template>
@@ -944,7 +926,7 @@ const mainEnvelopesTotal = computed(() => {
         <div v-for="a in activeAccounts" :key="a.id" class="flex items-center gap-2.5">
           <span class="text-[13px] text-gray-600 w-36 shrink-0">{{ a.name }}</span>
           <input v-model="newMonth.snapshots[a.id]" type="number" step="0.01" class="input w-28" placeholder="—" @keyup.enter="submitCreate" />
-          <span v-if="suggestionDelta(a.id) !== null" class="text-[11px]" :class="suggestionDelta(a.id) > 0 ? 'text-emerald-600' : 'text-amber-600'" :title="'Suggéré : ' + fmt(suggested[a.id])">
+          <span v-if="suggestionDelta(a.id) !== null" class="text-[11px] num" :class="suggestionDelta(a.id) > 0 ? 'text-emerald-600' : 'text-amber-600'" :title="'Suggéré : ' + fmt(suggested[a.id])">
             {{ suggestionDelta(a.id) > 0 ? '+' : '' }}{{ fmt(suggestionDelta(a.id)) }} non expliqué
           </span>
         </div>
@@ -966,7 +948,7 @@ const mainEnvelopesTotal = computed(() => {
               :title="'Recopier le solde saisi pour ' + e.accountName"
               @click="copyAccountBalance(e)"
             >= {{ e.accountName }}</button>
-            <span v-if="envelopeDelta(e) !== null" class="text-[11px]" :class="envelopeDelta(e) > 0 ? 'text-emerald-600' : 'text-amber-600'">
+            <span v-if="envelopeDelta(e) !== null" class="text-[11px] num" :class="envelopeDelta(e) > 0 ? 'text-emerald-600' : 'text-amber-600'">
               {{ envelopeDelta(e) > 0 ? '+' : '' }}{{ fmt(envelopeDelta(e)) }} d'ajustement
             </span>
           </div>
@@ -1028,7 +1010,7 @@ const mainEnvelopesTotal = computed(() => {
             <label v-if="sourceEnvelope?.targetAmount && lineForm.actualAmount" class="checkbox self-end" title="La cible affichée est corrigée d'autant : le reste à épargner ne bouge pas"><input v-model="lineForm.envelopeInTarget" type="checkbox" /><span>déduire de l'objectif</span></label>
             <label class="field"><span>Moyen de paiement</span>
               <select v-model="lineForm.paymentMethod" class="input w-32">
-                <option v-for="m in settings?.paymentMethods || ['CB']" :key="m" :value="m">{{ m }}</option>
+                <option v-for="m in settings?.paymentMethods || []" :key="m" :value="m">{{ m }}</option>
               </select>
             </label>
             <label v-if="isTransfer" class="field" :title="lineFormCategoryType === 'depense' ? 'Provision : l\'argent part vers un de vos comptes (ex. 70 € / mois vers le compte factures)' : 'Compte destination'"><span>Vers</span>
@@ -1109,7 +1091,7 @@ const mainEnvelopesTotal = computed(() => {
             <label v-if="entrySourceEnvelope?.targetAmount" class="checkbox self-end" title="La cible affichée est corrigée d'autant : le reste à épargner ne bouge pas"><input v-model="entryForm.envelopeInTarget" type="checkbox" /><span>déduire de l'objectif</span></label>
             <label class="field"><span>Moyen de paiement</span>
               <select v-model="entryForm.paymentMethod" class="input w-32">
-                <option v-for="m in settings?.paymentMethods || ['CB']" :key="m" :value="m">{{ m }}</option>
+                <option v-for="m in settings?.paymentMethods || []" :key="m" :value="m">{{ m }}</option>
               </select>
             </label>
             <label v-if="entryIsTransfer" class="field" title="Vers un de vos comptes (provision, virement interne) ou extérieur"><span>Vers</span>
@@ -1142,8 +1124,8 @@ const mainEnvelopesTotal = computed(() => {
     <AppModal :open="!!shortfall" title="Enveloppe insuffisante" @close="shortfall = null">
       <div v-if="shortfall" class="flex flex-col gap-3 text-[13px]">
         <p>
-          L'enveloppe <b>« {{ shortfall.envelopeName }} »</b> contient <b>{{ fmt(shortfall.available) }}</b>
-          pour un paiement de <b>{{ fmt(shortfall.amount) }}</b> — il manque <b class="text-amber-600">{{ fmt(shortfall.missing) }}</b>.
+          L'enveloppe <b>« {{ shortfall.envelopeName }} »</b> contient <b class="num">{{ fmt(shortfall.available) }}</b>
+          pour un paiement de <b class="num">{{ fmt(shortfall.amount) }}</b> — il manque <b class="num text-amber-600">{{ fmt(shortfall.missing) }}</b>.
         </p>
         <div class="flex flex-wrap gap-3 items-end">
           <label class="field"><span>Le reste est pris sur</span>
@@ -1153,8 +1135,8 @@ const mainEnvelopesTotal = computed(() => {
           </label>
         </div>
         <p class="text-[11.5px] text-gray-400">
-          Comme la banque le montre : le paiement de {{ fmt(shortfall.amount) }} depuis {{ accountById(shortfall.line.fromAccountId)?.name || 'le compte principal' }},
-          un virement de {{ fmt(shortfall.available) }} depuis l'enveloppe (elle tombe à 0)<template v-if="shortfall.accountId && shortfall.accountId !== (shortfall.line.fromAccountId || accounts.find((a) => a.isMain)?.id)">, et un virement de {{ fmt(shortfall.missing) }} depuis {{ accountById(shortfall.accountId)?.name }}</template>.
+          Comme la banque le montre : le paiement de <span class="num">{{ fmt(shortfall.amount) }}</span> depuis {{ accountById(shortfall.line.fromAccountId)?.name || 'le compte principal' }},
+          un virement de <span class="num">{{ fmt(shortfall.available) }}</span> depuis l'enveloppe (elle tombe à 0)<template v-if="shortfall.accountId && shortfall.accountId !== (shortfall.line.fromAccountId || accounts.find((a) => a.isMain)?.id)">, et un virement de <span class="num">{{ fmt(shortfall.missing) }}</span> depuis {{ accountById(shortfall.accountId)?.name }}</template>.
           L'échéance avance d'un cycle et la mensualité repart. Supprimer l'entrée (×) annule tout.
         </p>
       </div>
@@ -1491,7 +1473,7 @@ const mainEnvelopesTotal = computed(() => {
               <div v-if="env.targetAmount" class="goal-bar"><div class="goal-fill" :style="{ width: Math.min(100, envelopePct(env) || 0) + '%' }" /></div>
               <div class="side-meta">
                 <span v-if="env.accountName">{{ env.accountName }}</span><span v-if="env.monthlySuggestion" class="num"> · {{ fmt(env.monthlySuggestion) }}/mois</span>
-                <span v-if="contribsForEnvelope(env).length" class="tag tag-credit num">{{ contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? '+' : '' }}{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois</span>
+                <span v-if="contribsForEnvelope(env).length" class="tag num" :class="contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? 'tag-credit' : 'tag-alert'">{{ contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? '+' : '' }}{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois</span>
                 <span v-if="env.targetAmount" class="side-rest num">reste {{ fmt(Math.max(0, Math.round((env.effectiveTarget - env.total) * 100) / 100)) }}</span>
               </div>
               <div v-if="openEnvelopeId === env.id" class="side-expand" @click.stop>
@@ -1695,11 +1677,6 @@ const mainEnvelopesTotal = computed(() => {
 .reg-sec-real { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); text-align: right; }
 .chev { color: var(--c-ink-3); justify-self: center; transition: transform var(--dur-fast) var(--ease); transform: rotate(-90deg); }
 .chev.is-open { transform: rotate(0deg); }
-.sec-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--c-track); }
-.sec-fill { height: 100%; background: var(--c-fill); transition: width var(--dur-base) var(--ease); }
-.sec-fill.is-warn { background: var(--c-fill-warn); }
-.sec-fill.is-over { background: var(--c-fill-over); box-shadow: inset -2px 0 0 var(--c-over); }
-
 .reg-row { border-bottom: 1px solid var(--c-line); cursor: pointer; transition: background-color var(--dur-fast) var(--ease); position: relative; }
 .reg-rowwrap:last-of-type .reg-row { border-bottom: none; }
 .reg-row:hover { background: var(--c-surface-hover); }
@@ -1910,15 +1887,6 @@ const mainEnvelopesTotal = computed(() => {
 .input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
 .input:disabled { opacity: 0.5; }
 .checkbox { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); cursor: pointer; }
-.badge {
-  display: inline-flex; align-items: center;
-  font-size: var(--t-meta); font-weight: 500;
-  padding: 1px var(--s-3);
-  border-radius: var(--r-control);
-  background: var(--c-surface-sunken); color: var(--c-ink-2);
-  border: 1px solid var(--c-line);
-  flex-shrink: 0;
-}
 
 /* Focus visible partout */
 button:focus-visible, select:focus-visible, a:focus-visible {

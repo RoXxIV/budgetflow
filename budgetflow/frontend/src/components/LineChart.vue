@@ -3,6 +3,7 @@
 // toutes les séries au mois survolé. Le parent passe uniquement les séries visibles
 // (la légende et ses bascules vivent chez lui).
 import { ref, computed } from 'vue'
+import { eur } from '@/lib/format.js'
 
 const props = defineProps({
   labels: { type: Array, required: true },  // libellés X (mois)
@@ -66,7 +67,7 @@ function onMove(evt) {
   hover.value = Math.min(props.labels.length - 1, Math.max(0, i))
 }
 
-const fmt = (n) => (n ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
+const fmt = eur // même format que partout (espaces fines U+202F)
 const fmtTick = (n) => n.toLocaleString('fr-FR', { maximumFractionDigits: 0 })
 const tipStyle = computed(() => {
   if (hover.value === null) return {}
@@ -107,7 +108,7 @@ const xEvery = computed(() => (props.labels.length > 14 ? 2 : 1))
       <p class="tip-title mb-1">{{ labels[hover] }}</p>
       <p v-for="s in series" :key="s.key" class="flex items-center gap-2 py-px">
         <span class="inline-block w-3 h-0.5 rounded shrink-0" :style="{ background: s.color }" />
-        <span class="tip-val">{{ s.points[hover] === null || s.points[hover] === undefined ? '—' : fmt(s.points[hover]) }}</span>
+        <span class="tip-val num">{{ s.points[hover] === null || s.points[hover] === undefined ? '—' : fmt(s.points[hover]) }}</span>
         <span class="tip-name">{{ s.name }}</span>
       </p>
     </div>

@@ -33,8 +33,11 @@ const RANGES = [
   { value: 'all', label: 'Tout' },
 ]
 const periods = computed(() => (range.value === 'all' ? basePeriods.value : basePeriods.value.slice(-Number(range.value))))
-const startIdx = computed(() => (periods.value.length ? allPeriods.value.indexOf(periods.value[0]) : 0))
-const slice = (points) => points.slice(startIdx.value, startIdx.value + periods.value.length)
+// Découpe par INDEX de période, pas par tranche contiguë : quand le mois en cours est exclu
+// mais qu'un mois suivant existe déjà (créé en avance), la liste a un trou au milieu — une
+// tranche contiguë décalerait toutes les valeurs d'un cran sous les mauvais labels (revue 04/09)
+const sliceIdxs = computed(() => periods.value.map((p) => allPeriods.value.indexOf(p)))
+const slice = (points) => sliceIdxs.value.map((i) => points[i])
 const labels = computed(() => periods.value.map((p) => {
   const [y, m] = p.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit', timeZone: 'UTC' })

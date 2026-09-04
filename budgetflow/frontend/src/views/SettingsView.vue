@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getSettings, updateSettings } from '@/api/settings.js'
 import { getCategories, createCategory, updateCategory, reorderCategories, deleteCategory } from '@/api/categories.js'
 import { getThemes, createTheme, updateTheme, deleteTheme, mergeTheme } from '@/api/themes.js'
@@ -32,7 +32,7 @@ async function load() {
   templateLines.value = tlRes.data
   calculators.value = calcRes.data
 }
-onMounted(load)
+onMounted(async () => { try { await load() } catch (e) { apiError(e) } })
 
 const fmt = eur
 // Première lettre en majuscule à la saisie (les sigles courts restent tels quels)
@@ -69,8 +69,10 @@ async function saveGeneral(patch) {
 }
 async function commitRate() {
   if (edit.value.key !== 'rate') return
-  const v = Math.min(100, Math.max(0, parseFloat(String(edit.value.val).replace(',', '.')) || 0))
+  const raw = parseFloat(String(edit.value.val).replace(',', '.'))
   cancelEdit()
+  if (Number.isNaN(raw)) return // saisie invalide : on garde la valeur en place, jamais 0 en silence
+  const v = Math.min(100, Math.max(0, raw))
   if (v !== settings.value.savingRate) await saveGeneral({ savingRate: v })
 }
 // « 40 % de 2 418,00 € = 967,20 € par mois » — sur les revenus prévus du template
@@ -237,13 +239,13 @@ async function applyPresets() {
 // ─── Thèmes : plus de couleur stockée à la saisie, recherche, tri, fusion via menu ───
 const themeSearch = ref('')
 const themeSort = ref('alpha') // 'alpha' | 'usage'
-const themeUsage = (t) => (t.lines || 0) + (t.entries || 0)
+const themeUsage = (t) => (t.lines || 0) + (t.entries || 0) + (t.calculators || 0)
 const sortedThemes = computed(() => {
   const q = themeSearch.value.trim().toLowerCase()
   const list = themes.value.filter((t) => !q || t.name.toLowerCase().includes(q))
   return themeSort.value === 'usage'
     ? [...list].sort((a, b) => themeUsage(a) - themeUsage(b) || a.name.localeCompare(b.name, 'fr'))
-    : list
+    : [...list].sort((a, b) => a.name.localeCompare(b.name, 'fr')) // A-Z explicite, sans dépendre de l'ordre du backend
 })
 const newTheme = ref('')
 async function addTheme() {
@@ -285,6 +287,7 @@ async function removeThemeConfirm(theme) {
 // Fusion (l'ancien select anonyme, désormais nommée et confirmée)
 const mergeFor = ref(null)     // thème source
 const mergeTargetId = ref('')
+onUnmounted(() => { clearTimeout(savedTimer); clearTimeout(calcCheckTimer) })
 function openMerge(theme) {
   mergeFor.value = theme
   mergeTargetId.value = ''
@@ -435,7 +438,7 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
             <input v-focus v-model="edit.val" type="text" inputmode="decimal" class="input w-16 num text-right" @click.stop @blur="commitRate" @keyup.enter="$event.target.blur()" @keydown.esc="cancelEdit" />
             <span class="rate-suffix">%</span>
           </span>
-          <span v-if="savingsPhrase" class="meta text-[12px]">{{ savingsPhrase }}</span>
+          <span v-if="savingsPhrase" class="meta text-[12px] num">{{ savingsPhrase }}</span>
         </div>
       </div>
       <div class="gen-block">
@@ -555,7 +558,7 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
             <input v-else v-focus v-model="edit.val" type="text" class="input edit-input" @click.stop
               @blur="commitThemeName(theme)" @keyup.enter="$event.target.blur()" @keydown.esc="cancelEdit" />
           </span>
-          <span class="cell-usage" :class="{ 'is-warn': !themeUsage(theme) }" :title="(theme.lines || 0) + ' ligne(s) · ' + (theme.entries || 0) + ' entrée(s)'">
+          <span class="cell-usage" :class="{ 'is-warn': !themeUsage(theme) }" :title="(theme.lines || 0) + ' ligne(s) · ' + (theme.entries || 0) + ' entrée(s)' + ((theme.calculators || 0) ? ' · ' + theme.calculators + ' calculateur(s)' : '')">
             {{ themeUsage(theme) ? themeUsage(theme) : 'inutilisé' }}
           </span>
           <span class="cell-actions" @click.stop>
