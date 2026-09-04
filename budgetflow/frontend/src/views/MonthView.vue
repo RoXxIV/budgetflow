@@ -963,7 +963,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
       <div class="flex flex-col gap-4">
         <!-- Quoi / combien -->
         <div class="flex flex-wrap gap-3 items-end">
-          <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-44" placeholder="Hôtel Japon, Canva, Cadeau…" @keyup.enter="submitLineForm" /></label>
+          <label class="field"><span>Libellé</span><input v-model="lineForm.label" type="text" class="input w-44" placeholder="Restaurant, Cadeau, Pharmacie…" @keyup.enter="submitLineForm" /></label>
           <template v-if="!lineForm.isPot">
             <label class="field"><span class="flex items-center gap-1">Prévu (€) <HelpTip text="À venir : la ligne aura une case ☐ à cocher quand ce sera passé (ex. « on me rend 100 € la semaine prochaine »)." /></span><input v-model="lineForm.plannedAmount" type="number" step="0.01" class="input w-24" placeholder="à venir" @keyup.enter="submitLineForm" /></label>
             <label v-if="lineModalAdding" class="field"><span class="flex items-center gap-1">Montant (€) <HelpTip text="Déjà passé : l'entrée est créée tout de suite avec ce montant. Une seule saisie pour une dépense ponctuelle." /></span><input v-model="lineForm.actualAmount" type="number" step="0.01" class="input w-24" placeholder="déjà passé" @keyup.enter="submitLineForm" /></label>

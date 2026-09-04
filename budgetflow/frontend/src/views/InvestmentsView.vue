@@ -297,7 +297,7 @@ async function deleteMovement(asset, m) {
     <!-- ─── Formulaire actif ─────────────────────────── -->
     <AppModal :open="formOpen" :title="editingId ? 'Modifier l\'actif' : 'Nouvel actif'" @close="formOpen = false">
       <div class="flex flex-wrap gap-4 items-end">
-        <label class="field"><span>Nom</span><input v-model="form.name" type="text" class="input w-44" placeholder="MSCI World, BTC…" @keyup.enter="submit" /></label>
+        <label class="field"><span>Nom</span><input v-model="form.name" type="text" class="input w-44" placeholder="ETF Monde, Bitcoin…" @keyup.enter="submit" /></label>
         <label class="field"><span>Type</span>
           <select v-model="form.type" class="input w-32">
             <option value="">—</option>

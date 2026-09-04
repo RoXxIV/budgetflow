@@ -433,7 +433,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
       <div class="flex flex-wrap gap-4 items-end">
         <label class="field">
           <span>Nom</span>
-          <input v-model="accountForm.name" type="text" class="input w-48" placeholder="N26, Livret A…" @keyup.enter="submitAccount" />
+          <input v-model="accountForm.name" type="text" class="input w-48" placeholder="Compte courant, Livret…" @keyup.enter="submitAccount" />
         </label>
         <label class="field">
           <span class="flex items-center gap-1">Type <HelpTip wide text="Descriptif : n'affecte aucun calcul (ce sont les catégories et les enveloppes qui pilotent l'argent). Il sert au badge, servira aux regroupements des stats, et à la création un compte épargne propose un solde initial + une enveloppe automatique ; un compte investissement est proposé par défaut comme hôte des actifs." /></span>
@@ -452,7 +452,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <label class="checkbox">
             <input v-model="accountForm.multiProjects" type="checkbox" />
             <span>Ce compte sert à plusieurs projets</span>
-            <HelpTip text="Par défaut un compte épargne reçoit une enveloppe du même nom (un livret = un projet). Cochez si ce compte abritera plusieurs enveloppes (ex. « Japon » et « Matelas » sur le même livret) : vous les créerez ensuite." />
+            <HelpTip text="Par défaut un compte épargne reçoit une enveloppe du même nom (un livret = un projet). Cochez si ce compte abritera plusieurs enveloppes (ex. « Vacances » et « Imprévus » sur le même livret) : vous les créerez ensuite." />
           </label>
         </template>
         <label class="checkbox" :class="{ 'opacity-60': isEditingMain }">
@@ -486,7 +486,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
       <div class="flex flex-wrap gap-4 items-end">
         <label class="field">
           <span>Nom</span>
-          <input v-model="envelopeForm.name" type="text" class="input w-48" placeholder="Japon, Matelas…" @keyup.enter="submitEnvelope" />
+          <input v-model="envelopeForm.name" type="text" class="input w-48" placeholder="Vacances, Imprévus…" @keyup.enter="submitEnvelope" />
         </label>
         <label class="field">
           <span class="flex items-center gap-1">Compte hôte (optionnel) <HelpTip text="Où l'argent de l'enveloppe se trouve physiquement. Sans compte, l'enveloppe est virtuelle : l'argent reste sur le compte principal, simplement réservé." /></span>
