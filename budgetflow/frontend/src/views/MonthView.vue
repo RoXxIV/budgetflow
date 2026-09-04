@@ -413,6 +413,37 @@ async function jumpToLine(t) {
   document.getElementById('sec-' + key)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+// ─── Mouvements internes (bas du registre) : la trace des opérations sans ligne ───
+// Virements sans rattachement (clôture/réaffectation d'enveloppe inter-comptes, virement
+// libre, désactivation de compte) + contributions administratives d'enveloppes datées du
+// mois (réaffectations, ajustements, montants initiaux). Affichage seul : rien ici n'est
+// une dépense, ces mouvements ne font que déplacer ou réserver votre argent.
+const CONTRIB_LABELS = { initiale: 'montant initial', ajustement: 'ajustement', reaffectation: 'réaffectation' }
+const internalOpen = ref(true)
+const accName = (id) => accounts.value.find((a) => a.id === id)?.name || '?'
+const internalMovements = computed(() => {
+  const rows = []
+  for (const e of entriesAll.value) {
+    if (e.lineId || e.relatedLineId) continue
+    rows.push({
+      key: 'e' + e.id, date: e.date, entry: e,
+      label: e.label || 'Virement',
+      detail: accName(e.accountId) + ' → ' + (e.toAccountId ? accName(e.toAccountId) : 'extérieur'),
+      amount: e.amount, signed: false,
+    })
+  }
+  for (const c of monthContribs.value) {
+    if (c.kind === 'normale' || c.kind === 'depense') continue
+    rows.push({
+      key: 'c' + c.id, date: c.date, entry: null,
+      label: c.envelopeName,
+      detail: (CONTRIB_LABELS[c.kind] || c.kind) + (c.notes ? ' · ' + c.notes : ''),
+      amount: c.amount, signed: true,
+    })
+  }
+  return rows.sort((a, b) => (a.date < b.date ? -1 : 1))
+})
+
 // Total dépenses du registre (addendum §3 — limité aux catégories de type dépense :
 // additionner revenus et dépenses n'aurait pas de sens)
 const plannedDepenses = computed(() => groups.value.filter((g) => g.category.type === 'depense').reduce((s, g) => s + g.planned, 0))
@@ -1345,6 +1376,38 @@ const mainEnvelopesTotal = computed(() => {
               </div>
             </section>
 
+            <!-- Mouvements internes : la trace des clôtures/réaffectations d'enveloppes et
+                 virements sans ligne du mois — rien ici n'est une dépense -->
+            <section v-if="internalMovements.length" class="reg-section">
+              <div class="reg-sec-head" @click="internalOpen = !internalOpen">
+                <div class="reg-grid">
+                  <span></span>
+                  <span class="reg-sec-main">
+                    <span class="reg-sec-title has-tip" title="Virements entre vos comptes et opérations d'enveloppes (réaffectations, ajustements, montants initiaux) datés de ce mois. Votre argent bouge de poche, il n'est ni gagné ni dépensé — rien n'entre dans les totaux.">Mouvements internes</span>
+                    <span class="reg-sec-count num">{{ internalMovements.length }}</span>
+                  </span>
+                  <span class="num reg-sec-prev"></span>
+                  <span class="num reg-sec-real"></span>
+                  <PhCaretDown :size="14" class="chev" :class="{ 'is-open': internalOpen }" />
+                </div>
+              </div>
+              <div v-if="internalOpen">
+                <div v-for="mv in internalMovements" :key="mv.key" class="reg-grid reg-row is-internal">
+                  <span></span>
+                  <span class="cell-label">
+                    <span class="row-label">{{ mv.label }}</span>
+                    <span class="tag tag-neutral">{{ mv.entry ? 'virement' : 'enveloppe' }}</span>
+                    <span class="row-detail">{{ mv.detail }}</span>
+                  </span>
+                  <span class="num cell-prev">{{ shortDate(mv.date) }}</span>
+                  <span class="num cell-real"><span :class="mv.signed ? (mv.amount >= 0 ? 'is-credit' : 'is-over') : 'ink'">{{ mv.signed ? (mv.amount >= 0 ? '+' : '−') + fmt(Math.abs(mv.amount)) : fmt(mv.amount) }}</span></span>
+                  <span class="cell-actions">
+                    <button v-if="mv.entry && !current.isClosed" class="btn-icon is-danger" title="Supprimer ce virement (le mouvement entre comptes est annulé)" @click.stop="removeEntry(mv.entry)">×</button>
+                  </span>
+                </div>
+              </div>
+            </section>
+
             <!-- Ligne de totaux (addendum §3) — dépenses uniquement, un total mêlant
                  revenus et dépenses n'aurait pas de sens -->
             <div class="reg-grid reg-total">
@@ -1641,6 +1704,9 @@ const mainEnvelopesTotal = computed(() => {
 .reg-rowwrap:last-of-type .reg-row { border-bottom: none; }
 .reg-row:hover { background: var(--c-surface-hover); }
 .reg-row.is-alert::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c-over); }
+.reg-row.is-internal { cursor: default; }
+.reg-row.is-internal:hover { background: none; }
+.reg-row.is-internal .row-label { font-weight: 400; color: var(--c-ink-2); }
 .cell-point { display: flex; justify-content: center; }
 .cell-label { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
 .row-label { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
