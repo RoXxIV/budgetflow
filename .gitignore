@@ -8,11 +8,12 @@ build/
 coverage/
 
 # Tauri / Rust (artefacts de compilation, très lourds)
-frontend_budgetflow/src-tauri/target/
-frontend_budgetflow/src-tauri/gen/
+budgetflow/src-tauri/target/
+budgetflow/src-tauri/gen/
 
-# Backend packagé en sidecar (binaire généré)
-frontend_budgetflow/src-tauri/binaries/
+# Généré par build-app.cmd : runtime backend copié et base seed (données réelles !)
+budgetflow/src-tauri/backend/
+budgetflow/src-tauri/seed/
 
 # ─── Secrets / config locale ─────────────────
 .env
