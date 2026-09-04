@@ -1547,14 +1547,16 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                 </div>
                 <!-- Mensualisée : le geste qui ferme la boucle — le virement réel est passé,
                      on vide l'enveloppe vers le compte remboursé et le cycle repart -->
-                <div v-if="!current.isClosed && env.linkedTemplateLineId" class="side-liquidate">
-                  <button v-if="env.total > 0" class="link-accent" @click.stop="openLiquidation(env)">Liquider et renouveler</button>
-                  <!-- « Rétablir » reste accessible même après un versement : un état « annulé + versé »
-                       serait contradictoire et impossible à nettoyer (retour de test d'Evan) -->
+                <div v-if="!current.isClosed && (env.linkedTemplateLineId || env.monthlySuggestion > 0 || isSkipped('envelope', env.id))" class="side-liquidate">
+                  <button v-if="env.linkedTemplateLineId && env.total > 0" class="link-accent" @click.stop="openLiquidation(env)">Liquider et renouveler</button>
+                  <!-- Toutes les enveloppes à mensualité (liées OU libres comme le Matelas) : le skip
+                       fait taire la case et la suggestion ce mois-ci — et retire la mensualité du
+                       Reste à vivre quand elle y était déduite (enveloppes liées). « Rétablir » reste
+                       accessible même après un versement (état contradictoire sinon). -->
                   <button
                     v-if="isSkipped('envelope', env.id) || (env.monthlySuggestion > 0 && !contribsForEnvelope(env).some((c) => c.kind === 'normale'))"
                     class="link-accent"
-                    :title="isSkipped('envelope', env.id) ? 'Re-déduire la mensualité du Reste à vivre' : 'Ce mois-ci, pas de versement : le Reste à vivre ne le déduira plus'"
+                    :title="isSkipped('envelope', env.id) ? 'Reprendre la mensualité ce mois-ci' : 'Ce mois-ci, pas de versement pour ce projet'"
                     @click.stop="toggleSkip('envelope', env.id)"
                   >{{ isSkipped('envelope', env.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
                 </div>
