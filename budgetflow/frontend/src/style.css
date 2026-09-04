@@ -72,6 +72,15 @@ input[type='radio']:focus-visible {
   100% { transform: scale(1); }
 }
 
+/* ─── Mode discret ─────────────────────────────────────────
+   data-privacy="on" sur <html> (œil du sous-header de la page Mois) : tous les
+   chiffres — la classe .num que porte chaque montant — sont floutés et
+   non sélectionnables. Un seul attribut, zéro classe à ajouter. */
+:root[data-privacy='on'] .num {
+  filter: blur(6px);
+  user-select: none;
+}
+
 /* Pas de spinners ▲▼ sur les champs numériques (les flèches ↑/↓ du clavier marchent toujours) */
 input[type='number']::-webkit-inner-spin-button,
 input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }

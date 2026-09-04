@@ -82,7 +82,7 @@ const xEvery = computed(() => (props.labels.length > 14 ? 2 : 1))
     <svg ref="svgEl" :viewBox="`0 0 ${W} ${H}`" class="w-full block select-none" @pointermove="onMove" @pointerleave="hover = null">
       <g>
         <line v-for="t in ticks" :key="'g' + t" :x1="PAD.l" :x2="W - PAD.r" :y1="y(t)" :y2="y(t)" stroke="var(--c-line)" stroke-width="1" />
-        <text v-for="t in ticks" :key="'t' + t" :x="PAD.l - 8" :y="y(t) + 4" text-anchor="end" font-size="11" fill="var(--c-ink-3)" style="font-variant-numeric: tabular-nums">{{ fmtTick(t) }}</text>
+        <text v-for="t in ticks" :key="'t' + t" class="num" :x="PAD.l - 8" :y="y(t) + 4" text-anchor="end" font-size="11" font-weight="400" fill="var(--c-ink-3)" style="font-variant-numeric: tabular-nums">{{ fmtTick(t) }}</text>
       </g>
       <g>
         <template v-for="(lab, i) in labels" :key="'x' + i">

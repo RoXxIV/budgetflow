@@ -11,6 +11,8 @@ import {
   PhCaretDown,
   PhGearSix,
   PhCheck,
+  PhEye,
+  PhEyeSlash,
 } from '@phosphor-icons/vue'
 
 export const icons = {
@@ -23,6 +25,8 @@ export const icons = {
   PhCaretDown,
   PhGearSix,
   PhCheck,
+  PhEye,
+  PhEyeSlash,
 }
 
 // Plugin Vue : enregistre chaque icône du registre comme composant global

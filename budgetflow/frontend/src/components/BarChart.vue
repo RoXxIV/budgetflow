@@ -109,7 +109,7 @@ const xEvery = computed(() => (props.labels.length > 14 ? 2 : 1))
       <rect v-if="hover !== null" :x="x0(hover)" :y="PAD.t" :width="groupW" :height="plotH" fill="var(--c-surface-hover)" />
       <g>
         <line v-for="t in ticks" :key="'g' + t" :x1="PAD.l" :x2="W - PAD.r" :y1="y(t)" :y2="y(t)" stroke="var(--c-line)" stroke-width="1" />
-        <text v-for="(t, ti) in ticks" :key="'t' + t" :x="PAD.l - 8" :y="y(t) + 4" text-anchor="end" font-size="11" fill="var(--c-ink-3)" style="font-variant-numeric: tabular-nums">{{ fmtTick(t, ti === ticks.length - 1) }}</text>
+        <text v-for="(t, ti) in ticks" :key="'t' + t" class="num" :x="PAD.l - 8" :y="y(t) + 4" text-anchor="end" font-size="11" font-weight="400" fill="var(--c-ink-3)" style="font-variant-numeric: tabular-nums">{{ fmtTick(t, ti === ticks.length - 1) }}</text>
       </g>
       <g>
         <template v-for="(lab, i) in labels" :key="'x' + i">

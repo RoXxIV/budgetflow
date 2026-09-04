@@ -14,6 +14,7 @@ import { getMonthCalculators, saveMonthReadings, regularizeCalculator } from '@/
 import AppModal from '@/components/AppModal.vue'
 import HelpTip from '@/components/HelpTip.vue'
 import { confirmDialog, apiError } from '@/composables/useDialog.js'
+import { getPrivacy, setPrivacy } from '@/lib/privacy.js'
 import { getAssets, addAssetMovement, removeAssetMovement, getMonthAssetMovements, dcaAsset, undcaAsset } from '@/api/assets.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
@@ -81,6 +82,13 @@ async function openMonth(month) {
 
 async function reload() {
   await loadMonthData(current.value.id)
+}
+
+// ─── Mode discret : floute tous les .num de l'app (voir lib/privacy.js) ───
+const privacyOn = ref(getPrivacy())
+function togglePrivacy() {
+  privacyOn.value = !privacyOn.value
+  setPrivacy(privacyOn.value)
 }
 
 // ─── Note du mois : texte libre, une par mois, enregistrée au blur ───
@@ -1197,6 +1205,15 @@ const mainEnvelopesTotal = computed(() => {
         </div>
         <div class="synth-right">
           <div class="synth-month">
+            <button
+              class="btn-icon privacy-btn"
+              :class="{ 'is-on': privacyOn }"
+              :title="privacyOn ? 'Mode discret actif — cliquez pour réafficher les chiffres' : 'Mode discret : flouter tous les chiffres (écran partagé, transports)'"
+              @click="togglePrivacy"
+            >
+              <PhEyeSlash v-if="privacyOn" :size="16" />
+              <PhEye v-else :size="16" />
+            </button>
             <button class="btn-icon" title="Mois précédent" :disabled="!prevMonthTarget" @click="stepMonth(-1)">‹</button>
             <select class="month-select" :value="current?.id" @change="onMonthSelect">
               <option v-for="m in monthsList" :key="m.id" :value="m.id">{{ m.name }}</option>
@@ -1704,6 +1721,7 @@ const mainEnvelopesTotal = computed(() => {
 .reg-rowwrap:last-of-type .reg-row { border-bottom: none; }
 .reg-row:hover { background: var(--c-surface-hover); }
 .reg-row.is-alert::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c-over); }
+.privacy-btn.is-on { color: var(--c-accent); background: var(--c-accent-soft); }
 .reg-row.is-internal { cursor: default; }
 .reg-row.is-internal:hover { background: none; }
 .reg-row.is-internal .row-label { font-weight: 400; color: var(--c-ink-2); }
