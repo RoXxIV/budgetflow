@@ -74,3 +74,12 @@ test("prévu : la cagnotte compte pour son montant calculé, comme sur les pages
   const t = stats.overview().types.find((x) => x.period === period);
   assert.ok(eq(t.planned.depense, before + 100 + 265), `prévu dépense = ${t.planned.depense}, attendu ${before + 365}`);
 });
+
+test("épargne réelle : les mensualités d'une enveloppe liée (dépense provisionnée) sont exclues", () => {
+  const before = stats.overview().types.find((x) => x.period === period).real.epargne;
+  const ann = lines.create(null, { label: "Annuelle", categoryId: catDep.id, plannedAmount: 120, intervalMonths: 12, anchorMonth: 1, fromAccountId: main.id });
+  const envId = lines.setMonthlyized(ann.id, { enabled: true }).envelopeId;
+  S.envelopes.addContribution(envId, { amount: 40, fromAccountId: main.id });
+  const t = stats.overview().types.find((x) => x.period === period);
+  assert.ok(eq(t.real.epargne, before), `épargne inchangée (${t.real.epargne} vs ${before})`);
+});

@@ -167,6 +167,14 @@ test("mensualisation, cycle complet : ENVELOPE_SHORT, virements système, éché
   months.remove(m2.id);
 });
 
+test("mensualité d'une enveloppe liée : provision de dépense, pas de l'épargne", () => {
+  const before = summary.getSummary(m.id).tiles.misDeCote;
+  envelopes.addContribution(annEnv.id, { amount: 30, fromAccountId: main.id });
+  assert.ok(eq(summary.getSummary(m.id).tiles.misDeCote, before), "la mensualité vers l'enveloppe liée ne gonfle pas « mis de côté »");
+  envelopes.addContribution(virt.id, { amount: 30, fromAccountId: main.id });
+  assert.ok(eq(summary.getSummary(m.id).tiles.misDeCote, before + 30), "une enveloppe libre reste de l'épargne");
+});
+
 test("modifier une ligne de mois : thème/compte/paiement se propagent à toutes ses entrées", () => {
   const th2 = themes.create({ name: "Sport" });
   lines.update(mCourses.id, { themeId: th2.id });

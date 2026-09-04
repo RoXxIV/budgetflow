@@ -92,8 +92,18 @@ export function overview() {
      GROUP BY p, t`
   ).forEach((r) => { types[idx[r.p]].planned[r.t] = fromCents(r.s); });
   // L'épargne réelle suit la tuile « Mis de côté » : lignes épargne + contributions normales
-  // + versements d'investissement du mois
-  envRows.forEach((r) => { if (idx[r.p] !== undefined) types[idx[r.p]].real.epargne += fromCents(r.s); });
+  // + versements d'investissement du mois. Les enveloppes liées à une ligne mensualisée sont
+  // exclues : leurs mensualités provisionnent une dépense (Strava annuel), elles n'épargnent pas.
+  const linkedEnvIds = new Set(
+    all("SELECT DISTINCT envelope_id FROM budget_lines WHERE month_id IS NULL AND envelope_id IS NOT NULL").map((r) => r.envelope_id)
+  );
+  const envEpargneRows = all(
+    `SELECT substr(c.date, 1, 7) AS p, c.envelope_id AS eid, SUM(c.amount_cents) AS s
+     FROM envelope_contributions c
+     WHERE c.kind = 'normale'
+     GROUP BY p, eid`
+  ).filter((r) => !linkedEnvIds.has(r.eid));
+  envEpargneRows.forEach((r) => { if (idx[r.p] !== undefined) types[idx[r.p]].real.epargne += fromCents(r.s); });
   all(
     "SELECT substr(date, 1, 7) AS p, SUM(amount_cents) AS s FROM asset_movements WHERE kind = 'versement' GROUP BY p"
   ).forEach((r) => { if (idx[r.p] !== undefined) types[idx[r.p]].real.epargne += fromCents(r.s); });

@@ -202,9 +202,20 @@ export function setMonthlyized(lineId, { enabled, accountId = null }) {
     );
     run("UPDATE budget_lines SET envelope_id = ? WHERE id = ?", Number(lastInsertRowid), lineId);
   } else if (line.envelope_id) {
+    const envId = line.envelope_id;
     run("UPDATE budget_lines SET envelope_id = NULL WHERE id = ?", lineId);
     // Les copies des mois ouverts suivent
     run("UPDATE budget_lines SET envelope_id = NULL WHERE template_line_id = ?", lineId);
+    // L'enveloppe créée par la mensualisation part avec si elle n'a jamais vécu
+    // (même règle qu'à la suppression de la ligne) ; sinon elle reste, à clôturer
+    const contribs = all("SELECT kind, entry_id, amount_cents FROM envelope_contributions WHERE envelope_id = ?", envId);
+    const total = contribs.reduce((s, c) => s + c.amount_cents, 0);
+    const hasRealLife = contribs.some((c) => c.entry_id || c.kind === "normale" || c.kind === "depense");
+    if (total === 0 && !hasRealLife) {
+      run("UPDATE budget_lines SET envelope_id = NULL WHERE envelope_id = ?", envId);
+      run("DELETE FROM envelope_contributions WHERE envelope_id = ?", envId);
+      run("DELETE FROM envelopes WHERE id = ?", envId);
+    }
   }
   return getById(lineId);
 }
@@ -225,8 +236,24 @@ export function remove(id, { force = false } = {}) {
   if (entryCount > 0 && !force) {
     throw httpError(409, `Cette ligne a ${entryCount} entrée(s) qui seront supprimées avec elle.`);
   }
+  // Ligne mensualisée du template : l'enveloppe liée part avec si elle n'a jamais vécu
+  // (soldée à 0, aucun versement réel ni dépense) — même règle que la suppression d'enveloppe.
+  // Avec de la vraie vie, elle reste ouverte, simplement déliée.
+  let suffix = "";
+  if (existing.month_id === null && existing.envelope_id) {
+    const envId = existing.envelope_id;
+    const contribs = all("SELECT kind, entry_id, amount_cents FROM envelope_contributions WHERE envelope_id = ?", envId);
+    const total = contribs.reduce((s, c) => s + c.amount_cents, 0);
+    const hasRealLife = contribs.some((c) => c.entry_id || c.kind === "normale" || c.kind === "depense");
+    if (total === 0 && !hasRealLife) {
+      run("UPDATE budget_lines SET envelope_id = NULL WHERE envelope_id = ?", envId); // copies des mois déliées
+      run("DELETE FROM envelope_contributions WHERE envelope_id = ?", envId);
+      run("DELETE FROM envelopes WHERE id = ?", envId);
+      suffix = " — son enveloppe vide a été supprimée avec";
+    }
+  }
   run("DELETE FROM budget_lines WHERE id = ?", id); // les entrées suivent (CASCADE)
-  return { message: "Ligne supprimée" };
+  return { message: "Ligne supprimée" + suffix };
 }
 
 // « Appliquer au mois » : la ligne du template est copiée dans un mois (ou sa copie mise à jour).

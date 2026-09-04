@@ -252,9 +252,13 @@ const modalLine = ref(null)       // ligne en édition (null = ajout)
 const modalCategory = ref(null)   // catégorie du « + ligne »
 const modalOpen = computed(() => openLineId.value !== null)
 const modalAdding = computed(() => typeof openLineId.value === 'string')
+// Mensualisée : la mise de côté et le remboursement du jour J passent par l'enveloppe
+// (virement système automatique) — « Vers » n'a pas de sens, le paiement va à l'extérieur
+const isMonthlyized = computed(() => Number(form.value.intervalMonths) > 1 && form.value.monthlyize)
 // « Vers » : catégorie à destination, virement (provision vers un de mes comptes / extérieur), ou ligne qui en a déjà un
 const showVers = computed(() =>
-  formCategoryType.value !== 'depense' || /virement/i.test(form.value.paymentMethod || '') || !!form.value.toAccountId
+  !isMonthlyized.value
+  && (formCategoryType.value !== 'depense' || /virement/i.test(form.value.paymentMethod || '') || !!form.value.toAccountId)
 )
 // « Vers » ne propose jamais le compte « Depuis » (un virement vers soi-même n'a pas de sens)
 const versAccounts = computed(() => activeAccounts.value.filter((a) => a.id !== form.value.fromAccountId))
@@ -309,7 +313,7 @@ function formData() {
     categoryId: f.categoryId || null,
     themeId: f.themeId || null,
     fromAccountId: f.fromAccountId || null,
-    toAccountId: f.toAccountId || null,
+    toAccountId: Number(f.intervalMonths) > 1 && f.monthlyize ? null : (f.toAccountId || null),
     paymentMethod: f.paymentMethod || null,
     isShared: f.isShared,
     recurringDay: f.recurringDay === '' ? null : Number(f.recurringDay),
@@ -372,7 +376,7 @@ async function submit() {
 async function removeLineConfirm(line) {
   const ok = await confirmDialog({
     title: 'Supprimer du template',
-    message: `« ${line.label} » ne sera plus copiée dans les prochains mois. Les copies déjà présentes dans les mois restent (détachées du template)${line.envelopeId ? ' ; son enveloppe reste ouverte' : ''}.`,
+    message: `« ${line.label} » ne sera plus copiée dans les prochains mois. Les copies déjà présentes dans les mois restent (détachées du template)${line.envelopeId ? ' ; son enveloppe est supprimée si elle est vide et n\'a jamais servi, sinon elle reste ouverte' : ''}.`,
     confirmLabel: 'Supprimer', danger: true,
   })
   if (!ok) return
@@ -514,6 +518,7 @@ const formCategoryType = computed(() => {
             Enveloppe « {{ envelopeById(modalLine.envelopeId).name }} » : {{ fmt(envelopeById(modalLine.envelopeId).total) }} / {{ fmt(envelopeById(modalLine.envelopeId).targetAmount) }}, ≈ {{ fmt(envelopeById(modalLine.envelopeId).monthlySuggestion) }}/mois.
           </template>
           <template v-else-if="form.monthlyize">L'enveloppe « {{ form.label || '…' }} » sera créée à 0.</template>
+          <template v-if="form.monthlyize"> Le jour J, ☐ payé règle depuis le compte « Depuis » et l'enveloppe le rembourse (virement système automatique).</template>
         </p>
 
         <div class="flex flex-wrap gap-3 items-end">

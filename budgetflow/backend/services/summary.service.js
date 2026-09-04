@@ -191,8 +191,10 @@ export function getSummary(monthId) {
   const savingsFromLines = lines
     .filter((l) => l.category_type === "epargne")
     .reduce((s, l) => s + l.actual_cents, 0);
+  // Les mensualités vers une enveloppe LIÉE à une ligne mensualisée ne sont pas de l'épargne :
+  // c'est une dépense provisionnée (Strava annuel lissé) — elle comptera au paiement, une fois.
   const savingsFromContribs = contributions
-    .filter((c) => c.kind === "normale")
+    .filter((c) => c.kind === "normale" && !linkedEnvelopeIds.includes(c.envelope_id))
     .reduce((s, c) => s + c.amount_cents, 0);
   const savingsFromAssets = assetMovements
     .filter((m) => m.kind === "versement")

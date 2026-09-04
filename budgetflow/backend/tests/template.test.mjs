@@ -89,3 +89,15 @@ test("supprimer une ligne du template : les copies des mois restent, détachées
   const copy = months.getLines(month.id).find((l) => l.label === "Loyer");
   assert.ok(copy, "la copie du mois reste");
 });
+
+test("supprimer une ligne mensualisée : l'enveloppe jamais vécue part avec, la vécue reste", () => {
+  const l1 = lines.create(null, { label: "Assurance", categoryId: catDep.id, plannedAmount: 240, intervalMonths: 12, anchorMonth: 1, fromAccountId: main.id });
+  const e1 = lines.setMonthlyized(l1.id, { enabled: true }).envelopeId;
+  lines.remove(l1.id);
+  refuse(() => envelopes.getById(e1), 404);
+  const l2 = lines.create(null, { label: "Impôts annuels", categoryId: catDep.id, plannedAmount: 300, intervalMonths: 12, anchorMonth: 2, fromAccountId: main.id });
+  const e2 = lines.setMonthlyized(l2.id, { enabled: true }).envelopeId;
+  envelopes.addContribution(e2, { amount: 25, fromAccountId: main.id });
+  lines.remove(l2.id);
+  assert.ok(eq(envelopes.getById(e2).total, 25), "l'enveloppe vécue reste ouverte avec son argent");
+});
