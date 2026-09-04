@@ -21,7 +21,9 @@ router.get("/:id/recalibration", wrap((req, res) => res.json(service.recalibrati
 router.post("/:id/recalibration", wrap((req, res) => res.status(201).json(service.recalibrate(Number(req.params.id), req.body || {}))));
 
 router.get("/:id/contributions", wrap((req, res) => res.json(service.listContributions(Number(req.params.id)))));
-router.post("/:id/contributions", wrap((req, res) => res.status(201).json(service.addContribution(Number(req.params.id), req.body))));
+// `kind` est posé par les services (initiale, ajustement, réaffectation…) — l'accepter du client
+// permettrait de sauter le contrôle du disponible, réservé aux contributions « normale »
+router.post("/:id/contributions", wrap((req, res) => { const { kind, ...body } = req.body || {}; res.status(201).json(service.addContribution(Number(req.params.id), body)); }));
 router.delete("/:id/contributions/:contribId", wrap((req, res) => res.json(service.removeContribution(Number(req.params.id), Number(req.params.contribId)))));
 
 export default router;

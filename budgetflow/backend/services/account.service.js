@@ -79,6 +79,11 @@ export function update(id, data) {
     if (data.isMain === false && existing.is_main) {
       throw httpError(409, "Il faut toujours un compte principal : cochez « Compte principal » sur un autre compte pour lui transférer le rôle");
     }
+    // …et il doit être ACTIF : un principal désactivé disparaîtrait du bilan (plus de disponible,
+    // plus de périmètre) sans qu'aucun autre compte ne prenne le rôle (revue du 04/09)
+    if (data.isMain === true && !existing.is_active) {
+      throw httpError(409, "Un compte désactivé ne peut pas devenir le compte principal : réactivez-le d'abord");
+    }
     if (data.isMain === true) run("UPDATE accounts SET is_main = 0");
     const isMain = data.isMain !== undefined ? (data.isMain ? 1 : 0) : existing.is_main;
     const type = data.type !== undefined ? data.type : existing.type;
@@ -146,30 +151,33 @@ export function setActive(id, isActive, { transferToAccountId = null } = {}) {
     throw httpError(409, `« ${existing.name} » héberge ${openAssets} actif(s) ouvert(s) (investissements) : clôturez-les ou changez leur compte hôte d'abord`);
   }
 
-  // Solde connu et non nul → il faut dire où va l'argent (virement système, puis désactivation)
+  // Solde connu et non nul → il faut dire où va l'argent (virement système, puis désactivation).
+  // Virement + désactivation sont atomiques : un échec ne doit pas laisser l'un sans l'autre.
   const balance = currentBalanceCents(id);
-  if (balance !== null && balance !== 0) {
-    if (!transferToAccountId) {
-      const err = httpError(409, `« ${existing.name} » a un solde de ${(balance / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € : indiquez vers quel compte le virer avant désactivation`);
-      err.payload = { code: "ACCOUNT_HAS_BALANCE", balance: balance / 100 };
-      throw err;
+  return tx(() => {
+    if (balance !== null && balance !== 0) {
+      if (!transferToAccountId) {
+        const err = httpError(409, `« ${existing.name} » a un solde de ${(balance / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € : indiquez vers quel compte le virer avant désactivation`);
+        err.payload = { code: "ACCOUNT_HAS_BALANCE", balance: balance / 100 };
+        throw err;
+      }
+      if (transferToAccountId === id || !get("SELECT id FROM accounts WHERE id = ? AND is_active = 1", transferToAccountId)) {
+        throw httpError(400, "Compte destinataire invalide");
+      }
+      const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1");
+      if (!month) throw httpError(409, "Aucun mois ouvert pour enregistrer le virement du solde");
+      const target = get("SELECT name FROM accounts WHERE id = ?", transferToAccountId).name;
+      run(
+        `INSERT INTO entries (month_id, label, amount_cents, account_id, to_account_id, source)
+         VALUES (?, ?, ?, ?, ?, 'manuelle')`,
+        month.id, `Solde de « ${existing.name} » viré vers « ${target} » avant désactivation`,
+        Math.abs(balance), balance > 0 ? id : transferToAccountId, balance > 0 ? transferToAccountId : id
+      );
     }
-    if (transferToAccountId === id || !get("SELECT id FROM accounts WHERE id = ? AND is_active = 1", transferToAccountId)) {
-      throw httpError(400, "Compte destinataire invalide");
-    }
-    const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1");
-    if (!month) throw httpError(409, "Aucun mois ouvert pour enregistrer le virement du solde");
-    const target = get("SELECT name FROM accounts WHERE id = ?", transferToAccountId).name;
-    run(
-      `INSERT INTO entries (month_id, label, amount_cents, account_id, to_account_id, source)
-       VALUES (?, ?, ?, ?, ?, 'manuelle')`,
-      month.id, `Solde de « ${existing.name} » viré vers « ${target} » avant désactivation`,
-      Math.abs(balance), balance > 0 ? id : transferToAccountId, balance > 0 ? transferToAccountId : id
-    );
-  }
 
-  run("UPDATE accounts SET is_active = 0 WHERE id = ?", id);
-  return getById(id);
+    run("UPDATE accounts SET is_active = 0 WHERE id = ?", id);
+    return getById(id);
+  });
 }
 
 // Solde live du compte sur le mois de référence (null si inconnu)

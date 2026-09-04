@@ -82,3 +82,10 @@ test("régularisation : posée sur la ligne, remplacée si relancée", () => {
   calculators.regularize(m.id, calc.id);
   assert.ok(eq(months.getLines(m.id).find((l) => l.id === mCourses.id).actualAmount, 40 - 266), "pas de doublon");
 });
+
+test("revue 04/09 : un thème porté par un calculateur ne se supprime pas sans prévenir", () => {
+  const th3 = themes.create({ name: "Énergie" });
+  calculators.save(null, { name: "Eau", formula: "v", themeId: th3.id, params: [], readings: [{ symbol: "v", kind: "valeur" }] });
+  refuse(() => themes.remove(th3.id), 409);
+  assert.equal(themes.list().find((t) => t.id === th3.id).calculators, 1, "le compteur d'usage voit le calculateur");
+});

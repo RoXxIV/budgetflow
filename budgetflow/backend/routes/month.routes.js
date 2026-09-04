@@ -35,8 +35,8 @@ router.delete("/:id", wrap((req, res) => res.json(months.remove(id(req)))));
 // Lignes du mois (réel = somme des entrées)
 router.get("/:id/lines", wrap((req, res) => res.json(months.getLines(id(req)))));
 router.post("/:id/lines", wrap((req, res) => { months.assertOpen(id(req)); res.status(201).json(budgetLines.create(id(req), req.body)); }));
-router.put("/:id/lines/:lineId", wrap((req, res) => { months.assertOpen(id(req)); res.json(budgetLines.update(id(req, "lineId"), req.body)); }));
-router.delete("/:id/lines/:lineId", wrap((req, res) => { months.assertOpen(id(req)); res.json(budgetLines.remove(id(req, "lineId"), { force: req.query.force === "1" })); }));
+router.put("/:id/lines/:lineId", wrap((req, res) => { months.assertOpen(id(req)); budgetLines.assertInMonth(id(req, "lineId"), id(req)); res.json(budgetLines.update(id(req, "lineId"), req.body)); }));
+router.delete("/:id/lines/:lineId", wrap((req, res) => { months.assertOpen(id(req)); budgetLines.assertInMonth(id(req, "lineId"), id(req)); res.json(budgetLines.remove(id(req, "lineId"), { force: req.query.force === "1" })); }));
 router.post("/:id/lines/:lineId/apply-to-template", wrap((req, res) => res.json(budgetLines.applyToTemplate(id(req, "lineId")))));
 
 // ☐ payé
@@ -47,9 +47,10 @@ router.delete("/:id/lines/:lineId/pay", wrap((req, res) => res.json(entries.unpa
 router.get("/:id/snapshots", wrap((req, res) => res.json(months.getSnapshots(id(req)))));
 router.put("/:id/snapshots", wrap((req, res) => res.json(months.upsertSnapshots(id(req), req.body.snapshots || []))));
 
-// Entrées
+// Entrées — source et relatedLineId sont posés par les services (virements système, ☐ payé),
+// jamais par le client : les accepter du body permettrait de fausser stats et dépointage
 router.get("/:id/entries", wrap((req, res) => res.json(entries.listByMonth(id(req)))));
-router.post("/:id/entries", wrap((req, res) => res.status(201).json(entries.create(id(req), req.body))));
+router.post("/:id/entries", wrap((req, res) => { const { source, relatedLineId, ...body } = req.body || {}; res.status(201).json(entries.create(id(req), body)); }));
 router.put("/:id/entries/:entryId", wrap((req, res) => res.json(entries.update(id(req, "entryId"), req.body))));
 router.delete("/:id/entries/:entryId", wrap((req, res) => res.json(entries.remove(id(req, "entryId")))));
 

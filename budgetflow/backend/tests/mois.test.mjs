@@ -225,3 +225,19 @@ test("suppressions : ligne avec entrées (force), mois en cascade", () => {
   months.remove(m.id);
   assert.equal(months.list().length, before - 1);
 });
+
+test("revue 04/09 : appartenance ligne-mois, date en mois clôturé, suppression d'un mois clôturé", () => {
+  const mA = months.create({ period }); // le mois du décor a été supprimé par le test précédent
+  // Une ligne du template (ou d'un autre mois) n'est pas modifiable via l'URL d'un mois ouvert
+  const tpl = lines.create(null, { label: "Ligne du template", categoryId: catDep.id, fromAccountId: main.id });
+  refuse(() => lines.assertInMonth(tpl.id, mA.id), 404);
+  lines.remove(tpl.id);
+  // Un mois clôturé est verrouillé : sa suppression aussi, et aucune entrée d'un autre mois ne peut y être datée
+  months.setClosed(mA.id, true);
+  refuse(() => months.remove(mA.id), 409);
+  const mB = months.create({ period: period2 });
+  refuse(() => entries.create(mB.id, { amount: 10, accountId: main.id, date: `${period}-15` }), 409);
+  months.remove(mB.id);
+  months.setClosed(mA.id, false);
+  months.remove(mA.id);
+});

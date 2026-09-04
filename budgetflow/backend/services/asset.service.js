@@ -1,4 +1,4 @@
-import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
+import { all, get, run, toCents, fromCents, httpError } from "../db/index.js";
 
 // Une saisie datée dans un mois clôturé est refusée
 function assertPeriodOpen(date) {
@@ -195,6 +195,9 @@ export function addValuation(assetId, { value, date = null }) {
   if (!get("SELECT id FROM assets WHERE id = ?", assetId)) throw httpError(404, "Actif introuvable");
   const cents = toCents(value);
   if (cents === null || cents < 0) throw httpError(400, "Valeur requise");
+  // Même garde que les mouvements : une valorisation change la valeur d'actif et le patrimoine,
+  // elle ne se pose pas dans un mois clôturé (revue du 04/09)
+  assertPeriodOpen(date ?? new Date().toISOString().substring(0, 10));
   run("INSERT INTO asset_valuations (asset_id, date, value_cents) VALUES (?, COALESCE(?, date('now')), ?)", assetId, date, cents);
   return getById(assetId);
 }
@@ -202,6 +205,7 @@ export function addValuation(assetId, { value, date = null }) {
 export function removeValuation(assetId, valuationId) {
   const v = get("SELECT * FROM asset_valuations WHERE id = ? AND asset_id = ?", valuationId, assetId);
   if (!v) throw httpError(404, "Valorisation introuvable");
+  assertPeriodOpen(v.date);
   run("DELETE FROM asset_valuations WHERE id = ?", valuationId);
   return getById(assetId);
 }

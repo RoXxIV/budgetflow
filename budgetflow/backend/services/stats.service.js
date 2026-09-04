@@ -110,8 +110,14 @@ export function overview() {
   types.forEach((t) => { t.real.epargne = Math.round(t.real.epargne * 100) / 100; });
   // Le prévu d'une cagnotte est calculé (is_pot exclu de la somme ci-dessus) : on l'ajoute
   // avec la même formule que les pages Mois et Template — les trois affichent le même prévu.
+  // Seules les cagnottes en catégorie dépense (ou sans catégorie) comptent : une cagnotte
+  // rangée en transfert suivrait la règle des transferts, exclus des dépenses prévues.
   months.forEach((m) => {
-    computePots(m.id).forEach((p) => { types[idx[m.period]].planned.depense += p.toSend; });
+    const potTypes = Object.fromEntries(all(
+      `SELECT b.id, COALESCE(c.type, 'depense') AS t FROM budget_lines b
+       LEFT JOIN categories c ON c.id = b.category_id WHERE b.month_id = ? AND b.is_pot = 1`, m.id
+    ).map((r) => [r.id, r.t]));
+    computePots(m.id).forEach((p) => { if (potTypes[p.id] === "depense") types[idx[m.period]].planned.depense += p.toSend; });
   });
   types.forEach((t) => { t.planned.depense = Math.round(t.planned.depense * 100) / 100; });
 

@@ -80,3 +80,11 @@ test("clôture d'un actif : plus de mouvement possible", () => {
   assets.update(old.id, { isClosed: true });
   refuse(() => assets.addMovement(old.id, { kind: "versement", amount: 10, date: `${period}-10` }), 409);
 });
+
+test("revue 04/09 : les valorisations respectent la clôture du mois", () => {
+  months.setClosed(m.id, true);
+  refuse(() => assets.addValuation(etf.id, { value: 1200, date: `${period}-15` }), 409);
+  const valId = assets.listValuations(etf.id)[0].id; // datée dans le mois désormais clôturé
+  refuse(() => assets.removeValuation(etf.id, valId), 409);
+  months.setClosed(m.id, false);
+});

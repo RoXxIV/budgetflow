@@ -83,3 +83,10 @@ test("épargne réelle : les mensualités d'une enveloppe liée (dépense provis
   const t = stats.overview().types.find((x) => x.period === period);
   assert.ok(eq(t.real.epargne, before), `épargne inchangée (${t.real.epargne} vs ${before})`);
 });
+
+test("revue 04/09 : une cagnotte en catégorie transfert n'entre pas dans les dépenses prévues", () => {
+  const before = stats.overview().types.find((x) => x.period === period).planned.depense;
+  lines.create(m.id, { label: "Cagnotte interne", categoryId: catTr.id, isPot: true, potPartnerName: "X", potPartnerPaid: 100, potMyShare: 50, fromAccountId: main.id });
+  const t = stats.overview().types.find((x) => x.period === period);
+  assert.ok(eq(t.planned.depense, before), `prévu dépense inchangé (${t.planned.depense} vs ${before})`);
+});

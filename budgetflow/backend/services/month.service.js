@@ -216,6 +216,8 @@ export function setClosed(id, isClosed) {
 export function remove(id) {
   const row = get("SELECT * FROM months WHERE id = ?", id);
   if (!row) throw httpError(404, "Mois introuvable");
+  // Un mois clôturé est verrouillé jusqu'à la dernière entrée : sa suppression aussi (rouvrir d'abord)
+  if (row.closed_at) throw httpError(409, `${monthName(row.period)} est clôturé : rouvrez-le avant de le supprimer`);
   run("DELETE FROM months WHERE id = ?", id); // lignes, entrées et snapshots suivent (CASCADE)
   return { message: `${monthName(row.period)} supprimé` };
 }

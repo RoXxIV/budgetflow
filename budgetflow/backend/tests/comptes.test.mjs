@@ -202,3 +202,9 @@ test("enveloppe soldée à 0 : supprimable si historique purement administratif,
   envelopes.closeInto(vecue.id, { toEnvelopeId: cible.id });
   refuse(() => envelopes.remove(vecue.id), 409);
 });
+
+test("revue 04/09 : un compte désactivé ne peut pas devenir le compte principal", () => {
+  const dormant = accounts.create({ name: "Vieux compte" });
+  accounts.setActive(dormant.id, false);
+  refuse(() => accounts.update(dormant.id, { isMain: true }), 409);
+});

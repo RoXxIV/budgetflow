@@ -117,6 +117,8 @@ function ensureReadings(month, defs) {
            ORDER BY m.period DESC LIMIT 1`, def.id, month.period
         )?.current_value ?? null;
       }
+      // Mois clôturé : un GET ne doit rien écrire — ligne virtuelle en lecture seule
+      if (month.closed_at) return { def_id: def.id, month_id: month.id, previous_value: prev, current_value: null };
       run("INSERT INTO calculator_readings (def_id, month_id, previous_value) VALUES (?, ?, ?)", def.id, month.id, prev);
       r = get("SELECT * FROM calculator_readings WHERE def_id = ? AND month_id = ?", def.id, month.id);
     }

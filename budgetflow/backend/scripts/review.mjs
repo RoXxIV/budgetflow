@@ -21,6 +21,7 @@ const assets = await import("../services/asset.service.js");
 const summary = await import("../services/summary.service.js");
 const settings = await import("../services/settings.service.js");
 envelopes.bindSummary(summary);
+accounts.bindSummary(summary); // sans lui, le garde « solde à virer avant désactivation » est muet
 
 let pass = 0, fail = 0;
 const issues = [];
@@ -213,10 +214,14 @@ section("Investissements");
 const pea = accounts.create({ name: "PEA", type: "investissement" });
 const etf = assets.create({ name: "ETF", type: "ETF", accountId: pea.id, monthlyDca: 50 });
 assets.addMovement(etf.id, { kind: "versement", amount: 1000, date: `${period}-05` });
-assets.addValuation(etf.id, { value: 1100 });
+assets.addValuation(etf.id, { value: 1100, date: `${period}-05` });
 assets.addMovement(etf.id, { kind: "retrait", amount: 100, date: `${period}-06` });
-assets.addValuation(etf.id, { value: 1000 });
+// Valorisation datée APRÈS les mouvements : ancrage exact (la valeur vivante n'ajuste que les postérieurs)
+assets.addValuation(etf.id, { value: 1000, date: `${period}-06` });
 check("performance = (1000 + 100 − 1000) / 1000 = +10 %", eq(assets.getById(etf.id).gainPct, 10));
+assets.addMovement(etf.id, { kind: "versement", amount: 200, date: `${period}-07` });
+check("valeur vivante : versement postérieur à la valorisation ajouté (1000 + 200)", eq(assets.getById(etf.id).value, 1200));
+assets.removeMovement(etf.id, all("SELECT id FROM asset_movements WHERE asset_id = ? ORDER BY id DESC LIMIT 1", etf.id)[0].id);
 throws("☐ versé refusé si l'actif a déjà un mouvement ce mois → 409", () => assets.dca(m.id, etf.id), 409);
 const etfReg = assets.create({ name: "ETF mensuel", accountId: pea.id, monthlyDca: 50 });
 assets.dca(m.id, etfReg.id);

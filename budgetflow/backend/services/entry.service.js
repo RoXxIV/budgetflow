@@ -1,5 +1,14 @@
-import { all, get, run, toCents, fromCents, httpError } from "../db/index.js";
+import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 import { assertOpen } from "./month.service.js";
+
+// Une entrée d'un mois ouvert peut porter une date d'un AUTRE mois (cycle salaire) —
+// mais jamais celle d'un mois clôturé : la contribution d'enveloppe dérivée y serait
+// refusée partout ailleurs (revue du 04/09)
+function assertDateOpen(date) {
+  if (!date) return;
+  const month = get("SELECT * FROM months WHERE period = ?", String(date).substring(0, 7));
+  if (month?.closed_at) throw httpError(409, `La date ${String(date).substring(0, 10)} tombe dans un mois clôturé : changez la date, ou rouvrez ce mois`);
+}
 import * as pots from "./pot.service.js";
 import { syncEntryExpense } from "./envelope.service.js";
 import { nextDueDate } from "./budgetLine.service.js";
@@ -52,6 +61,7 @@ function assertEnvelopeCanCover(envelopeId, amountCents, excludeEntryId = null) 
 
 export function create(monthId, data) {
   assertOpen(monthId);
+  assertDateOpen(data.date);
   const cents = toCents(data.amount);
   if (!cents) throw httpError(400, "Montant requis");
   let line = null;
@@ -104,6 +114,7 @@ export function update(id, data) {
   const existing = get("SELECT * FROM entries WHERE id = ?", id);
   if (!existing) throw httpError(404, "Entrée introuvable");
   assertOpen(existing.month_id);
+  if (data.date !== undefined) assertDateOpen(data.date);
 
   const val = (key, dbKey, transform = (v) => v) =>
     data[key] !== undefined ? transform(data[key]) : existing[dbKey];
@@ -137,6 +148,10 @@ export function update(id, data) {
 }
 
 export function remove(id) {
+  return tx(() => removeInner(id));
+}
+
+function removeInner(id) {
   const existing = get("SELECT * FROM entries WHERE id = ?", id);
   if (!existing) throw httpError(404, "Entrée introuvable");
   assertOpen(existing.month_id);
@@ -161,7 +176,13 @@ export function remove(id) {
 // Ligne mensualisée dont l'enveloppe ne couvre pas le montant : sans shortfallAccountId → 409 ENVELOPE_SHORT
 // (le front propose « vider l'enveloppe et prendre le reste sur … ») ; avec → deux entrées : la part
 // couverte sort de l'enveloppe (compte hôte), le reste du compte indiqué. L'enveloppe ne devient jamais négative.
+// Toute la séquence (jusqu'à 3 entrées + l'échéance d'enveloppe) est atomique : un échec
+// au milieu laisserait une dépense réelle sans le virement système qui vide l'enveloppe
 export function pay(monthId, lineId, { shortfallAccountId = null } = {}) {
+  return tx(() => payInner(monthId, lineId, { shortfallAccountId }));
+}
+
+function payInner(monthId, lineId, { shortfallAccountId = null } = {}) {
   const month = assertOpen(monthId);
   const line = get("SELECT * FROM budget_lines WHERE id = ? AND month_id = ?", lineId, monthId);
   if (!line) throw httpError(404, "Ligne introuvable sur ce mois");
@@ -248,14 +269,16 @@ export function pay(monthId, lineId, { shortfallAccountId = null } = {}) {
 
 // Décocher : ne retire que les entrées créées par « payé » (jamais les saisies manuelles)
 export function unpay(monthId, lineId) {
-  const month = assertOpen(monthId);
-  const entries = all("SELECT * FROM entries WHERE (line_id = ? OR related_line_id = ?) AND source = 'paye'", lineId, lineId);
-  if (!entries.length) throw httpError(404, "Aucune entrée « payé » sur cette ligne");
-  for (const e of entries) run("DELETE FROM entries WHERE id = ?", e.id); // virements système et contributions « depense » liées suivent
-  // Ligne mensualisée : l'échéance revient au cycle courant
-  const line = get("SELECT * FROM budget_lines WHERE id = ?", lineId);
-  if (line?.envelope_id && (line.interval_months || 1) > 1) {
-    run("UPDATE envelopes SET deadline = ? WHERE id = ?", nextDueDate(line, month.period), line.envelope_id);
-  }
-  return { message: "Marquage payé retiré" };
+  return tx(() => {
+    const month = assertOpen(monthId);
+    const entries = all("SELECT * FROM entries WHERE (line_id = ? OR related_line_id = ?) AND source = 'paye'", lineId, lineId);
+    if (!entries.length) throw httpError(404, "Aucune entrée « payé » sur cette ligne");
+    for (const e of entries) run("DELETE FROM entries WHERE id = ?", e.id); // virements système et contributions « depense » liées suivent
+    // Ligne mensualisée : l'échéance revient au cycle courant
+    const line = get("SELECT * FROM budget_lines WHERE id = ?", lineId);
+    if (line?.envelope_id && (line.interval_months || 1) > 1) {
+      run("UPDATE envelopes SET deadline = ? WHERE id = ?", nextDueDate(line, month.period), line.envelope_id);
+    }
+    return { message: "Marquage payé retiré" };
+  });
 }

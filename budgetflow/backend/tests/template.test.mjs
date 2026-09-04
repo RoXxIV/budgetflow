@@ -101,3 +101,16 @@ test("supprimer une ligne mensualisée : l'enveloppe jamais vécue part avec, la
   lines.remove(l2.id);
   assert.ok(eq(envelopes.getById(e2).total, 25), "l'enveloppe vécue reste ouverte avec son argent");
 });
+
+test("revue 04/09 : mensualiser propage l'enveloppe aux copies des mois ouverts", () => {
+  const anchor = Number(currentPeriod().split("-")[1]);
+  const l = lines.create(null, { label: "Taxe habitation", categoryId: catDep.id, plannedAmount: 120, intervalMonths: 12, anchorMonth: anchor, fromAccountId: main.id });
+  const copy = lines.applyToMonth(l.id, month.id);
+  const envId = lines.setMonthlyized(l.id, { enabled: true }).envelopeId;
+  assert.equal(lines.getById(copy.id).envelopeId, envId, "la copie du mois ouvert est liée à l'enveloppe");
+});
+
+test("revue 04/09 : « le 31 » est borné au dernier jour du mois cible (jamais de date invalide)", () => {
+  const l = lines.create(null, { label: "Prime fevrier", categoryId: catDep.id, plannedAmount: 60, intervalMonths: 12, anchorMonth: 2, recurringDay: 31, fromAccountId: main.id });
+  assert.match(l.nextDue, /-02-2[89]$/, `échéance bornée à fin février (${l.nextDue})`);
+});

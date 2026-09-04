@@ -12,14 +12,20 @@ export function cycleMatches(line, period) {
   return (((m - line.anchor_month) % interval) + interval) % interval === 0;
 }
 
-// Prochaine occurrence (date ISO) à partir d'un mois donné inclus
+// Prochaine occurrence (date ISO) à partir d'un mois donné inclus.
+// Le jour est borné au dernier jour du mois cible : « le 31 » en février donnerait 2026-02-31,
+// une date invalide qui rendait la mensualité suggérée NaN (revue du 04/09).
 export function nextDueDate(line, fromPeriod) {
   const interval = line.interval_months || 1;
-  const day = String(line.recurring_day || 1).padStart(2, "0");
   let idx = monthIndex(fromPeriod);
   for (let i = 0; i < 24; i++) {
     const p = periodOf(idx + i);
-    if (cycleMatches(line, p)) return `${p}-${day}`;
+    if (cycleMatches(line, p)) {
+      const [y, m] = p.split("-").map(Number);
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const day = Math.min(line.recurring_day || 1, lastDay);
+      return `${p}-${String(day).padStart(2, "0")}`;
+    }
   }
   return null;
 }
@@ -190,6 +196,10 @@ export function update(id, data) {
 // enabled → crée l'enveloppe (nom = libellé, cible = prévu, échéance = prochaine occurrence) sur le compte choisi
 // (aucun = virtuelle sur le compte principal) ; disabled → délie (l'enveloppe reste, à clôturer si vide).
 export function setMonthlyized(lineId, { enabled, accountId = null }) {
+  return tx(() => setMonthlyizedInner(lineId, { enabled, accountId }));
+}
+
+function setMonthlyizedInner(lineId, { enabled, accountId = null }) {
   const line = get("SELECT * FROM budget_lines WHERE id = ? AND month_id IS NULL", lineId);
   if (!line) throw httpError(404, "Ligne du template introuvable");
   if (enabled) {
@@ -201,6 +211,13 @@ export function setMonthlyized(lineId, { enabled, accountId = null }) {
       line.label, accountId || mainId, line.planned_amount_cents, nextDueDate(line, currentPeriod())
     );
     run("UPDATE budget_lines SET envelope_id = ? WHERE id = ?", Number(lastInsertRowid), lineId);
+    // Les copies des mois OUVERTS suivent (symétrique de la désactivation) : leur ☐ payé
+    // doit sortir de l'enveloppe, sinon les mois déjà créés restent démensualisés
+    run(
+      `UPDATE budget_lines SET envelope_id = ? WHERE template_line_id = ?
+         AND month_id IN (SELECT id FROM months WHERE closed_at IS NULL)`,
+      Number(lastInsertRowid), lineId
+    );
   } else if (line.envelope_id) {
     const envId = line.envelope_id;
     run("UPDATE budget_lines SET envelope_id = NULL WHERE id = ?", lineId);
@@ -229,7 +246,20 @@ export function reorder(orders) {
   });
 }
 
+// Garde d'appartenance : les routes /months/:id/lines/:lineId vérifient l'ouverture du mois
+// de l'URL — sans ce contrôle, une ligne d'un mois clôturé (ou du template) serait modifiable
+// en passant l'id d'un mois ouvert (revue du 04/09)
+export function assertInMonth(lineId, monthId) {
+  const line = get("SELECT month_id FROM budget_lines WHERE id = ?", lineId);
+  if (!line) throw httpError(404, "Ligne introuvable");
+  if (line.month_id !== monthId) throw httpError(404, "Cette ligne n'appartient pas à ce mois");
+}
+
 export function remove(id, { force = false } = {}) {
+  return tx(() => removeInner(id, { force }));
+}
+
+function removeInner(id, { force = false } = {}) {
   const existing = get("SELECT * FROM budget_lines WHERE id = ?", id);
   if (!existing) throw httpError(404, "Ligne introuvable");
   const entryCount = get("SELECT COUNT(*) AS n FROM entries WHERE line_id = ?", id).n;
