@@ -1150,12 +1150,12 @@ const mainEnvelopesTotal = computed(() => {
         </div>
         <div class="synth-sep" />
         <div class="synth-kv">
-          <span class="synth-k has-tip" title="Solde estimé si toutes les lignes prévues sont réalisées.">Fin de mois</span>
-          <span class="num synth-v" :class="{ 'is-over': (summaryData?.tiles.projete ?? 0) < 0 }">{{ fmtOrDash(summaryData?.tiles.projete) }}</span>
+          <span class="synth-k has-tip" title="Le réel des catégories dépense (le total du registre), le prévu du mois en repère.">Dépenses du mois</span>
+          <span class="num synth-v" :class="{ 'is-over': totalDepenses > plannedDepenses }">{{ fmt(totalDepenses) }} <span class="synth-meta">sur {{ fmt(plannedDepenses) }}</span></span>
         </div>
         <div class="synth-sep" />
         <div class="synth-kv">
-          <span class="synth-k has-tip" title="Ce qu'il reste une fois toutes les dépenses prévues du mois honorées.">Reste à vivre</span>
+          <span class="synth-k has-tip" title="Ce que vous pouvez encore dépenser : solde du compte principal, moins l'argent réservé en enveloppes, moins tout ce qui est prévu et pas encore payé (dépenses, cagnottes, DCA, mensualités). Les revenus à venir ne sont pas comptés.">Reste à vivre</span>
           <span class="num synth-v" :class="{ 'is-over': (resteAVivre ?? 0) < 0 }">{{ resteAVivre === null ? '—' : fmt(resteAVivre) }}</span>
         </div>
         <div class="synth-sep" />
