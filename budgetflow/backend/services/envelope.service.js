@@ -351,17 +351,22 @@ export function liquidate(id, { toAccountId = null } = {}) {
   if (!month) throw httpError(409, "Aucun mois ouvert pour enregistrer le virement de liquidation");
 
   return tx(() => {
-    run("INSERT INTO envelope_contributions (envelope_id, amount_cents, kind, notes) VALUES (?, ?, 'reaffectation', ?)",
-      id, -total, `Liquidation vers « ${account.name} » — le cycle repart`);
-    // Trace bancaire : même sur le compte hôte, le « déblocage » reste visible dans le mois
     if (host && host !== account.id) {
+      // Virement système LIÉ à l'enveloppe (envelope_id) : supprimer le virement dans le mois
+      // annule proprement la liquidation — la contribution cascade, l'enveloppe retrouve son
+      // argent (retour de test d'Evan : les deux étaient orphelins, l'annulation laissait un trou)
       const accName = (aid) => get("SELECT name FROM accounts WHERE id = ?", aid)?.name || "?";
-      run(
-        `INSERT INTO entries (month_id, label, amount_cents, account_id, to_account_id, source)
-         VALUES (?, ?, ?, ?, ?, 'manuelle')`,
-        month.id, `Liquidation « ${existing.name} » : ${accName(host)} → ${accName(account.id)}`,
-        total, host, account.id
+      const { lastInsertRowid } = run(
+        `INSERT INTO entries (month_id, label, amount_cents, account_id, to_account_id, source, envelope_id, envelope_in_target)
+         VALUES (?, ?, ?, ?, ?, 'manuelle', ?, 0)`,
+        month.id, `Liquidation « ${existing.name} » : ${accName(host)} → ${accName(account.id)} — le cycle repart`,
+        total, host, account.id, id
       );
+      syncEntryExpense(get("SELECT * FROM entries WHERE id = ?", Number(lastInsertRowid)));
+    } else {
+      // Même compte : pas de virement, l'argent est juste libéré hors enveloppes
+      run("INSERT INTO envelope_contributions (envelope_id, amount_cents, kind, notes) VALUES (?, ?, 'reaffectation', ?)",
+        id, -total, `Liquidation vers « ${account.name} » — le cycle repart`);
     }
     // Le cycle repart : l'échéance saute à l'occurrence qui SUIT celle qu'on vient de solder —
     // même liquidée en avance (échéance le mois prochain), on part de l'échéance, pas du virement

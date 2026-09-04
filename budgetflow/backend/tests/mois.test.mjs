@@ -199,6 +199,12 @@ test("liquider et renouveler : virement tracé, enveloppe à zéro, échéance a
   assert.ok(vir && eq(vir.amount, before.total) && vir.accountId === main.id && vir.toAccountId === livret.id,
     "virement système hôte → compte choisi, tracé dans le mois");
   refuse(() => envelopes.liquidate(annEnv.id, { toAccountId: livret.id }), 409); // vide : rien à liquider
+  // Annulation : supprimer le virement restaure l'enveloppe ET l'échéance (retour de test d'Evan —
+  // avant ce fix, la contribution restait orpheline et les 8 € semblaient « envolés »)
+  entries.remove(vir.id);
+  const restored = envelopes.getById(annEnv.id);
+  assert.ok(eq(restored.total, before.total), "l'enveloppe retrouve son argent");
+  assert.equal(restored.deadline, before.deadline, "l'échéance redescend au cycle courant");
 });
 
 test("modifier une ligne de mois : thème/compte/paiement se propagent à toutes ses entrées", () => {
