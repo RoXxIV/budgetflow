@@ -24,7 +24,7 @@ watch(() => state.prompt, async (p) => {
 <template>
   <!-- Confirmation -->
   <AppModal :open="!!state.confirm" :title="state.confirm?.title || ''" @close="closeConfirm(false)">
-    <p class="text-[13.5px] text-gray-700 whitespace-pre-line">{{ state.confirm?.message }}</p>
+    <p class="dlg-message whitespace-pre-line">{{ state.confirm?.message }}</p>
     <template #footer>
       <button class="dlg-btn" :class="state.confirm?.danger ? 'dlg-btn--danger' : 'dlg-btn--primary'" @click="closeConfirm(true)">{{ state.confirm?.confirmLabel }}</button>
       <button class="dlg-btn dlg-btn--secondary" @click="closeConfirm(false)">{{ state.confirm?.cancelLabel }}</button>
@@ -34,8 +34,8 @@ watch(() => state.prompt, async (p) => {
   <!-- Saisie -->
   <AppModal :open="!!state.prompt" :title="state.prompt?.title || ''" @close="closePrompt(null)">
     <div v-if="state.prompt" class="flex flex-col gap-3">
-      <p v-if="state.prompt.message" class="text-[13.5px] text-gray-700 whitespace-pre-line">{{ state.prompt.message }}</p>
-      <label class="flex flex-col gap-1 text-xs font-medium text-gray-500">
+      <p v-if="state.prompt.message" class="dlg-message whitespace-pre-line">{{ state.prompt.message }}</p>
+      <label class="dlg-field">
         <span v-if="state.prompt.label">{{ state.prompt.label }}</span>
         <input ref="promptInput" v-model="state.prompt.value" type="text" class="dlg-input" :placeholder="state.prompt.placeholder" @keyup.enter="closePrompt(state.prompt.value)" />
       </label>
@@ -52,19 +52,30 @@ watch(() => state.prompt, async (p) => {
       <div
         v-for="t in state.toasts"
         :key="t.id"
-        class="rounded-xl shadow-lg px-4 py-3 text-[13px] border"
-        :class="t.type === 'error' ? 'bg-red-50 border-red-200 text-red-700' : t.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-stone-200 text-gray-700'"
+        class="dlg-toast"
+        :class="t.type === 'error' ? 'is-error' : t.type === 'success' ? 'is-success' : ''"
       >{{ t.message }}</div>
     </div>
   </Teleport>
 </template>
 
 <style scoped>
-@reference "@/style.css";
-
-.dlg-btn { @apply py-1.5 px-3.5 rounded-md text-[13px] font-medium cursor-pointer; }
-.dlg-btn--primary { @apply bg-violet-600 hover:bg-violet-700 text-white; }
-.dlg-btn--danger { @apply bg-red-500 hover:bg-red-600 text-white; }
-.dlg-btn--secondary { @apply bg-white border border-stone-200 hover:bg-stone-100 text-gray-600; }
-.dlg-input { @apply py-1.5 px-2.5 border border-stone-200 rounded-md text-[13px] text-gray-900 bg-stone-50 outline-none focus:border-violet-400; }
+.dlg-message { font-size: 13.5px; color: var(--c-ink-2); }
+.dlg-field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
+.dlg-btn { height: 32px; padding: 0 var(--s-4); border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.dlg-btn--primary { background: var(--c-accent); color: var(--c-on-accent); }
+.dlg-btn--primary:hover { background: var(--c-accent-hover); }
+.dlg-btn--danger { background: var(--c-over); color: var(--c-on-accent); }
+.dlg-btn--danger:hover { filter: brightness(0.92); }
+.dlg-btn--secondary { background: var(--c-surface); border: 1px solid var(--c-line-strong); color: var(--c-ink); }
+.dlg-btn--secondary:hover { background: var(--c-surface-hover); }
+.dlg-input { padding: 6px var(--s-3); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); font-size: 13px; color: var(--c-ink); background: var(--c-surface); outline: none; font-family: var(--font-ui); }
+.dlg-input:focus { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
+.dlg-toast {
+  border-radius: var(--r-container); box-shadow: var(--shadow-overlay);
+  padding: var(--s-3) var(--s-4); font-size: 13px;
+  background: var(--c-surface); border: 1px solid var(--c-line); color: var(--c-ink-2);
+}
+.dlg-toast.is-error { background: var(--c-over-soft); border-color: var(--c-over); color: var(--c-over); }
+.dlg-toast.is-success { background: var(--c-credit-soft); border-color: var(--c-credit); color: var(--c-credit); }
 </style>

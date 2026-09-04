@@ -66,7 +66,7 @@ const navLinks = [
   height: 28px;
   border-radius: var(--r-control);
   background: var(--c-accent);
-  color: #fff;
+  color: var(--c-on-accent);
   font-weight: 600;
   font-size: 14px;
   display: flex;

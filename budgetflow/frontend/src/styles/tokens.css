@@ -2,6 +2,8 @@
    Aucun hex en dur dans les composants : tout passe par ces variables. */
 
 :root {
+  color-scheme: light; /* les contrôles natifs (date, select, scrollbars) suivent le thème */
+
   /* Surfaces */
   --c-canvas:          #F1F3F1;
   --c-surface:         #FFFFFF;
@@ -21,6 +23,7 @@
   --c-accent-hover:    #4A27A8;
   --c-accent-soft:     #EFEAFB;
   --c-accent-ring:     #5A31C466;
+  --c-on-accent:       #FFFFFF; /* texte posé sur un fond accent (ou sémantique plein) */
 
   /* Sémantique de donnée */
   --c-credit:          #0B6B52;
@@ -93,9 +96,11 @@
   :root { --w-content: 1440px; --w-aside: 380px; }
 }
 
-/* Thème sombre : tokens prêts — la bascule sera activée quand toutes les pages
-   seront tokenisées (une app mi-sombre mi-blanche est pire que pas de sombre). */
+/* Thème sombre : activé par data-theme="dark" sur <html> (bascule dans Paramètres → Général,
+   préférence dans localStorage, « Système » suit prefers-color-scheme). */
 :root[data-theme="dark"] {
+  color-scheme: dark;
+
   --c-canvas:         #0E1412;
   --c-surface:        #151C1A;
   --c-surface-sunken: #1B2422;
@@ -112,6 +117,7 @@
   --c-accent-hover:   #BCA4FF;
   --c-accent-soft:    #2A2244;
   --c-accent-ring:    #A88BFF66;
+  --c-on-accent:      #0E1412; /* l'accent sombre est clair : l'encre s'inverse */
 
   --c-credit:         #4CC79F;
   --c-credit-soft:    #12332A;

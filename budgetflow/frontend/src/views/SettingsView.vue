@@ -8,6 +8,7 @@ import { getCalculators, createCalculator, updateCalculator, deleteCalculator, c
 import AppModal from '@/components/AppModal.vue'
 import { confirmDialog, apiError, toast } from '@/composables/useDialog.js'
 import { eur } from '@/lib/format.js'
+import { THEME_OPTIONS, getThemePref, setThemePref } from '@/lib/theme.js'
 
 // Autofocus des champs d'édition en place (curseur en fin de texte)
 const vFocus = {
@@ -82,6 +83,13 @@ const savingsPhrase = computed(() => {
   if (!rate || !revenusPrevus.value) return ''
   return `${rate} % de ${fmt(revenusPrevus.value)} = ${fmt(Math.round(revenusPrevus.value * rate) / 100)} par mois.`
 })
+
+// Bascule clair / sombre / système (préférence locale au navigateur, pas en base)
+const themePref = ref(getThemePref())
+function changeTheme() {
+  setThemePref(themePref.value)
+  flashSaved('general')
+}
 
 const newPaymentMethod = ref('')
 async function addPaymentMethod() {
@@ -409,6 +417,14 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
           <span class="select-wrap">
             <select :value="settings.currency" class="select w-24" @change="saveGeneral({ currency: $event.target.value })">
               <option v-for="c in currencyOptions" :key="c" :value="c">{{ c }}</option>
+            </select>
+          </span>
+        </label>
+        <label class="field">
+          <span>Thème</span>
+          <span class="select-wrap">
+            <select v-model="themePref" class="select w-32" title="« Système » suit le réglage clair/sombre de votre appareil" @change="changeTheme">
+              <option v-for="o in THEME_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
           </span>
         </label>
@@ -836,7 +852,7 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
 .tag-x { font-size: 12px; color: var(--c-ink-3); cursor: pointer; margin-left: 2px; }
 .tag-x:hover { color: var(--c-over); }
 
-.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: #fff; border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: var(--c-on-accent); border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
 .btn-primary:hover { background: var(--c-accent-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-secondary { height: 30px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); color: var(--c-ink); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }

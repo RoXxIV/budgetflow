@@ -19,19 +19,42 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 px-4 py-6" @mousedown.self="emit('close')">
-      <div class="bg-white rounded-2xl shadow-xl w-full flex flex-col max-h-[calc(100vh-3rem)]" :class="wide ? 'max-w-3xl' : 'max-w-xl'">
-        <div class="flex items-center gap-3 px-5 py-3.5 border-b border-stone-100">
+    <div v-if="open" class="modal-scrim fixed inset-0 z-50 flex items-center justify-center px-4 py-6" @mousedown.self="emit('close')">
+      <div class="modal-panel w-full flex flex-col max-h-[calc(100vh-3rem)]" :class="wide ? 'max-w-3xl' : 'max-w-xl'">
+        <div class="modal-head flex items-center gap-3 px-5 py-3.5">
           <h3 class="text-[15px] font-semibold">{{ title }}</h3>
-          <button class="ml-auto w-7 h-7 rounded-md hover:bg-stone-100 text-gray-400 cursor-pointer text-[15px]" title="Fermer (Échap)" @click="emit('close')">×</button>
+          <button class="modal-x ml-auto" title="Fermer (Échap)" @click="emit('close')">×</button>
         </div>
         <div class="px-5 py-4 overflow-y-auto">
           <slot />
         </div>
-        <div v-if="$slots.footer" class="flex gap-2 px-5 py-3 border-t border-stone-100 bg-stone-50 rounded-b-2xl">
+        <div v-if="$slots.footer" class="modal-foot flex gap-2 px-5 py-3">
           <slot name="footer" />
         </div>
       </div>
     </div>
   </Teleport>
 </template>
+
+<style scoped>
+.modal-scrim { background: rgba(10, 16, 14, 0.45); }
+.modal-panel {
+  background: var(--c-surface);
+  color: var(--c-ink);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-container);
+  box-shadow: var(--shadow-overlay);
+}
+.modal-head { border-bottom: 1px solid var(--c-line); }
+.modal-x {
+  width: 28px; height: 28px; border-radius: var(--r-control);
+  color: var(--c-ink-3); font-size: 15px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.modal-x:hover { background: var(--c-surface-hover); color: var(--c-ink); }
+.modal-foot {
+  border-top: 1px solid var(--c-line);
+  background: var(--c-surface-sunken);
+  border-radius: 0 0 var(--r-container) var(--r-container);
+}
+</style>

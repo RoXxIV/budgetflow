@@ -63,13 +63,6 @@ const activeAccounts = computed(() => accounts.value.filter((a) => a.isActive))
 const inactiveAccounts = computed(() => accounts.value.filter((a) => !a.isActive))
 
 // ─── Helpers ─────────────────────────────────────────────
-const TYPE_LABELS = { courant: 'Courant', epargne: 'Épargne', investissement: 'Investissement', especes: 'Espèces' }
-const TYPE_COLORS = {
-  courant: 'bg-blue-50 text-blue-700',
-  epargne: 'bg-emerald-50 text-emerald-700',
-  investissement: 'bg-violet-50 text-violet-700',
-  especes: 'bg-amber-50 text-amber-700',
-}
 const fmt = eur // « 1 667,85 € », espaces fines insécables
 const pct = (e) => (e.effectiveTarget ? Math.min(100, Math.round((e.total / e.effectiveTarget) * 100)) : null)
 
@@ -412,7 +405,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
       </div>
     </div>
 
-    <p v-if="error" class="mb-4 text-[13px] text-red-600 bg-red-50 rounded-lg px-4 py-2.5">
+    <p v-if="error" class="error-banner mb-4 text-[13px] rounded-lg px-4 py-2.5">
       Backend injoignable : {{ error }}
     </p>
 
@@ -772,6 +765,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 .page-sub { font-size: 13px; color: var(--c-ink-2); margin-top: 2px; }
 .panel { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-container); }
 .meta { color: var(--c-ink-3); font-weight: 400; }
+.error-banner { background: var(--c-over-soft); color: var(--c-over); }
 .ink { color: var(--c-ink); }
 .is-over { color: var(--c-over); }
 .is-credit { color: var(--c-credit); }
@@ -893,7 +887,7 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 .tag-alert { background: var(--c-over-soft); color: var(--c-over); }
 
 /* ─── Boutons, liens, champs (partagés avec les modales) ─── */
-.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: #fff; border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: var(--c-on-accent); border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
 .btn-primary:hover { background: var(--c-accent-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-secondary { height: 30px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); color: var(--c-ink); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }

@@ -773,7 +773,7 @@ const formCategoryType = computed(() => {
 .tag-info { background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); cursor: help; }
 
 /* ─── Boutons, liens, champs (partagés avec la modale) ─── */
-.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: #fff; border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
+.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: var(--c-on-accent); border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
 .btn-primary:hover { background: var(--c-accent-hover); }
 .btn-secondary { height: 30px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); color: var(--c-ink); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
 .btn-secondary:hover { background: var(--c-surface-hover); }

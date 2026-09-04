@@ -35,6 +35,10 @@ input[type='checkbox']:checked {
   background-repeat: no-repeat;
   animation: check-pop 0.18s ease;
 }
+/* En sombre, l'accent est clair : la coche passe à l'encre inversée */
+:root[data-theme='dark'] input[type='checkbox']:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M3.5 8.5l3 3 6-7' stroke='%230E1412' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
 input[type='checkbox']:focus-visible {
   @apply outline-none ring-2 ring-offset-1;
   --tw-ring-color: color-mix(in srgb, currentColor 40%, transparent);
@@ -44,7 +48,9 @@ input[type='checkbox']:disabled {
 }
 
 input[type='radio'] {
-  @apply appearance-none w-[17px] h-[17px] rounded-full border-2 border-stone-300 bg-white cursor-pointer shrink-0 align-middle transition-all duration-150;
+  @apply appearance-none w-[17px] h-[17px] rounded-full border-2 cursor-pointer shrink-0 align-middle transition-all duration-150;
+  border-color: var(--c-line-strong);
+  background: var(--c-surface);
   color: var(--c-accent);
 }
 input[type='radio']:hover:not(:disabled) {
@@ -65,3 +71,16 @@ input[type='radio']:focus-visible {
   60% { transform: scale(1.08); }
   100% { transform: scale(1); }
 }
+
+/* ─── Compat thème sombre ──────────────────────────────────
+   Les utilitaires Tailwind de couleur encore présents (modales, états vides)
+   sont re-routés vers les tokens : lisibles dans les deux thèmes, un seul
+   endroit à supprimer quand les dernières classes auront disparu. */
+.text-gray-300 { color: var(--c-ink-disabled); }
+.text-gray-400, .text-gray-500 { color: var(--c-ink-3); }
+.text-gray-600, .text-gray-700 { color: var(--c-ink-2); }
+.text-gray-800, .text-gray-900 { color: var(--c-ink); }
+.text-emerald-600, .text-emerald-700 { color: var(--c-credit); }
+.text-red-400, .text-red-500, .text-red-600 { color: var(--c-over); }
+.text-amber-600, .text-amber-700 { color: var(--c-warn); }
+.text-violet-600, .text-violet-700 { color: var(--c-accent); }

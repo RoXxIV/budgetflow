@@ -1631,7 +1631,7 @@ const mainEnvelopesTotal = computed(() => {
 .pointbox:hover:not(:disabled) { border-color: var(--c-accent); }
 .pointbox:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--c-accent-ring); }
 .pointbox:disabled { opacity: 0.4; cursor: default; }
-.pointbox.is-checked { background: var(--c-accent); border-color: var(--c-accent); color: #fff; cursor: default; }
+.pointbox.is-checked { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); cursor: default; }
 .pointbox-sm { width: 15px; height: 15px; }
 
 /* Entrées (niveau 3) */
@@ -1732,7 +1732,7 @@ const mainEnvelopesTotal = computed(() => {
 /* ─── Boutons & champs — §5.12 ─── */
 .btn-primary {
   height: 34px; padding: 0 var(--s-5);
-  background: var(--c-accent); color: #fff;
+  background: var(--c-accent); color: var(--c-on-accent);
   border-radius: var(--r-control);
   font-size: 13px; font-weight: 500;
   cursor: pointer;

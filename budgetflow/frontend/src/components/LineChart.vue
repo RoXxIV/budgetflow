@@ -81,36 +81,44 @@ const xEvery = computed(() => (props.labels.length > 14 ? 2 : 1))
   <div class="relative">
     <svg ref="svgEl" :viewBox="`0 0 ${W} ${H}`" class="w-full block select-none" @pointermove="onMove" @pointerleave="hover = null">
       <g>
-        <line v-for="t in ticks" :key="'g' + t" :x1="PAD.l" :x2="W - PAD.r" :y1="y(t)" :y2="y(t)" stroke="#e1e0d9" stroke-width="1" />
-        <text v-for="t in ticks" :key="'t' + t" :x="PAD.l - 8" :y="y(t) + 4" text-anchor="end" font-size="11" fill="#898781" style="font-variant-numeric: tabular-nums">{{ fmtTick(t) }}</text>
+        <line v-for="t in ticks" :key="'g' + t" :x1="PAD.l" :x2="W - PAD.r" :y1="y(t)" :y2="y(t)" stroke="var(--c-line)" stroke-width="1" />
+        <text v-for="t in ticks" :key="'t' + t" :x="PAD.l - 8" :y="y(t) + 4" text-anchor="end" font-size="11" fill="var(--c-ink-3)" style="font-variant-numeric: tabular-nums">{{ fmtTick(t) }}</text>
       </g>
       <g>
         <template v-for="(lab, i) in labels" :key="'x' + i">
-          <text v-if="i % xEvery === 0" :x="x(i)" :y="H - 8" text-anchor="middle" font-size="11" fill="#898781">{{ lab }}</text>
+          <text v-if="i % xEvery === 0" :x="x(i)" :y="H - 8" text-anchor="middle" font-size="11" fill="var(--c-ink-3)">{{ lab }}</text>
         </template>
       </g>
-      <line v-if="hover !== null" :x1="x(hover)" :x2="x(hover)" :y1="PAD.t" :y2="PAD.t + plotH" stroke="#c3c2b7" stroke-width="1" />
+      <line v-if="hover !== null" :x1="x(hover)" :x2="x(hover)" :y1="PAD.t" :y2="PAD.t + plotH" stroke="var(--c-line-strong)" stroke-width="1" />
       <g v-for="s in series" :key="s.key">
         <path :d="path(s.points)" fill="none" :stroke="s.color" stroke-width="2" :stroke-dasharray="s.dash ? '6 5' : undefined" stroke-linejoin="round" stroke-linecap="round" />
         <template v-if="lastIdx(s.points) >= 0">
-          <circle :cx="x(lastIdx(s.points))" :cy="y(s.points[lastIdx(s.points)])" r="6" fill="#fcfcfb" />
+          <circle :cx="x(lastIdx(s.points))" :cy="y(s.points[lastIdx(s.points)])" r="6" fill="var(--c-surface)" />
           <circle :cx="x(lastIdx(s.points))" :cy="y(s.points[lastIdx(s.points)])" r="4" :fill="s.color" />
         </template>
         <template v-if="hover !== null && s.points[hover] !== null && s.points[hover] !== undefined">
-          <circle :cx="x(hover)" :cy="y(s.points[hover])" r="6" fill="#fcfcfb" />
+          <circle :cx="x(hover)" :cy="y(s.points[hover])" r="6" fill="var(--c-surface)" />
           <circle :cx="x(hover)" :cy="y(s.points[hover])" r="4" :fill="s.color" />
         </template>
       </g>
     </svg>
 
-    <div v-if="hover !== null && series.length" class="absolute top-2 pointer-events-none bg-white border border-stone-200 rounded-lg shadow-sm px-3 py-2 text-[12px] z-10 whitespace-nowrap" :style="tipStyle">
-      <p class="font-semibold text-gray-700 mb-1">{{ labels[hover] }}</p>
+    <div v-if="hover !== null && series.length" class="tip absolute top-2 pointer-events-none px-3 py-2 text-[12px] z-10 whitespace-nowrap" :style="tipStyle">
+      <p class="tip-title mb-1">{{ labels[hover] }}</p>
       <p v-for="s in series" :key="s.key" class="flex items-center gap-2 py-px">
         <span class="inline-block w-3 h-0.5 rounded shrink-0" :style="{ background: s.color }" />
-        <span class="font-semibold text-gray-900">{{ s.points[hover] === null || s.points[hover] === undefined ? '—' : fmt(s.points[hover]) }}</span>
-        <span class="text-gray-400">{{ s.name }}</span>
+        <span class="tip-val">{{ s.points[hover] === null || s.points[hover] === undefined ? '—' : fmt(s.points[hover]) }}</span>
+        <span class="tip-name">{{ s.name }}</span>
       </p>
     </div>
-    <p v-if="!series.length" class="text-xs text-gray-400 text-center py-10">Aucune série sélectionnée.</p>
+    <p v-if="!series.length" class="chart-empty text-center py-10">Aucune série sélectionnée.</p>
   </div>
 </template>
+
+<style scoped>
+.tip { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-control); box-shadow: var(--shadow-overlay); }
+.tip-title { font-weight: 600; color: var(--c-ink); }
+.tip-val { font-weight: 600; color: var(--c-ink); font-variant-numeric: tabular-nums; }
+.tip-name { color: var(--c-ink-3); }
+.chart-empty { font-size: 12px; color: var(--c-ink-3); }
+</style>
