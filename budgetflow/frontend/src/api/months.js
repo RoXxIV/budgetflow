@@ -8,6 +8,7 @@ export const getMonth = (id) => api.get(`/months/${id}`)
 export const getMonthSummary = (id) => api.get(`/months/${id}/summary`)
 export const getMonthEnvelopeContributions = (id) => api.get(`/months/${id}/envelope-contributions`)
 export const setMonthClosed = (id, isClosed) => api.put(`/months/${id}`, { isClosed })
+export const setMonthNotes = (id, notes) => api.put(`/months/${id}/notes`, { notes })
 export const deleteMonth = (id) => api.delete(`/months/${id}`)
 
 export const getMonthLines = (id) => api.get(`/months/${id}/lines`)

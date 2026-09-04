@@ -29,6 +29,7 @@ router.delete("/:id/assets/:assetId/dca", wrap((req, res) => res.json(assets.und
 // Contributions d'enveloppes datées dans ce mois (la saisie passe par /envelopes/:id/contributions)
 router.get("/:id/envelope-contributions", wrap((req, res) => res.json(envelopes.listContributionsByPeriod(months.getById(id(req)).period))));
 router.put("/:id", wrap((req, res) => res.json(months.setClosed(id(req), !!req.body.isClosed))));
+router.put("/:id/notes", wrap((req, res) => res.json(months.setNotes(id(req), req.body.notes))));
 router.delete("/:id", wrap((req, res) => res.json(months.remove(id(req)))));
 
 // Lignes du mois (réel = somme des entrées)

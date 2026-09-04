@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { eur } from '@/lib/format.js'
 import {
-  getMonths, getMonthPrefill, createMonth, setMonthClosed,
+  getMonths, getMonthPrefill, createMonth, setMonthClosed, setMonthNotes,
   getMonthLines, payLine,
   getMonthSnapshots, upsertMonthSnapshots,
   getMonthEntries, createEntry, updateEntry, deleteEntry,
@@ -81,6 +81,22 @@ async function openMonth(month) {
 
 async function reload() {
   await loadMonthData(current.value.id)
+}
+
+// ─── Note du mois : texte libre, une par mois, enregistrée au blur ───
+const monthNotes = ref('')
+const notesSaved = ref(false)
+let notesSavedTimer = null
+watch(() => current.value?.id, () => { monthNotes.value = current.value?.notes || '' })
+async function saveNotes() {
+  if (!current.value || monthNotes.value.trim() === (current.value.notes || '').trim()) return
+  try {
+    const { data } = await setMonthNotes(current.value.id, monthNotes.value)
+    current.value.notes = data.notes
+    notesSaved.value = true
+    clearTimeout(notesSavedTimer)
+    notesSavedTimer = setTimeout(() => { notesSaved.value = false }, 2000)
+  } catch (e) { apiError(e) }
 }
 
 // ─── Investissements : ☐ versé (DCA), mouvements du mois ─
@@ -1474,6 +1490,21 @@ const mainEnvelopesTotal = computed(() => {
               </div>
             </div>
           </div>
+
+          <!-- Note du mois : texte libre, enregistrée au blur (aussi sur un mois clôturé) -->
+          <div class="panel side-panel notes-panel">
+            <div class="side-head">
+              <span class="side-title">Notes</span>
+              <span v-if="notesSaved" class="notes-saved">Enregistré</span>
+            </div>
+            <textarea
+              v-model="monthNotes"
+              class="notes-area"
+              rows="4"
+              :placeholder="'Une note pour ' + (current.name || 'ce mois') + '…'"
+              @blur="saveNotes"
+            ></textarea>
+          </div>
         </aside>
       </div>
     </div>
@@ -1717,6 +1748,21 @@ const mainEnvelopesTotal = computed(() => {
 .side-total { font-size: 13px; color: var(--c-ink-2); }
 .side-item { padding: var(--s-3) var(--s-5); cursor: pointer; }
 .side-item + .side-item { border-top: 1px solid var(--c-line); }
+
+/* Note du mois : se lit comme du texte, devient un champ au focus */
+.notes-panel { padding: 0 var(--s-3) var(--s-3); }
+.notes-panel .side-head { margin: 0 calc(-1 * var(--s-3)) var(--s-2); }
+.notes-saved { font-size: var(--t-meta); color: var(--c-ink-3); }
+.notes-area {
+  width: 100%; resize: vertical; min-height: 72px;
+  font-family: var(--font-ui); font-size: 13px; line-height: var(--lh-body); color: var(--c-ink);
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-control);
+  padding: var(--s-2) var(--s-3); outline: none;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.notes-area:hover { border-color: var(--c-line-strong); }
+.notes-area:focus { border-color: var(--c-accent); background: var(--c-surface); box-shadow: 0 0 0 3px var(--c-accent-ring); }
+.notes-area::placeholder { color: var(--c-ink-3); }
 .side-item:hover { background: var(--c-surface-hover); }
 .side-row1 { display: flex; align-items: center; gap: var(--s-2); }
 .side-name { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

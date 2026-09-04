@@ -21,8 +21,17 @@ function serialize(row) {
     period: row.period,
     name: monthName(row.period),
     isClosed: !!row.closed_at,
+    notes: row.notes || "",
     createdAt: row.created_at,
   };
+}
+
+// Note libre du mois — du contexte, pas de l'argent : autorisée aussi sur un mois clôturé
+export function setNotes(id, notes) {
+  const row = get("SELECT * FROM months WHERE id = ?", id);
+  if (!row) throw httpError(404, "Mois introuvable");
+  run("UPDATE months SET notes = ? WHERE id = ?", String(notes ?? "").trim() || null, id);
+  return getById(id);
 }
 
 export function list() {

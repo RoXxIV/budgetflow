@@ -180,6 +180,18 @@ test("clôture : toutes les saisies du mois verrouillées, datées comprises", (
   months.setClosed(m.id, false);
 });
 
+test("note du mois : persistée, vidable, modifiable même clôturé (du contexte, pas de l'argent)", () => {
+  assert.equal(months.getById(m.id).notes, "");
+  months.setNotes(m.id, "  Mois du déménagement  ");
+  assert.equal(months.getById(m.id).notes, "Mois du déménagement", "trim + persistée");
+  months.setClosed(m.id, true);
+  months.setNotes(m.id, "Relu après clôture");
+  assert.equal(months.getById(m.id).notes, "Relu après clôture", "autorisée sur un mois clôturé");
+  months.setClosed(m.id, false);
+  months.setNotes(m.id, "");
+  assert.equal(months.getById(m.id).notes, "", "vider la note la supprime");
+});
+
 test("suppressions : ligne avec entrées (force), mois en cascade", () => {
   refuse(() => lines.remove(mCourses.id), 409);
   lines.remove(mCourses.id, { force: true });
