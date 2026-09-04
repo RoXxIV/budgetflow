@@ -16,10 +16,7 @@ const navLinks = [
 <template>
   <div class="min-h-screen flex flex-col">
     <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark">B</span>
-        BudgetFlow
-      </div>
+      <span />
       <nav class="topnav">
         <router-link
           v-for="link in navLinks"
@@ -43,40 +40,20 @@ const navLinks = [
 </template>
 
 <style scoped>
-/* Barre de navigation §5.2 : non sticky, filet bas, actif souligné à l'accent */
+/* Barre de navigation : app perso, sans marque — la nav centrée sur le fond de l'app,
+   non sticky, actif souligné à l'accent */
 .topbar {
   height: var(--h-topbar);
-  background: var(--c-surface);
-  border-bottom: 1px solid var(--c-line);
   padding: 0 var(--s-7);
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: var(--s-8);
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--c-ink);
-}
-.brand-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--r-control);
-  background: var(--c-accent);
-  color: var(--c-on-accent);
-  font-weight: 600;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .topnav {
   display: flex;
   gap: var(--s-6);
   align-self: stretch;
+  justify-content: center;
 }
 .topnav-link {
   display: flex;
@@ -85,7 +62,6 @@ const navLinks = [
   font-weight: 500;
   color: var(--c-ink-2);
   border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
   transition: color var(--dur-fast) var(--ease);
 }
 .topnav-link:hover { color: var(--c-ink); }
@@ -94,7 +70,7 @@ const navLinks = [
   border-bottom-color: var(--c-accent);
 }
 .topbar-icon {
-  margin-left: auto;
+  justify-self: end;
   width: 28px;
   height: 28px;
   border-radius: var(--r-control);
