@@ -865,9 +865,6 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
 .field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
 .input { padding: 6px var(--s-3); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); font-size: 13px; color: var(--c-ink); background: var(--c-surface); outline: none; font-family: var(--font-ui); }
 .input:focus-visible, .input:focus { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
-/* Pas de spinner sur les champs numériques */
-.input[type='number']::-webkit-inner-spin-button, .input[type='number']::-webkit-outer-spin-button { appearance: none; margin: 0; }
-.input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
 
 /* Select restylé : chevron dessiné, jamais l'apparence native */
 .select-wrap { position: relative; display: inline-flex; }

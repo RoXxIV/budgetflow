@@ -72,6 +72,11 @@ input[type='radio']:focus-visible {
   100% { transform: scale(1); }
 }
 
+/* Pas de spinners ▲▼ sur les champs numériques (les flèches ↑/↓ du clavier marchent toujours) */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+
 /* ─── Compat thème sombre ──────────────────────────────────
    Les utilitaires Tailwind de couleur encore présents (modales, états vides)
    sont re-routés vers les tokens : lisibles dans les deux thèmes, un seul
