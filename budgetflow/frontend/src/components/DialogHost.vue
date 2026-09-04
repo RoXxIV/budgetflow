@@ -22,8 +22,8 @@ watch(() => state.prompt, async (p) => {
 </script>
 
 <template>
-  <!-- Confirmation -->
-  <AppModal :open="!!state.confirm" :title="state.confirm?.title || ''" @close="closeConfirm(false)">
+  <!-- Confirmation : toujours au-dessus des modales d'édition (z 50) -->
+  <AppModal :open="!!state.confirm" :title="state.confirm?.title || ''" :z="70" @close="closeConfirm(false)">
     <p class="dlg-message whitespace-pre-line">{{ state.confirm?.message }}</p>
     <template #footer>
       <button class="dlg-btn" :class="state.confirm?.danger ? 'dlg-btn--danger' : 'dlg-btn--primary'" @click="closeConfirm(true)">{{ state.confirm?.confirmLabel }}</button>
@@ -32,7 +32,7 @@ watch(() => state.prompt, async (p) => {
   </AppModal>
 
   <!-- Saisie -->
-  <AppModal :open="!!state.prompt" :title="state.prompt?.title || ''" @close="closePrompt(null)">
+  <AppModal :open="!!state.prompt" :title="state.prompt?.title || ''" :z="70" @close="closePrompt(null)">
     <div v-if="state.prompt" class="flex flex-col gap-3">
       <p v-if="state.prompt.message" class="dlg-message whitespace-pre-line">{{ state.prompt.message }}</p>
       <label class="dlg-field">

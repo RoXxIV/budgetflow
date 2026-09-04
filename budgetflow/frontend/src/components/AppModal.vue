@@ -1,25 +1,39 @@
 <script setup>
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 
 // Modal générique : props open/title, slot par défaut (corps) et slot footer (boutons).
-// Échap et clic sur le fond ferment (émet 'close').
+// Échap et clic sur le fond ferment (émet 'close'). `z` permet d'empiler (une confirmation
+// par-dessus une modale d'édition) ; la pile garantit qu'Échap ne ferme que celle du dessus.
 const props = defineProps({
   open: { type: Boolean, default: false },
   title: { type: String, default: '' },
   wide: { type: Boolean, default: false },
+  z: { type: Number, default: 50 },
 })
 const emit = defineEmits(['close'])
 
+const uid = Symbol('modal')
+const stack = (window.__bfModalStack ||= [])
+watch(() => props.open, (o) => {
+  const i = stack.indexOf(uid)
+  if (o && i === -1) stack.push(uid)
+  else if (!o && i !== -1) stack.splice(i, 1)
+}, { immediate: true })
+
 function onKey(e) {
-  if (e.key === 'Escape' && props.open) emit('close')
+  if (e.key === 'Escape' && props.open && stack[stack.length - 1] === uid) emit('close')
 }
 onMounted(() => window.addEventListener('keydown', onKey))
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  const i = stack.indexOf(uid)
+  if (i !== -1) stack.splice(i, 1)
+})
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="modal-scrim fixed inset-0 z-50 flex items-center justify-center px-4 py-6" @mousedown.self="emit('close')">
+    <div v-if="open" class="modal-scrim fixed inset-0 flex items-center justify-center px-4 py-6" :style="{ zIndex: z }" @mousedown.self="emit('close')">
       <div class="modal-panel w-full flex flex-col max-h-[calc(100vh-3rem)]" :class="wide ? 'max-w-3xl' : 'max-w-xl'">
         <div class="modal-head flex items-center gap-3 px-5 py-3.5">
           <h3 class="text-[15px] font-semibold">{{ title }}</h3>
