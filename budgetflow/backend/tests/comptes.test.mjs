@@ -188,3 +188,17 @@ test("renommage synchronisé 1:1 dans les deux sens, sans casser l'unicité des 
   assert.equal(envelopes.getById(envId).name, "Principal", "l'enveloppe est renommée");
   assert.equal(accounts.getById(lv.id).name, "Jeune3", "mais le compte ne suit pas (unicité)");
 });
+
+test("enveloppe soldée à 0 : supprimable si historique purement administratif, refusée après de la vraie vie", () => {
+  // Que des mouvements administratifs (initiale + réaffectation de clôture) → supprimable (créée par erreur, test)
+  const cible = envelopes.create({ name: "Cible réaffectation" });
+  const admin = envelopes.create({ name: "Créée par erreur", initialAmount: 10 });
+  envelopes.closeInto(admin.id, { toEnvelopeId: cible.id });
+  envelopes.remove(admin.id);
+  assert.ok(!envelopes.list().some((e) => e.id === admin.id), "l'enveloppe administrative disparaît");
+  // Un versement réel (kind normale) → l'historique reste, suppression refusée même soldée à 0
+  const vecue = envelopes.create({ name: "Vécue" });
+  envelopes.addContribution(vecue.id, { amount: 50, fromAccountId: main.id });
+  envelopes.closeInto(vecue.id, { toEnvelopeId: cible.id });
+  refuse(() => envelopes.remove(vecue.id), 409);
+});

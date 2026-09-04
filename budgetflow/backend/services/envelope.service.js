@@ -244,14 +244,22 @@ export function remove(id) {
     throw httpError(409, `Cette enveloppe alimente la ligne mensualisée « ${linked.label} » : démensualisez la ligne d'abord (template).`);
   }
 
+  const contribs = all("SELECT kind, entry_id FROM envelope_contributions WHERE envelope_id = ?", id);
   const total = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM envelope_contributions WHERE envelope_id = ?", id).s;
-  const n = get("SELECT COUNT(*) AS n FROM envelope_contributions WHERE envelope_id = ?", id).n;
-  if (n > 0) {
-    const err = httpError(409, `« ${existing.name} » a un historique de ${n} contribution(s) pour un total de ${fromCents(total).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € : clôturez-la (l'historique reste)`);
-    err.payload = { code: "ENVELOPE_HAS_FUNDS", total: fromCents(total), contributions: n, accountId: existing.account_id };
+  // De la vraie vie = versements réels ou dépenses (liées ou non à une entrée de mois).
+  // Les mouvements purement administratifs (initiale, ajustement, réaffectation) ne comptent pas :
+  // une enveloppe soldée à 0 qui n'a jamais vécu peut disparaître (créée par erreur, test).
+  const hasRealLife = contribs.some((c) => c.entry_id || c.kind === "normale" || c.kind === "depense");
+  if (total !== 0) {
+    const err = httpError(409, `« ${existing.name} » contient ${fromCents(total).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € : clôturez-la ou réaffectez son contenu (rien n'est perdu)`);
+    err.payload = { code: "ENVELOPE_HAS_FUNDS", total: fromCents(total), contributions: contribs.length, accountId: existing.account_id };
     throw err;
   }
+  if (hasRealLife) {
+    throw httpError(409, `« ${existing.name} » a un historique réel (versements ou dépenses) : elle reste ${existing.closed_at ? "clôturée" : "— clôturez-la —"}, l'historique est conservé`);
+  }
 
+  run("DELETE FROM envelope_contributions WHERE envelope_id = ?", id);
   run("DELETE FROM envelopes WHERE id = ?", id);
   return { message: "Enveloppe supprimée" };
 }
