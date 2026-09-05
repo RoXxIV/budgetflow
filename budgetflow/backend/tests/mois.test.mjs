@@ -188,6 +188,44 @@ test("DCA : n'importe quel versement du mois vaut « versé » (arrondi manuel c
   assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, base), "rajouter des sous plus tard ne change rien");
 });
 
+test("liquider et renouveler : virement tracé, enveloppe à zéro, échéance avancée d'un cycle", () => {
+  refuse(() => envelopes.liquidate(virt.id, { toAccountId: livret.id }), 409); // pas mensualisée
+  const before = envelopes.getById(annEnv.id);
+  assert.ok(before.total > 0, "il y a de quoi liquider");
+  const after = envelopes.liquidate(annEnv.id, { toAccountId: livret.id });
+  assert.ok(eq(after.total, 0), "enveloppe vidée — la dépense reste à saisir par l'utilisateur");
+  assert.ok(after.deadline > before.deadline, `échéance avancée (${before.deadline} → ${after.deadline})`);
+  const vir = entries.listByMonth(m.id).find((e) => (e.label || "").includes("Liquidation"));
+  assert.ok(vir && eq(vir.amount, before.total) && vir.accountId === main.id && vir.toAccountId === livret.id,
+    "virement système hôte → compte choisi, tracé dans le mois");
+  refuse(() => envelopes.liquidate(annEnv.id, { toAccountId: livret.id }), 409); // vide : rien à liquider
+  // Annulation : supprimer le virement restaure l'enveloppe ET l'échéance (retour de test d'Evan —
+  // avant ce fix, la contribution restait orpheline et les 8 € semblaient « envolés »)
+  entries.remove(vir.id);
+  const restored = envelopes.getById(annEnv.id);
+  assert.ok(eq(restored.total, before.total), "l'enveloppe retrouve son argent");
+  assert.equal(restored.deadline, before.deadline, "l'échéance redescend au cycle courant");
+});
+
+test("« annuler ce mois-ci » : DCA et mensualité sautés ne comptent plus, et tout se rétablit", () => {
+  const pea2 = accounts.create({ name: "CTO skip", type: "investissement" });
+  const etf2 = assets.create({ name: "ETF skip", accountId: pea2.id, monthlyDca: 50 });
+  const base = summary.getSummary(m.id).tiles.detail.prevusRestants;
+  months.addSkip(m.id, { kind: "asset", targetId: etf2.id });
+  assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, base - 50), "DCA annulé : −50 des prévus restants");
+  months.removeSkip(m.id, "asset", etf2.id);
+  assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, base), "rétabli : tout revient");
+  // Mensualité d'une enveloppe liée
+  const lAnn = lines.create(null, { label: "Skip annuelle", categoryId: catDep.id, plannedAmount: 120, intervalMonths: 12, anchorMonth: Number(period2.split("-")[1]), fromAccountId: main.id });
+  const envId = lines.setMonthlyized(lAnn.id, { enabled: true }).envelopeId;
+  const sugg = envelopes.getById(envId).monthlySuggestion;
+  assert.ok(sugg > 0, "une mensualité est suggérée");
+  const withSugg = summary.getSummary(m.id).tiles.detail.prevusRestants;
+  months.addSkip(m.id, { kind: "envelope", targetId: envId });
+  assert.ok(eq(summary.getSummary(m.id).tiles.detail.prevusRestants, withSugg - sugg), "mensualité annulée ce mois");
+  lines.remove(lAnn.id); // l'enveloppe jamais vécue part avec la ligne
+});
+
 test("modifier une ligne de mois : thème/compte/paiement se propagent à toutes ses entrées", () => {
   const th2 = themes.create({ name: "Sport" });
   lines.update(mCourses.id, { themeId: th2.id });

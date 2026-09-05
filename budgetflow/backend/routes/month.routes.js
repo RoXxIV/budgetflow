@@ -28,6 +28,10 @@ router.post("/:id/assets/:assetId/dca", wrap((req, res) => res.status(201).json(
 router.delete("/:id/assets/:assetId/dca", wrap((req, res) => res.json(assets.undca(id(req), id(req, "assetId")))));
 // Contributions d'enveloppes datées dans ce mois (la saisie passe par /envelopes/:id/contributions)
 router.get("/:id/envelope-contributions", wrap((req, res) => res.json(envelopes.listContributionsByPeriod(months.getById(id(req)).period))));
+// « Annuler ce mois-ci » : mensualité d'enveloppe / DCA non versé ce mois (réversible)
+router.get("/:id/skips", wrap((req, res) => res.json(months.listSkips(id(req)))));
+router.post("/:id/skips", wrap((req, res) => res.status(201).json(months.addSkip(id(req), req.body || {}))));
+router.delete("/:id/skips/:kind/:targetId", wrap((req, res) => res.json(months.removeSkip(id(req), req.params.kind, id(req, "targetId")))));
 router.put("/:id", wrap((req, res) => res.json(months.setClosed(id(req), !!req.body.isClosed))));
 router.put("/:id/notes", wrap((req, res) => res.json(months.setNotes(id(req), req.body.notes))));
 router.delete("/:id", wrap((req, res) => res.json(months.remove(id(req)))));

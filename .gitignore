@@ -49,3 +49,5 @@ pnpm-debug.log*
 # Base SQLite locale (données réelles, jamais versionnées)
 budgetflow/backend/data/
 trie/
+Design_md/
+review.md

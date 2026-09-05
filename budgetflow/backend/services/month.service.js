@@ -26,6 +26,26 @@ function serialize(row) {
   };
 }
 
+// ─── « Annuler ce mois-ci » : mensualité d'enveloppe ou DCA non versé CE mois ───
+// Le Reste à vivre cesse de déduire la cible ; rien d'autre ne bouge, tout revient le mois suivant.
+export function listSkips(monthId) {
+  getById(monthId);
+  return all("SELECT kind, target_id AS targetId FROM month_skips WHERE month_id = ?", monthId);
+}
+
+export function addSkip(monthId, { kind, targetId }) {
+  assertOpen(monthId);
+  if (!["envelope", "asset"].includes(kind) || !Number(targetId)) throw httpError(400, "Cible invalide");
+  run("INSERT OR IGNORE INTO month_skips (month_id, kind, target_id) VALUES (?, ?, ?)", monthId, kind, Number(targetId));
+  return listSkips(monthId);
+}
+
+export function removeSkip(monthId, kind, targetId) {
+  assertOpen(monthId);
+  run("DELETE FROM month_skips WHERE month_id = ? AND kind = ? AND target_id = ?", monthId, kind, Number(targetId));
+  return listSkips(monthId);
+}
+
 // Note libre du mois — du contexte, pas de l'argent : autorisée aussi sur un mois clôturé
 export function setNotes(id, notes) {
   const row = get("SELECT * FROM months WHERE id = ?", id);

@@ -8,6 +8,8 @@ export const getMonthSummary = (id) => api.get(`/months/${id}/summary`)
 export const getMonthEnvelopeContributions = (id) => api.get(`/months/${id}/envelope-contributions`)
 export const setMonthClosed = (id, isClosed) => api.put(`/months/${id}`, { isClosed })
 export const setMonthNotes = (id, notes) => api.put(`/months/${id}/notes`, { notes })
+export const addMonthSkip = (id, kind, targetId) => api.post(`/months/${id}/skips`, { kind, targetId })
+export const removeMonthSkip = (id, kind, targetId) => api.delete(`/months/${id}/skips/${kind}/${targetId}`)
 
 export const getMonthLines = (id) => api.get(`/months/${id}/lines`)
 export const createMonthLine = (id, data) => api.post(`/months/${id}/lines`, data)

@@ -2,14 +2,14 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { eur } from '@/lib/format.js'
 import {
-  getMonths, getMonthPrefill, createMonth, setMonthClosed, setMonthNotes,
+  getMonths, getMonthPrefill, createMonth, setMonthClosed, setMonthNotes, addMonthSkip, removeMonthSkip,
   getMonthLines, payLine,
   getMonthSnapshots, upsertMonthSnapshots,
   getMonthEntries, createEntry, updateEntry, deleteEntry,
   getMonthSummary, getMonthEnvelopeContributions,
   createMonthLine, updateMonthLine, deleteMonthLine, applyLineToTemplate,
 } from '@/api/months.js'
-import { getEnvelopes, addContribution, removeContribution } from '@/api/envelopes.js'
+import { getEnvelopes, addContribution, removeContribution, liquidateEnvelope } from '@/api/envelopes.js'
 import { getMonthCalculators, saveMonthReadings, regularizeCalculator } from '@/api/calculators.js'
 import AppModal from '@/components/AppModal.vue'
 import HelpTip from '@/components/HelpTip.vue'
@@ -252,6 +252,36 @@ function rowAlert(line) {
 const contribsForEnvelope = (env) => monthContribs.value.filter((c) => c.envelopeId === env.id)
 const monthContribTotal = computed(() => monthContribs.value.filter((c) => c.kind === 'normale').reduce((s, c) => s + c.amount, 0))
 const envelopePct = (env) => (env.effectiveTarget ? Math.min(100, Math.round((env.total / env.effectiveTarget) * 100)) : null)
+// Enveloppe mensualisée au-delà de sa cible (abonnement repoussé, jamais liquidé) : affichée en rouge
+const isOverfull = (env) => !!env.effectiveTarget && env.total > env.effectiveTarget
+
+// ─── « Annuler ce mois-ci » : cette mensualité / ce DCA ne sera pas versé ce mois ───
+// Le Reste à vivre cesse de le déduire ; rien d'autre ne bouge, tout revient le mois suivant.
+const isSkipped = (kind, id) => !!summaryData.value?.skips?.some((s) => s.kind === kind && s.targetId === id)
+async function toggleSkip(kind, id) {
+  try {
+    if (isSkipped(kind, id)) await removeMonthSkip(current.value.id, kind, id)
+    else await addMonthSkip(current.value.id, kind, id)
+    await reload()
+  } catch (e) { apiError(e) }
+}
+
+// ─── Liquider et renouveler (enveloppe mensualisée) : le geste manuel qui ferme la boucle ───
+// Vide l'enveloppe vers le compte choisi (virement système tracé), l'échéance repart d'un
+// cycle — et c'est l'utilisateur qui crée ensuite sa ligne de dépense pour le paiement réel.
+const liquidation = ref(null) // { env, toAccountId }
+function openLiquidation(env) {
+  liquidation.value = { env, toAccountId: accounts.value.find((a) => a.isMain)?.id || '' }
+}
+async function confirmLiquidation() {
+  const l = liquidation.value
+  if (!l?.toAccountId) return
+  try {
+    await liquidateEnvelope(l.env.id, l.toAccountId)
+    liquidation.value = null
+    await reload()
+  } catch (e) { apiError(e) }
+}
 
 function toggleEnvelope(env) {
   if (openEnvelopeId.value === env.id) { openEnvelopeId.value = null; return }
@@ -958,6 +988,29 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
       </template>
     </AppModal>
 
+    <!-- ─── Liquider et renouveler une enveloppe mensualisée ── -->
+    <AppModal :open="!!liquidation" title="Liquider et renouveler" @close="liquidation = null">
+      <div v-if="liquidation" class="flex flex-col gap-3 text-[13px]">
+        <p>
+          « <b>{{ liquidation.env.name }}</b> » contient <b class="num">{{ fmt(liquidation.env.total) }}</b>{{ liquidation.env.accountName ? ' sur ' + liquidation.env.accountName : ' (compte principal)' }}.
+        </p>
+        <label class="field"><span>Virer vers</span>
+          <select v-model="liquidation.toAccountId" class="input w-48">
+            <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}{{ a.id === (liquidation.env.accountId || accounts.find((x) => x.isMain)?.id) ? ' (compte hôte — juste libéré)' : '' }}</option>
+          </select>
+        </label>
+        <p class="text-[11.5px] text-gray-400">
+          L'enveloppe repart à zéro et son échéance avance d'un cycle — les mensualités reprennent.
+          Le virement est tracé dans le mois (Mouvements internes). <b>Aucune dépense n'est créée</b> :
+          vous saisissez ensuite vous-même la ligne du paiement, sur le compte réellement prélevé.
+        </p>
+      </div>
+      <template #footer>
+        <button class="btn-primary" :disabled="!liquidation?.toAccountId" @click="confirmLiquidation">Liquider et renouveler</button>
+        <button class="btn-secondary" @click="liquidation = null">Annuler</button>
+      </template>
+    </AppModal>
+
     <!-- ─── Ligne du mois (modal : ajout et édition) ───── -->
     <AppModal :open="lineModalOpen" :title="lineModalAdding ? 'Nouvelle ligne — ' + (lineFormCategory?.name || '') : 'Modifier « ' + (lineFormLine?.label || '') + ' »'" wide @close="closeLineForm">
       <div class="flex flex-col gap-4">
@@ -1457,7 +1510,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
             <div v-for="env in envelopes" :key="env.id" class="side-item" @click="toggleEnvelope(env)">
               <div class="side-row1">
                 <button
-                  v-if="env.monthlySuggestion > 0 && !current.isClosed && !contribsForEnvelope(env).some((c) => c.kind === 'normale')"
+                  v-if="env.monthlySuggestion > 0 && !current.isClosed && !contribsForEnvelope(env).some((c) => c.kind === 'normale') && !isSkipped('envelope', env.id)"
                   class="pointbox pointbox-sm"
                   :aria-label="'Verser la mensualité de ' + env.name"
                   :title="'Verser la mensualité suggérée : ' + fmt(env.monthlySuggestion)"
@@ -1465,9 +1518,10 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                 ></button>
                 <span v-else-if="contribsForEnvelope(env).some((c) => c.kind === 'normale')" class="pointbox pointbox-sm is-checked"><PhCheck :size="10" weight="bold" /></span>
                 <span class="side-name">{{ env.name }}</span>
-                <span class="num side-amounts"><span class="ink">{{ fmt(env.total) }}</span><span v-if="env.targetAmount" class="meta"> / {{ fmt(env.effectiveTarget) }}</span></span>
+                <span v-if="isSkipped('envelope', env.id)" class="tag tag-neutral" title="Pas de versement ce mois-ci : le Reste à vivre ne le déduit plus. Tout revient le mois prochain.">annulé ce mois</span>
+                <span class="num side-amounts" :title="isOverfull(env) ? 'Au-delà de la cible : à liquider quand le paiement passera' : ''"><span :class="isOverfull(env) ? 'is-over' : 'ink'">{{ fmt(env.total) }}</span><span v-if="env.targetAmount" :class="isOverfull(env) ? 'is-over' : 'meta'"> / {{ fmt(env.effectiveTarget) }}</span></span>
               </div>
-              <div v-if="env.targetAmount" class="goal-bar"><div class="goal-fill" :style="{ width: Math.min(100, envelopePct(env) || 0) + '%' }" /></div>
+              <div v-if="env.targetAmount" class="goal-bar"><div class="goal-fill" :class="{ 'is-overfill': isOverfull(env) }" :style="{ width: Math.min(100, envelopePct(env) || 0) + '%' }" /></div>
               <div class="side-meta">
                 <span v-if="env.accountName">{{ env.accountName }}</span><span v-if="env.monthlySuggestion" class="num"> · {{ fmt(env.monthlySuggestion) }}/mois</span>
                 <span v-if="contribsForEnvelope(env).length" class="tag num" :class="contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? 'tag-credit' : 'tag-alert'" title="Mouvement net de l'enveloppe ce mois : versements, dépenses sorties, réaffectations et ajustements compris — pas seulement le mis de côté">{{ contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? '+' : '' }}{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois</span>
@@ -1491,6 +1545,21 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                   </select>
                   <button class="btn-secondary" @click="submitContribution(env)">Ajouter</button>
                 </div>
+                <!-- Mensualisée : le geste qui ferme la boucle — le virement réel est passé,
+                     on vide l'enveloppe vers le compte remboursé et le cycle repart -->
+                <div v-if="!current.isClosed && (env.linkedTemplateLineId || env.monthlySuggestion > 0 || isSkipped('envelope', env.id))" class="side-liquidate">
+                  <button v-if="env.linkedTemplateLineId && env.total > 0" class="link-accent" @click.stop="openLiquidation(env)">Liquider et renouveler</button>
+                  <!-- Toutes les enveloppes à mensualité (liées OU libres comme le Matelas) : le skip
+                       fait taire la case et la suggestion ce mois-ci — et retire la mensualité du
+                       Reste à vivre quand elle y était déduite (enveloppes liées). « Rétablir » reste
+                       accessible même après un versement (état contradictoire sinon). -->
+                  <button
+                    v-if="isSkipped('envelope', env.id) || (env.monthlySuggestion > 0 && !contribsForEnvelope(env).some((c) => c.kind === 'normale'))"
+                    class="link-accent"
+                    :title="isSkipped('envelope', env.id) ? 'Reprendre la mensualité ce mois-ci' : 'Ce mois-ci, pas de versement pour ce projet'"
+                    @click.stop="toggleSkip('envelope', env.id)"
+                  >{{ isSkipped('envelope', env.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
+                </div>
               </div>
             </div>
           </div>
@@ -1500,7 +1569,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
             <div v-for="asset in assets" :key="asset.id" class="side-item" @click="toggleAsset(asset)">
               <div class="side-row1">
                 <button
-                  v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed"
+                  v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed && !isSkipped('asset', asset.id)"
                   class="pointbox pointbox-sm"
                   :aria-label="'Verser le DCA de ' + asset.name"
                   title="Marquer le versement mensuel comme fait (annulation : supprimer le mouvement)"
@@ -1508,6 +1577,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                 ></button>
                 <span v-else-if="movementsForAsset(asset).length" class="pointbox pointbox-sm is-checked"><PhCheck :size="10" weight="bold" /></span>
                 <span class="side-name">{{ asset.name }}</span>
+                <span v-if="isSkipped('asset', asset.id)" class="tag tag-neutral" title="Pas de versement ce mois-ci : le Reste à vivre ne le déduit plus. Tout revient le mois prochain.">annulé ce mois</span>
                 <span v-if="asset.type" class="tag tag-neutral">{{ asset.type }}</span>
                 <span class="num side-amounts">
                   <span class="ink">{{ fmt(movementsForAsset(asset).length ? movementsForAsset(asset).reduce((s, m) => s + (m.kind === 'versement' ? m.amount : -m.amount), 0) : asset.monthlyDca) }}</span>
@@ -1524,6 +1594,10 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
                   <span class="entry-actions"><button v-if="!current.isClosed" class="btn-icon is-danger" title="Supprimer le mouvement" @click.stop="deleteAssetMovement(m)">×</button></span>
                 </div>
                 <p v-if="!movementsForAsset(asset).length" class="entries-empty">Aucun mouvement ce mois.</p>
+                <!-- « Rétablir » reste accessible même après un versement (état contradictoire sinon) -->
+                <div v-if="asset.monthlyDca > 0 && !current.isClosed && (isSkipped('asset', asset.id) || !movementsForAsset(asset).length)" class="side-liquidate">
+                  <button class="link-accent" :title="isSkipped('asset', asset.id) ? 'Re-déduire le DCA du Reste à vivre' : 'Ce mois-ci, pas de versement : le Reste à vivre ne le déduira plus'" @click.stop="toggleSkip('asset', asset.id)">{{ isSkipped('asset', asset.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
+                </div>
                 <div v-if="!current.isClosed" class="side-form">
                   <select v-model="assetMovementForm.kind" class="input w-24">
                     <option value="versement">Versement</option>
@@ -1555,6 +1629,8 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
               @blur="saveNotes"
             ></textarea>
           </div>
+
+          <router-link to="/abonnements" class="link-accent aside-link" title="Bac à sable : coût total des abonnements et simulations, sans rien toucher ailleurs">Tracker d'abonnements →</router-link>
         </aside>
       </div>
     </div>
@@ -1811,12 +1887,15 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 .notes-area:hover { border-color: var(--c-line-strong); }
 .notes-area:focus { border-color: var(--c-accent); background: var(--c-surface); box-shadow: 0 0 0 3px var(--c-accent-ring); }
 .notes-area::placeholder { color: var(--c-ink-3); }
+.aside-link { align-self: flex-start; padding-left: var(--s-2); margin-top: calc(-1 * var(--s-3)); }
 .side-item:hover { background: var(--c-surface-hover); }
 .side-row1 { display: flex; align-items: center; gap: var(--s-2); }
 .side-name { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .side-amounts { margin-left: auto; font-size: 13px; white-space: nowrap; }
 .goal-bar { height: 4px; border-radius: var(--r-pill); background: var(--c-track); overflow: hidden; margin-top: var(--s-2); }
 .goal-fill { height: 100%; background: var(--c-fill-goal); transition: width var(--dur-base) var(--ease); }
+.goal-fill.is-overfill { background: var(--c-fill-over); }
+.side-liquidate { margin-top: var(--s-2); border-top: 1px solid var(--c-line); padding-top: var(--s-2); }
 .side-meta { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-meta); color: var(--c-ink-3); margin-top: var(--s-1); flex-wrap: wrap; }
 .side-rest { margin-left: auto; }
 .side-expand { margin-top: var(--s-3); background: var(--c-surface-sunken); border-radius: var(--r-control); padding: var(--s-2) var(--s-3); cursor: default; animation: reg-in var(--dur-base) var(--ease); }

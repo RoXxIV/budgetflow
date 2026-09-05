@@ -156,6 +156,16 @@ function removeInner(id) {
   if (!existing) throw httpError(404, "Entrée introuvable");
   assertOpen(existing.month_id);
   run("DELETE FROM entries WHERE id = ?", id);
+  // Annulation d'une liquidation (entrée sans ligne, liée à une enveloppe mensualisée) :
+  // la contribution liée cascade avec l'entrée (l'enveloppe retrouve son argent) et
+  // l'échéance redescend au cycle courant — symétrique du dépointage
+  if (!existing.line_id && existing.envelope_id) {
+    const line = get("SELECT * FROM budget_lines WHERE envelope_id = ? AND month_id IS NULL LIMIT 1", existing.envelope_id);
+    if (line && (line.interval_months || 1) > 1) {
+      const month = get("SELECT * FROM months WHERE id = ?", existing.month_id);
+      run("UPDATE envelopes SET deadline = ? WHERE id = ?", nextDueDate(line, month.period), existing.envelope_id);
+    }
+  }
   // Dernière entrée d'une ligne supprimée → ses virements système n'ont plus de raison d'être,
   // et l'échéance d'une ligne mensualisée revient au cycle courant (la case ☐ réapparaît si un prévu reste)
   if (existing.line_id) {

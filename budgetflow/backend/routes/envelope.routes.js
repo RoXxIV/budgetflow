@@ -15,6 +15,8 @@ router.post("/", wrap((req, res) => res.status(201).json(service.create(req.body
 router.put("/:id", wrap((req, res) => res.json(service.update(Number(req.params.id), req.body))));
 router.delete("/:id", wrap((req, res) => res.json(service.remove(Number(req.params.id)))));
 router.post("/:id/close-into", wrap((req, res) => res.json(service.closeInto(Number(req.params.id), req.body || {}))));
+// Mensualisées : vide l'enveloppe vers un compte et fait repartir le cycle (la dépense reste à saisir)
+router.post("/:id/liquidate", wrap((req, res) => res.json(service.liquidate(Number(req.params.id), req.body || {}))));
 
 router.post("/:id/reallocate", wrap((req, res) => res.status(201).json(service.reallocate(Number(req.params.id), req.body || {}))));
 router.get("/:id/recalibration", wrap((req, res) => res.json(service.recalibrationPreview(Number(req.params.id)))));

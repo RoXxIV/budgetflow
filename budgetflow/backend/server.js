@@ -12,6 +12,7 @@ import monthRoutes from "./routes/month.routes.js";
 import calculatorRoutes from "./routes/calculator.routes.js";
 import assetRoutes from "./routes/asset.routes.js";
 import statsRoutes from "./routes/stats.routes.js";
+import subscriptionRoutes from "./routes/subscription.routes.js";
 
 const PORT = process.env.PORT || 3003;
 
@@ -31,6 +32,7 @@ app.use("/api/months", monthRoutes);
 app.use("/api/calculators", calculatorRoutes);
 app.use("/api/assets", assetRoutes);
 app.use("/api/stats", statsRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
 
 // Gestion d'erreur centralisée : les services lèvent des Error avec .status
 app.use((err, req, res, next) => {
