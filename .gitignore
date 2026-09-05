@@ -8,12 +8,12 @@ build/
 coverage/
 
 # Tauri / Rust (artefacts de compilation, très lourds)
-budgetflow/src-tauri/target/
-budgetflow/src-tauri/gen/
+src-tauri/target/
+src-tauri/gen/
 
 # Généré par build-app.cmd : runtime backend copié et base seed (données réelles !)
-budgetflow/src-tauri/backend/
-budgetflow/src-tauri/seed/
+src-tauri/backend/
+src-tauri/seed/
 
 # ─── Secrets / config locale ─────────────────
 .env
@@ -45,9 +45,5 @@ pnpm-debug.log*
 .eslintcache
 *.timestamp-*-*.mjs
 
-# ─── Nouvelle app budgetflow ─────────────────
-# Base SQLite locale (données réelles, jamais versionnées)
-budgetflow/backend/data/
-trie/
-Design_md/
-review.md
+# ─── Base SQLite locale (données réelles, jamais versionnées) ───
+backend/data/
