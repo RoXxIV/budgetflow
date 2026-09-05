@@ -1628,8 +1628,9 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
               :placeholder="'Une note pour ' + (current.name || 'ce mois') + '…'"
               @blur="saveNotes"
             ></textarea>
-            <router-link to="/abonnements" class="link-accent notes-link" title="Bac à sable : coût total des abonnements et simulations, sans rien toucher ailleurs">Tracker d'abonnements →</router-link>
           </div>
+
+          <router-link to="/abonnements" class="link-accent aside-link" title="Bac à sable : coût total des abonnements et simulations, sans rien toucher ailleurs">Tracker d'abonnements →</router-link>
         </aside>
       </div>
     </div>
@@ -1886,7 +1887,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 .notes-area:hover { border-color: var(--c-line-strong); }
 .notes-area:focus { border-color: var(--c-accent); background: var(--c-surface); box-shadow: 0 0 0 3px var(--c-accent-ring); }
 .notes-area::placeholder { color: var(--c-ink-3); }
-.notes-link { display: inline-block; padding: var(--s-2) var(--s-3) var(--s-1); }
+.aside-link { align-self: flex-start; padding-left: var(--s-2); margin-top: calc(-1 * var(--s-3)); }
 .side-item:hover { background: var(--c-surface-hover); }
 .side-row1 { display: flex; align-items: center; gap: var(--s-2); }
 .side-name { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
