@@ -31,6 +31,29 @@ test("périodicité : ancrage obligatoire au-delà du mensuel, prochaine échéa
   assert.match(annuel.nextDue || "", /^\d{4}-03-10$/);
 });
 
+test("part mensuelle : une ligne non mensuelle ne pèse que sa fraction dans un mois-type", () => {
+  // Sinon les totaux du template additionnent des euros par an et des euros par mois
+  // (Strava 79,99/an + N26 118,80/an comptés en entier : +182,22 € de dépenses fantômes).
+  assert.ok(eq(loyer.monthlyAmount, loyer.plannedAmount), "une mensuelle vaut son montant");
+  assert.ok(eq(annuel.monthlyAmount, 10), "120 €/an → 10 €/mois");
+
+  const trim = lines.create(null, { label: "Trimestriel", categoryId: catDep.id, plannedAmount: 60, fromAccountId: main.id, intervalMonths: 3, anchorMonth: 1 });
+  assert.ok(eq(trim.monthlyAmount, 20), "60 € tous les 3 mois → 20 €/mois");
+
+  // Arrondi au centime, pas de fraction qui traîne (cas réel : Strava)
+  const strava = lines.create(null, { label: "Strava", categoryId: catDep.id, plannedAmount: 79.99, fromAccountId: main.id, intervalMonths: 12, anchorMonth: 7 });
+  assert.equal(strava.monthlyAmount, 6.67, "79,99 €/an → 6,67 €/mois");
+
+  // La part mensuelle suit le montant et la périodicité
+  const maj = lines.update(strava.id, { plannedAmount: 120, intervalMonths: 12 });
+  assert.ok(eq(maj.monthlyAmount, 10), "le montant change → la part mensuelle suit");
+  const redevenue = lines.update(strava.id, { intervalMonths: 1 });
+  assert.ok(eq(redevenue.monthlyAmount, 120), "repassée en mensuel → part mensuelle = montant");
+
+  lines.remove(strava.id);
+  lines.remove(trim.id);
+});
+
 test("cycleMatches : la ligne ne tombe que les mois du cycle", () => {
   const l = { interval_months: 6, anchor_month: 3 };
   assert.ok(lines.cycleMatches(l, "2026-03"));

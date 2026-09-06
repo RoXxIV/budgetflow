@@ -45,6 +45,10 @@ export function serialize(row) {
     categoryId: row.category_id,
     themeId: row.theme_id,
     plannedAmount: fromCents(row.planned_amount_cents),
+    // Part mensuelle : une ligne non mensuelle (annuelle, trimestrielle…) ne pèse qu'une
+    // fraction dans un mois-type. Les totaux du template s'appuient dessus, sinon ils
+    // additionnent des euros par an et des euros par mois.
+    monthlyAmount: fromCents(Math.round((row.planned_amount_cents ?? 0) / (row.interval_months || 1))),
     fromAccountId: row.from_account_id,
     toAccountId: row.to_account_id,
     paymentMethod: row.payment_method,

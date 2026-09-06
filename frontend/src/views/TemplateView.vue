@@ -88,10 +88,31 @@ const potCalc = (pot) => {
     toSend: Math.round((myPart - sharedByMe) * 100) / 100,
   }
 }
-const lineAmount = (l) => (l.isPot ? potCalc(l).toSend : (l.plannedAmount || 0))
+// Les totaux raisonnent en mois-type : une ligne non mensuelle compte pour sa part
+// mensuelle (monthlyAmount, calculé par le backend), pas pour son montant prélevé.
+const lineAmount = (l) => (l.isPot ? potCalc(l).toSend : (l.monthlyAmount ?? l.plannedAmount ?? 0))
 const potTip = (l) => {
   const p = potCalc(l)
   return `Calculé — cagnotte : ${fmt(p.total)} en commun (dont ${fmt(p.partnerPaid)} payés par ${p.partnerName}), ma part ${p.myShare} % = ${fmt(p.myPart)}, moins ${fmt(p.sharedByMe)} déjà sur mes lignes ½ → ${fmt(p.toSend)} à envoyer.`
+}
+
+// Part lissée d'un groupe : ce que les lignes non mensuelles y pèsent chaque mois.
+// Sans ça le total ne colle pas avec la somme des montants affichés, qui sont les
+// montants réellement prélevés (79,99 € une fois par an, pas 6,67 € par mois).
+const smoothedInfo = (grpLines) => {
+  const cycliques = grpLines.filter((l) => (l.intervalMonths || 1) > 1)
+  if (!cycliques.length) return null
+  return {
+    count: cycliques.length,
+    monthly: cycliques.reduce((s, l) => s + lineAmount(l), 0),
+    charged: cycliques.reduce((s, l) => s + (l.plannedAmount || 0), 0),
+    lines: cycliques,
+  }
+}
+const smoothedTip = (info) => {
+  const pluriel = info.count > 1 ? 's' : ''
+  const detail = info.lines.map((l) => `${l.label} ${fmt(l.plannedAmount)} ${periodLabel(l)} → ${fmt(lineAmount(l))}/mois`).join(' · ')
+  return `${info.count} ligne${pluriel} non mensuelle${pluriel} (${fmt(info.charged)} prélevés par cycle) compte${info.count > 1 ? 'nt' : ''} ici pour ${fmt(info.monthly)} par mois : ${detail}`
 }
 
 // ─── Lignes groupées par catégorie ───────────────────────
@@ -108,7 +129,7 @@ const groups = computed(() => {
   const orphans = lines.value.filter((l) => !l.categoryId || !categories.value.some((c) => c.id === l.categoryId))
   if (orphans.length) result.push({ category: NO_CATEGORY, lines: orphans })
   return result
-    .map((g) => ({ ...g, total: g.lines.reduce((s, l) => s + lineAmount(l), 0) }))
+    .map((g) => ({ ...g, total: g.lines.reduce((s, l) => s + lineAmount(l), 0), smoothed: smoothedInfo(g.lines) }))
     .sort((a, b) => ((TYPE_ORDER[a.category.type] ?? 9) - (TYPE_ORDER[b.category.type] ?? 9))
       || (a.category.type === 'depense' ? b.total - a.total : 0))
 })
@@ -177,16 +198,16 @@ const dayGroups = computed(() => {
   }
   return [...map.values()]
     .sort((a, b) => (a.day ?? 99) - (b.day ?? 99))
-    .map((g) => ({ ...g, total: g.lines.reduce((s, l) => s + lineAmount(l), 0) }))
+    .map((g) => ({ ...g, total: g.lines.reduce((s, l) => s + lineAmount(l), 0), smoothed: smoothedInfo(g.lines) }))
 })
 const displayGroups = computed(() => (viewMode.value === 'categorie'
   ? groups.value.map((g) => ({
       key: 'c' + (g.category.id ?? 'none'), title: g.category.name, dot: g.category.color,
-      typeLabel: TYPE_LABELS[g.category.type], count: g.lines.length, total: g.total, lines: g.lines, orig: g,
+      typeLabel: TYPE_LABELS[g.category.type], count: g.lines.length, total: g.total, smoothed: g.smoothed, lines: g.lines, orig: g,
     }))
   : dayGroups.value.map((g) => ({
       key: 'd' + (g.day ?? 'none'), title: g.day ? 'Le ' + g.day : 'Sans date', dot: null,
-      typeLabel: '', count: g.lines.length, total: g.total, lines: g.lines, orig: null,
+      typeLabel: '', count: g.lines.length, total: g.total, smoothed: g.smoothed, lines: g.lines, orig: null,
     }))))
 
 // ─── Édition du montant en place (brief §6) : enregistré au blur ───
@@ -428,7 +449,7 @@ const formCategoryType = computed(() => {
       <div class="bandeau-row">
         <div class="synth-hero">
           <span class="num synth-solde" :class="{ 'is-over': totals.reste < 0 }">{{ fmt(totals.reste) }}</span>
-          <span class="synth-sub has-tip" title="Revenus − dépenses − épargne − transferts, cagnottes calculées comprises. Ce que le template laisse chaque mois avant imprévus.">Reste théorique</span>
+          <span class="synth-sub has-tip" title="Revenus − dépenses − épargne − transferts, cagnottes calculées comprises. Les lignes non mensuelles comptent pour leur part mensuelle. Ce que le template laisse chaque mois avant imprévus.">Reste théorique</span>
         </div>
         <div class="synth-sep" />
         <div class="synth-kv">
@@ -606,7 +627,10 @@ const formCategoryType = computed(() => {
           </span>
           <span></span><span></span><span></span>
           <span v-if="sharingOn"></span>
-          <span class="num sec-total">{{ fmt(grp.total) }}</span>
+          <span class="num sec-total">
+            {{ fmt(grp.total) }}
+            <span v-if="grp.smoothed" class="sec-lisse has-tip" :title="smoothedTip(grp.smoothed)">dont {{ fmt(grp.smoothed.monthly) }} lissés</span>
+          </span>
           <span></span>
         </div>
 
@@ -708,7 +732,8 @@ const formCategoryType = computed(() => {
 .sec-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex-shrink: 0; }
 .sec-count { font-size: var(--t-small); font-weight: 400; color: var(--c-ink-3); }
 .sec-type { font-size: var(--t-small); font-weight: 400; color: var(--c-ink-3); }
-.sec-total { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); text-align: right; }
+.sec-total { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); text-align: right; line-height: 1.2; }
+.sec-lisse { display: block; font-size: var(--t-meta); font-weight: 400; color: var(--c-ink-3); white-space: nowrap; }
 
 .tpl-row { min-height: var(--h-row); border-bottom: 1px solid var(--c-line); cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
 .tpl-row:hover { background: var(--c-surface-hover); }
