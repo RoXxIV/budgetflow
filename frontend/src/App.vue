@@ -4,6 +4,8 @@ import { useRoute } from 'vue-router'
 import DialogHost from '@/components/DialogHost.vue'
 import { getPrivacy, setPrivacy } from '@/lib/privacy.js'
 import { onboarding, stepNumber } from '@/lib/onboarding.js'
+import { tourIndexOf } from '@/lib/tour.js'
+import TourGuide from '@/components/TourGuide.vue'
 
 const route = useRoute()
 
@@ -20,6 +22,10 @@ const configLabel = computed(() => (route.path === '/template' ? 'Budget type' :
 const configBackTo = computed(() =>
   route.path === '/template' ? { path: '/bienvenue', query: { etape: 'template' } } : { path: '/bienvenue' }
 )
+
+// Visite guidée : l'onglet expliqué est mis en avant, les autres attendent leur tour
+const tourOn = computed(() => !!onboarding.value?.needsTour && !bare.value)
+const tourPath = computed(() => (tourOn.value && tourIndexOf(route.path) >= 0 ? route.path : null))
 
 // Mode discret : floute tous les chiffres, sur toutes les pages (voir lib/privacy.js)
 const privacyOn = ref(getPrivacy())
@@ -67,7 +73,12 @@ const navLinks = [
           :key="link.to"
           :to="link.to"
           class="topnav-link"
-          :class="{ 'is-active': route.path.startsWith(link.to) }"
+          :class="{
+            'is-active': route.path.startsWith(link.to),
+            'is-spotlight': tourPath === link.to,
+            'is-waiting': tourOn && tourPath !== link.to,
+          }"
+          @click="tourOn && $event.preventDefault()"
         >
           {{ link.name }}
         </router-link>
@@ -82,7 +93,17 @@ const navLinks = [
           <PhEyeSlash v-if="privacyOn" :size="18" />
           <PhEye v-else :size="18" />
         </button>
-        <router-link to="/parametres" class="topbar-icon" title="Paramètres" :class="{ 'is-active': route.path.startsWith('/parametres') }">
+        <router-link
+          to="/parametres"
+          class="topbar-icon"
+          title="Paramètres"
+          :class="{
+            'is-active': route.path.startsWith('/parametres'),
+            'is-spotlight': tourPath === '/parametres',
+            'is-waiting': tourOn && tourPath !== '/parametres',
+          }"
+          @click="tourOn && $event.preventDefault()"
+        >
           <PhGearSix :size="18" />
         </router-link>
       </span>
@@ -93,11 +114,35 @@ const navLinks = [
     <main v-else class="flex-1 px-6 py-6 w-full mx-auto" :style="{ maxWidth: 'var(--w-content)' }">
       <router-view />
     </main>
+    <TourGuide v-if="tourOn" />
     <DialogHost />
   </div>
 </template>
 
 <style scoped>
+/* Visite guidée : l'onglet expliqué ressort, les autres s'effacent sans disparaître.
+   Pas de pastille : l'encre pleine, un cran plus grande, et un halo à l'accent qui
+   la fait rayonner. text-shadow plutôt que box-shadow — c'est le texte qui brille,
+   pas un cadre autour de lui. */
+.topnav-link.is-spotlight, .topbar-icon.is-spotlight {
+  color: var(--c-ink);
+  font-weight: 600;
+  font-size: 15.5px;
+  letter-spacing: 0.01em;
+  text-shadow:
+    0 0 6px var(--c-accent-ring),
+    0 0 16px var(--c-accent-ring),
+    0 0 28px var(--c-accent-ring);
+  transition: color var(--dur-base) var(--ease),
+              font-size var(--dur-base) var(--ease),
+              text-shadow var(--dur-base) var(--ease);
+}
+.topbar-icon.is-spotlight { color: var(--c-ink); }
+.topnav-link.is-waiting, .topbar-icon.is-waiting {
+  opacity: 0.28;
+  cursor: default;
+}
+
 /* Barre de configuration : elle remplace la navigation, fermée à ce stade */
 .config-topbar { background: var(--c-accent-soft); }
 .config-title { font-size: var(--t-small); font-weight: 600; color: var(--c-accent); white-space: nowrap; }

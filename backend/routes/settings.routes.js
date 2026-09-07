@@ -9,6 +9,8 @@ router.get("/", wrap((req, res) => res.json(service.getSettings())));
 router.get("/onboarding", wrap((req, res) => res.json(service.getOnboarding())));
 // Guide terminé : il ne s'imposera plus (il ne crée pas de mois, rien ne le signerait sinon)
 router.post("/onboarding/complete", wrap((req, res) => res.json(service.completeOnboarding())));
+// Visite des onglets terminée ou passée
+router.post("/onboarding/tour-complete", wrap((req, res) => res.json(service.completeTour())));
 router.put("/", wrap((req, res) => res.json(service.updateSettings(req.body))));
 
 export default router;

@@ -8,6 +8,7 @@ import StatsView from '@/views/StatsView.vue'
 import SubscriptionsView from '@/views/SubscriptionsView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
 import { refreshOnboarding } from '@/lib/onboarding.js'
+import { TOUR_STEPS, TOUR_END } from '@/lib/tour.js'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -26,20 +27,35 @@ const router = createRouter({
   ],
 })
 
-// ─── Première utilisation : tant qu'aucun mois n'existe, l'app n'a rien à montrer ───
-// L'état est relu dans la base tant que le flux n'est pas terminé, jamais mémorisé :
-// fermer l'app en cours de route et la rouvrir reprend à la bonne étape.
-let onboardingDone = false
+// ─── Première utilisation : le guide de configuration, puis la visite des onglets ───
+// L'état est relu à chaque navigation tant que les deux ne sont pas derrière nous —
+// fermer l'app en cours de route et la rouvrir reprend au bon endroit. Ensuite le
+// drapeau local coupe court : plus un seul appel à l'API par navigation.
+let settled = false
+
 router.beforeEach(async (to) => {
-  if (onboardingDone) return true
+  if (settled) return true
   const state = await refreshOnboarding()
   if (!state) return true // backend injoignable : ne pas enfermer l'utilisateur
-  if (!state.needsOnboarding) { onboardingDone = true; return true }
-  if (to.path === '/bienvenue') return true
-  // Le guide envoie construire le budget type dans la vraie page Template, avec toutes
-  // ses options : elle s'ouvre dès que des catégories existent (sans elles, elle est vide).
-  if (to.path === '/template' && state.hasCategories) return true
-  return '/bienvenue'
+
+  // 1. Le guide de configuration : rien d'autre à faire tant qu'il n'est pas terminé
+  if (state.needsOnboarding) {
+    if (to.path === '/bienvenue') return true
+    // Sauf le budget type : le guide y envoie pour profiter de toutes ses options
+    // (jour de prélèvement, périodicité, compte…). La page s'ouvre dès qu'elle a des
+    // catégories à afficher — sans elles, elle ne montre aucun registre.
+    if (to.path === '/template' && state.hasCategories) return true
+    return '/bienvenue'
+  }
+
+  // 2. La visite des onglets : on n'en sort pas avant la fin
+  if (state.needsTour) {
+    if (TOUR_STEPS.some((s) => s.path === to.path) || to.path === TOUR_END) return true
+    return TOUR_STEPS[0].path
+  }
+
+  settled = true
+  return true
 })
 
 export default router

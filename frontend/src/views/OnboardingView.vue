@@ -241,7 +241,8 @@ async function finish() {
   try {
     await completeOnboarding()
     await refreshOnboarding()
-    router.replace('/mois')
+    // La visite guidée démarre sur les Comptes et se terminera sur les Mois
+    router.replace('/comptes')
   } catch (e) { apiError(e); busy.value = false }
 }
 </script>
@@ -436,7 +437,7 @@ async function finish() {
             <button class="btn-secondary" @click="goTo(2)">Retour</button>
             <button class="btn-primary" :disabled="busy" @click="finish">Terminer</button>
           </div>
-          <p class="onb-note">Tu créeras ton premier mois depuis la page Mois, quand tu voudras.</p>
+          <p class="onb-note">On fait ensuite le tour de l'app en quelques écrans, puis tu créeras ton premier mois.</p>
         </section>
       </Transition>
     </div>

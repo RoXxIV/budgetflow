@@ -18,6 +18,8 @@ test("base neuve : tout est vide, la première étape est le compte", () => {
   assert.equal(s.step, "compte");
   assert.deepEqual(s.steps, ["compte", "categories", "themes", "template"]);
   assert.equal(s.done, false, "le guide n'a pas encore été mené à son terme");
+  assert.equal(s.needsTour, false, "la visite ne se joue qu'après le guide, pas pendant");
+  assert.equal(s.tourDone, false);
   assert.equal(s.hasAccounts, false);
   assert.equal(s.hasCategories, false);
   assert.equal(s.hasThemes, false);
@@ -70,12 +72,20 @@ test("étape 4 — le budget type se remplit sans faire avancer le guide plus lo
   assert.equal(s.hasMonths, false, "le guide ne crée aucun mois");
 });
 
-test("« Terminer » clôt le guide sans créer de mois", () => {
+test("« Terminer » clôt le guide sans créer de mois, et passe la main à la visite", () => {
   const s = settings.completeOnboarding();
   assert.equal(s.done, true);
   assert.equal(s.needsOnboarding, false, "le guide ne s'impose plus");
   assert.equal(s.step, null);
   assert.equal(s.hasMonths, false, "et toujours aucun mois : il se crée depuis la page Mois");
+  assert.equal(s.needsTour, true, "la visite des onglets prend le relais");
+});
+
+test("la visite terminée ou passée ne se rejoue jamais", () => {
+  const s = settings.completeTour();
+  assert.equal(s.tourDone, true);
+  assert.equal(s.needsTour, false);
+  assert.equal(s.needsOnboarding, false, "et le guide reste clos");
 });
 
 test("une fois terminé, le guide ne dépend plus de rien d'autre que son drapeau", () => {

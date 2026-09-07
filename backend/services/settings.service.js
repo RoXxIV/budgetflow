@@ -16,7 +16,10 @@ export function getOnboarding() {
   const hasThemes = has("SELECT id FROM themes LIMIT 1");
   const hasTemplateLines = has("SELECT id FROM budget_lines WHERE month_id IS NULL LIMIT 1");
   const hasMonths = has("SELECT id FROM months LIMIT 1");
-  const done = !!get("SELECT onboarding_done FROM app_settings WHERE id = 1")?.onboarding_done;
+  const flags = get("SELECT onboarding_done, tour_done FROM app_settings WHERE id = 1");
+  const done = !!flags?.onboarding_done;
+  // La visite des onglets suit le guide : elle ne se joue qu'une fois celui-ci terminé
+  const tourDone = !!flags?.tour_done;
 
   // Un mois déjà créé signe une installation qui vit sa vie : le guide ne s'y impose
   // jamais, même si le drapeau n'a pas été posé.
@@ -30,12 +33,24 @@ export function getOnboarding() {
     else step = "template";
   }
 
-  return { needsOnboarding, step, steps: ONBOARDING_STEPS, done, hasAccounts, hasCategories, hasThemes, hasTemplateLines, hasMonths };
+  return {
+    needsOnboarding, step, steps: ONBOARDING_STEPS, done,
+    // Visite guidée : elle prend le relais quand le guide est fini et qu'elle n'a pas eu lieu
+    needsTour: done && !tourDone,
+    tourDone,
+    hasAccounts, hasCategories, hasThemes, hasTemplateLines, hasMonths,
+  };
 }
 
 // Dernière étape franchie : le guide ne reviendra plus, même sans mois créé
 export function completeOnboarding() {
   run("UPDATE app_settings SET onboarding_done = 1 WHERE id = 1");
+  return getOnboarding();
+}
+
+// Visite des onglets terminée (ou passée) : elle ne se rejouera plus
+export function completeTour() {
+  run("UPDATE app_settings SET tour_done = 1 WHERE id = 1");
   return getOnboarding();
 }
 
