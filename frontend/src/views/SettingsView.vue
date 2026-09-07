@@ -8,6 +8,7 @@ import { getCalculators, createCalculator, updateCalculator, deleteCalculator, c
 import AppModal from '@/components/AppModal.vue'
 import { confirmDialog, apiError, toast } from '@/composables/useDialog.js'
 import { eur } from '@/lib/format.js'
+import { CATEGORY_PRESETS, CATEGORY_PALETTE, CATEGORY_TYPES } from '@/lib/categories.js'
 import { THEME_OPTIONS, getThemePref, setThemePref } from '@/lib/theme.js'
 
 // Autofocus des champs d'édition en place (curseur en fin de texte)
@@ -115,24 +116,13 @@ async function removeInvestmentType(t) {
 }
 
 // ─── Catégories ──────────────────────────────────────────
-const CATEGORY_TYPES = [
-  { value: 'depense', label: 'Dépense' },
-  { value: 'revenu', label: 'Revenu' },
-  { value: 'epargne', label: 'Épargne' },
-  { value: 'transfert', label: 'Transfert' },
-]
 const TYPE_HINTS = {
   depense: 'comptée dans les dépenses et les stats',
   revenu: 'comptée dans les revenus du mois',
   epargne: 'comptée dans « mis de côté », pas dans les dépenses',
   transfert: 'bouge les soldes, exclue des stats de dépenses',
 }
-// Palette fermée : les 12 seules couleurs possibles (mêmes valeurs que --cat-1..12)
-const PALETTE = [
-  '#3B6EA5', '#4B8A6E', '#C97B2C', '#A05270',
-  '#6E7A88', '#B04A3F', '#7C6BB0', '#2F8C8C',
-  '#8C7A3F', '#5A7D3F', '#96566B', '#55606B',
-]
+const PALETTE = CATEGORY_PALETTE
 const nextColor = () => PALETTE.find((p) => !categories.value.some((c) => c.color === p)) || PALETTE[categories.value.length % 12]
 const colorPickerFor = ref(null) // id de la catégorie dont la palette est ouverte ('new' pour l'ajout)
 
@@ -219,19 +209,9 @@ async function moveCategory(index, delta) {
   catch (e) { apiError(e) }
 }
 
-// Presets proposés quand la liste est vide (couleurs prises dans la palette fermée)
-const PRESETS = [
-  { name: 'Factures', type: 'depense', color: '#3B6EA5' },
-  { name: 'Abonnements', type: 'depense', color: '#7C6BB0' },
-  { name: 'Courses & quotidien', type: 'depense', color: '#4B8A6E' },
-  { name: 'Loisirs', type: 'depense', color: '#C97B2C' },
-  { name: 'Revenus', type: 'revenu', color: '#5A7D3F' },
-  { name: 'Épargne', type: 'epargne', color: '#2F8C8C' },
-  { name: 'Virements', type: 'transfert', color: '#6E7A88' },
-]
 async function applyPresets() {
   try {
-    for (const p of PRESETS) await createCategory(p)
+    for (const p of CATEGORY_PRESETS) await createCategory(p)
     categories.value = (await getCategories()).data
   } catch (e) { apiError(e) }
 }

@@ -20,9 +20,10 @@ export async function boot() {
   const calculators = await import("../services/calculator.service.js");
   const assets = await import("../services/asset.service.js");
   const summary = await import("../services/summary.service.js");
+  const settings = await import("../services/settings.service.js");
   envelopes.bindSummary(summary);
   accounts.bindSummary(summary);
-  return { accounts, envelopes, months, categories, themes, budgetLines, entries, pots, calculators, assets, summary };
+  return { accounts, envelopes, months, categories, themes, budgetLines, entries, pots, calculators, assets, summary, settings };
 }
 
 // L'appel doit être refusé avec ce statut (et ce code de payload le cas échéant)
