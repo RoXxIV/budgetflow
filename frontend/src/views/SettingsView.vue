@@ -122,8 +122,7 @@ const TYPE_HINTS = {
   epargne: 'comptée dans « mis de côté », pas dans les dépenses',
   transfert: 'bouge les soldes, exclue des stats de dépenses',
 }
-const PALETTE = CATEGORY_PALETTE
-const nextColor = () => PALETTE.find((p) => !categories.value.some((c) => c.color === p)) || PALETTE[categories.value.length % 12]
+const nextColor = () => CATEGORY_PALETTE.find((p) => !categories.value.some((c) => c.color === p)) || CATEGORY_PALETTE[categories.value.length % 12]
 const colorPickerFor = ref(null) // id de la catégorie dont la palette est ouverte ('new' pour l'ajout)
 
 const newCategory = ref({ name: '', type: 'depense', color: null })
@@ -467,7 +466,7 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
         <span class="swatch-wrap" @click.stop>
           <button class="swatch" :style="{ background: category.color }" :title="'Couleur de « ' + category.name + ' »'" @click="colorPickerFor = colorPickerFor === category.id ? null : category.id" />
           <div v-if="colorPickerFor === category.id" class="palette">
-            <button v-for="p in PALETTE" :key="p" class="swatch" :class="{ 'is-current': p === category.color }" :style="{ background: p }" @click="setCatColor(category, p)" />
+            <button v-for="p in CATEGORY_PALETTE" :key="p" class="swatch" :class="{ 'is-current': p === category.color }" :style="{ background: p }" @click="setCatColor(category, p)" />
           </div>
         </span>
         <span class="cell-name">
@@ -502,7 +501,7 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
         <span class="swatch-wrap" @click.stop>
           <button class="swatch" :style="{ background: newCategory.color || nextColor() }" title="Couleur" @click="colorPickerFor = colorPickerFor === 'new' ? null : 'new'" />
           <div v-if="colorPickerFor === 'new'" class="palette">
-            <button v-for="p in PALETTE" :key="p" class="swatch" :class="{ 'is-current': p === (newCategory.color || nextColor()) }" :style="{ background: p }" @click="newCategory.color = p; colorPickerFor = null" />
+            <button v-for="p in CATEGORY_PALETTE" :key="p" class="swatch" :class="{ 'is-current': p === (newCategory.color || nextColor()) }" :style="{ background: p }" @click="newCategory.color = p; colorPickerFor = null" />
           </div>
         </span>
         <input v-model="newCategory.name" type="text" class="input" placeholder="Nouvelle catégorie" @keyup.enter="addCategory" />
