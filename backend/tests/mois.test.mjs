@@ -279,3 +279,43 @@ test("revue 04/09 : appartenance ligne-mois, date en mois clôturé, suppression
   months.setClosed(mA.id, false);
   months.remove(mA.id);
 });
+
+// ─── Changement de compte principal : les soldes du mois n'en dépendent pas ───
+// Signalé le 07/09 : « j'ai basculé le principal sur un autre compte, je suis revenu,
+// et j'ai perdu le reste à vivre ». Rien n'est perdu : le va-et-vient est réversible.
+// Ce qui manquait dans ce cas-là, c'était le solde de départ du mois, jamais saisi.
+test("va-et-vient du compte principal : les soldes et les calculs reviennent intacts", () => {
+  // Mois autonome (ceux du décor ont été consommés par les tests précédents)
+  const periode = nextPeriodOf(nextPeriodOf(nextPeriodOf(m.period)));
+  const mois = months.create({ period: periode, snapshots: [{ accountId: main.id, balance: 2000 }] });
+  const second = accounts.create({ name: "Compte ajouté après le mois", type: "investissement" });
+
+  const avant = summary.getSummary(mois.id);
+  const snapsAvant = months.getSnapshots(mois.id).length;
+  assert.ok(avant.tiles.disponible !== null, "décor : le mois a bien un disponible au départ");
+
+  // Le nouveau compte devient principal : il n'a aucun solde de départ pour ce mois
+  accounts.update(second.id, { isMain: true });
+  const pendant = summary.getSummary(mois.id);
+  assert.equal(pendant.mainAccount.id, second.id);
+  assert.equal(pendant.tiles.disponible, null, "sans solde de départ, le disponible est inconnu");
+  assert.equal(months.getSnapshots(mois.id).length, snapsAvant, "aucun solde n'est effacé pour autant");
+
+  // Retour au compte d'origine : tout revient, au centime près
+  accounts.update(main.id, { isMain: true });
+  const apres = summary.getSummary(mois.id);
+  assert.equal(apres.mainAccount.id, main.id);
+  assert.ok(eq(apres.tiles.disponible, avant.tiles.disponible), "le disponible revient à l'identique");
+  assert.ok(eq(apres.tiles.projete, avant.tiles.projete), "le projeté aussi");
+  assert.equal(months.getSnapshots(mois.id).length, snapsAvant, "les soldes du mois sont intacts");
+});
+
+// L'autre moitié du diagnostic : un mois créé sans solde de départ ne peut rien calculer.
+// C'est ce que produisait le flux de première utilisation, soldes laissés vides.
+test("un mois sans solde de départ ne peut afficher ni disponible ni projeté", () => {
+  const vierge = months.create({ period: nextPeriodOf(nextPeriodOf(m.period)) });
+  const s = summary.getSummary(vierge.id);
+  assert.equal(months.getSnapshots(vierge.id).length, 0);
+  assert.equal(s.tiles.disponible, null, "aucun point de départ : rien à calculer");
+  assert.equal(s.tiles.projete, null);
+});
