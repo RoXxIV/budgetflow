@@ -208,3 +208,106 @@ test("revue 04/09 : un compte désactivé ne peut pas devenir le compte principa
   accounts.setActive(dormant.id, false);
   refuse(() => accounts.update(dormant.id, { isMain: true }), 409);
 });
+
+// ─── Échéance saisie en nombre de mois (formulaire enveloppe) ───
+
+// Le mois visé attendu pour « dans N mois », calculé indépendamment du service
+const monthIn = (n) => {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+};
+
+test("échéance en mois : N mois → 1er du mois visé, et retour en mois", () => {
+  assert.equal(envelopes.deadlineFromMonths(0), monthIn(0), "0 = le mois en cours");
+  assert.equal(envelopes.deadlineFromMonths(4), monthIn(4));
+  assert.equal(envelopes.deadlineFromMonths(16), monthIn(16), "franchit l'année");
+  // Aller-retour : ce qui est saisi est ce qui se réaffiche à l'édition
+  for (const n of [0, 1, 5, 12, 30]) {
+    assert.equal(envelopes.monthsFromDeadline(envelopes.deadlineFromMonths(n)), n, `aller-retour ${n} mois`);
+  }
+  assert.equal(envelopes.monthsFromDeadline(null), null, "sans échéance, pas de nombre de mois");
+  assert.equal(envelopes.monthsFromDeadline("2020-01-01"), 0, "échéance dépassée → 0, jamais négatif");
+  refuse(() => envelopes.deadlineFromMonths(-1), 400);
+  refuse(() => envelopes.deadlineFromMonths(2.5), 400);
+  refuse(() => envelopes.deadlineFromMonths("douze"), 400);
+  refuse(() => envelopes.deadlineFromMonths(601), 400);
+});
+
+test("échéance en mois : le jour stocké n'influence aucun montant", () => {
+  const a = envelopes.create({ name: "Jour 01", targetAmount: 1200, deadline: monthIn(6) });
+  const b = envelopes.create({ name: "Jour 28", targetAmount: 1200, deadline: monthIn(6).replace("-01", "-28") });
+  assert.equal(a.monthlySuggestion, 200);
+  assert.equal(b.monthlySuggestion, a.monthlySuggestion, "même mois, même mensualité quel que soit le jour");
+});
+
+test("simulation : plusieurs réglages cible / échéance sans rien écrire en base", () => {
+  const before = envelopes.list().length;
+
+  // 1 200 € en 12 mois, rien de versé → 100 €/mois
+  const s12 = envelopes.simulate({ targetAmount: 1200, months: 12 });
+  assert.equal(s12.monthlySuggestion, 100);
+  assert.equal(s12.months, 12);
+  assert.equal(s12.deadline, monthIn(12));
+  assert.equal(s12.remaining, 1200);
+
+  // Même cible en 6 mois → la mensualité double
+  assert.equal(envelopes.simulate({ targetAmount: 1200, months: 6 }).monthlySuggestion, 200);
+
+  // Un montant de départ réduit le reste à réunir
+  assert.equal(envelopes.simulate({ targetAmount: 1200, months: 6, currentTotal: 600 }).monthlySuggestion, 100);
+
+  // Reste indivisible : arrondi au centime supérieur (100/3 = 33,333…)
+  assert.equal(envelopes.simulate({ targetAmount: 100, months: 3 }).monthlySuggestion, 33.34);
+
+  // Cible déjà atteinte → plus rien à verser
+  const atteinte = envelopes.simulate({ targetAmount: 500, months: 6, currentTotal: 500 });
+  assert.equal(atteinte.monthlySuggestion, 0);
+  assert.equal(atteinte.remaining, 0);
+
+  // 0 mois : tout ce mois-ci (le service ne divise jamais par zéro)
+  assert.equal(envelopes.simulate({ targetAmount: 300, months: 0 }).monthlySuggestion, 300);
+
+  // Sans échéance, pas de mensualité
+  assert.equal(envelopes.simulate({ targetAmount: 1200, months: null }).monthlySuggestion, null);
+
+  assert.equal(envelopes.list().length, before, "la simulation n'a créé aucune enveloppe");
+});
+
+test("simulation d'une enveloppe existante : le déjà-versé vient de la base, pas du client", () => {
+  const env = envelopes.create({ name: "Simu existante", accountId: main.id, initialAmount: 100 });
+  const s = envelopes.simulate({ envelopeId: env.id, targetAmount: 500, months: 4, currentTotal: 99999 });
+  assert.equal(s.total, 100, "le currentTotal du client est ignoré au profit de la base");
+  assert.equal(s.remaining, 400);
+  assert.equal(s.monthlySuggestion, 100);
+  refuse(() => envelopes.simulate({ envelopeId: 999999, targetAmount: 100, months: 3 }), 404);
+});
+
+test("simulation et création donnent la même mensualité", () => {
+  const simu = envelopes.simulate({ targetAmount: 900, months: 3, currentTotal: 300 });
+  const env = envelopes.create({ name: "Cohérence simu", accountId: main.id, targetAmount: 900, months: 3, initialAmount: 300 });
+  assert.equal(env.deadline, simu.deadline, "l'échéance créée est celle annoncée");
+  assert.equal(env.monthlySuggestion, simu.monthlySuggestion, "la mensualité créée est celle annoncée");
+  assert.equal(env.deadlineMonths, 3, "elle se réaffiche en mois à l'édition");
+});
+
+test("création et édition acceptent « months », et « months: null » efface l'échéance", () => {
+  const env = envelopes.create({ name: "Par les mois", targetAmount: 600, months: 6 });
+  assert.equal(env.deadline, monthIn(6));
+  assert.equal(env.deadlineMonths, 6);
+
+  const rallonge = envelopes.update(env.id, { months: 12 });
+  assert.equal(rallonge.deadline, monthIn(12));
+  assert.equal(rallonge.monthlySuggestion, 50, "600 € en 12 mois");
+
+  // Champ laissé vide : l'échéance est retirée, la cible reste
+  const sansEcheance = envelopes.update(env.id, { months: null });
+  assert.equal(sansEcheance.deadline, null);
+  assert.equal(sansEcheance.deadlineMonths, null);
+  assert.equal(sansEcheance.monthlySuggestion, null);
+  assert.equal(sansEcheance.targetAmount, 600, "la cible survit à la suppression de l'échéance");
+
+  // Une modif qui ne parle pas d'échéance ne doit pas l'effacer
+  envelopes.update(env.id, { months: 5 });
+  assert.equal(envelopes.update(env.id, { name: "Par les mois (renommée)" }).deadline, monthIn(5));
+});

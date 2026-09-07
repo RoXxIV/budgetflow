@@ -1,11 +1,14 @@
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 import { nextDueDate } from "./budgetLine.service.js";
 
-// Mois calendaires restants jusqu'à l'échéance (0 si dépassée)
+// Mois calendaires restants jusqu'à l'échéance (négatif si dépassée)
+// L'échéance se raisonne au mois : le jour n'entre dans aucun calcul. La chaîne ISO est
+// découpée telle quelle plutôt que passée à new Date(), qui la lirait en UTC et pourrait
+// la faire basculer d'un mois selon le fuseau.
 function monthsUntil(deadline) {
   const now = new Date();
-  const end = new Date(deadline);
-  return (end.getFullYear() - now.getFullYear()) * 12 + (end.getMonth() - now.getMonth());
+  const [year, month] = String(deadline).split("-").map(Number);
+  return (year - now.getFullYear()) * 12 + (month - 1 - now.getMonth());
 }
 
 // Mensualité suggérée = (cible − total) / mois restants ; null sans cible ou sans échéance
@@ -30,6 +33,7 @@ function serialize(row) {
     spentInTarget: fromCents(spentInTarget),
     effectiveTarget: fromCents(effectiveTarget),
     deadline: row.deadline,
+    deadlineMonths: monthsFromDeadline(row.deadline),
     total: fromCents(row.total_cents ?? 0),
     monthlySuggestion: monthlySuggestion(effectiveTarget, row.total_cents, row.deadline),
     isClosed: !!row.closed_at,
@@ -56,6 +60,55 @@ const LIST_SQL = `
 
 export function list() {
   return all(`${LIST_SQL} ORDER BY e.closed_at IS NOT NULL, e.name`).map(serialize);
+}
+
+// ─── Échéance saisie en nombre de mois ────────────────────
+
+// N mois → échéance stockée au 1er du mois cible (0 = le mois en cours)
+export function deadlineFromMonths(months) {
+  const n = Number(months);
+  if (!Number.isInteger(n) || n < 0) throw httpError(400, "Le nombre de mois doit être un entier positif ou nul");
+  if (n > 600) throw httpError(400, "Échéance trop lointaine : 600 mois au maximum");
+  const now = new Date();
+  const target = new Date(now.getFullYear(), now.getMonth() + n, 1);
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+// Échéance existante → nombre de mois restants, pour repeupler le champ à l'édition
+export function monthsFromDeadline(deadline) {
+  if (!deadline) return null;
+  return Math.max(0, monthsUntil(deadline));
+}
+
+// Simulation « cible X en N mois » : échéance et mensualité, sans rien écrire en base.
+// Sert au formulaire, qui essaie plusieurs réglages avant de valider — la formule de la
+// mensualité reste ici, le front ne fait que l'afficher.
+export function simulate({ targetAmount = null, months = null, currentTotal = null, envelopeId = null } = {}) {
+  const deadline = months === null || months === "" ? null : deadlineFromMonths(months);
+
+  let totalCents = toCents(currentTotal) || 0;
+  let spentInTargetCents = 0;
+  if (envelopeId) {
+    // Enveloppe existante : le déjà-versé et les dépenses imputées viennent de la base, pas du client
+    const row = get(`${LIST_SQL} WHERE e.id = ?`, envelopeId);
+    if (!row) throw httpError(404, "Enveloppe introuvable");
+    totalCents = row.total_cents ?? 0;
+    spentInTargetCents = -(row.spent_in_target_cents ?? 0);
+  }
+  if (totalCents < 0) throw httpError(400, "Le montant de départ doit être positif");
+
+  const targetCents = toCents(targetAmount);
+  const effectiveTargetCents = targetCents ? targetCents - spentInTargetCents : null;
+  const remainingCents = effectiveTargetCents == null ? null : Math.max(0, effectiveTargetCents - totalCents);
+
+  return {
+    deadline,
+    months: deadline ? monthsFromDeadline(deadline) : null,
+    total: fromCents(totalCents),
+    effectiveTarget: fromCents(effectiveTargetCents),
+    remaining: fromCents(remainingCents),
+    monthlySuggestion: monthlySuggestion(effectiveTargetCents, totalCents, deadline),
+  };
 }
 
 export function getById(id) {
@@ -116,8 +169,19 @@ function assertNameFree(name, accountId, excludeId = null) {
   }
 }
 
-export function create({ name, accountId = null, targetAmount = null, deadline = null, initialAmount = null, fromEnvelopeId = null }) {
-  name = (name || "").trim();
+// Le formulaire raisonne en mois (« months ») ; les services internes posent une date (« deadline »)
+function resolveDeadline(data, fallback = null) {
+  if (data.months !== undefined) {
+    return data.months === null || data.months === "" ? null : deadlineFromMonths(data.months);
+  }
+  if (data.deadline !== undefined) return data.deadline || null;
+  return fallback;
+}
+
+export function create(data = {}) {
+  const { accountId = null, targetAmount = null, initialAmount = null, fromEnvelopeId = null } = data;
+  const deadline = resolveDeadline(data);
+  let name = (data.name || "").trim();
   if (!name) throw httpError(400, "Le nom de l'enveloppe est requis");
   assertNameFree(name, accountId);
   if (accountId && !get("SELECT id FROM accounts WHERE id = ? AND is_active = 1", accountId)) {
@@ -193,7 +257,7 @@ export function update(id, data) {
       throw httpError(400, "Compte hôte invalide ou désactivé");
     }
     const target = data.targetAmount !== undefined ? toCents(data.targetAmount) : existing.target_amount_cents;
-    const deadline = data.deadline !== undefined ? (data.deadline || null) : existing.deadline;
+    const deadline = resolveDeadline(data, existing.deadline);
     const closedAt = data.isClosed !== undefined
       ? (data.isClosed ? (existing.closed_at || new Date().toISOString()) : null)
       : existing.closed_at;

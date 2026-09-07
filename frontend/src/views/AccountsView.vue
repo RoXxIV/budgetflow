@@ -5,7 +5,7 @@ import { getAccounts, createAccount, updateAccount, deleteAccount, setAccountAct
 import {
   getEnvelopes, createEnvelope, updateEnvelope, deleteEnvelope, closeEnvelopeInto, liquidateEnvelope,
   getContributions, addContribution, removeContribution,
-  getAvailability, reallocateEnvelope,
+  getAvailability, reallocateEnvelope, simulateEnvelope,
 } from '@/api/envelopes.js'
 import { watch } from 'vue'
 import { confirmDialog, apiError } from '@/composables/useDialog.js'
@@ -236,8 +236,54 @@ const editingEnvelopeId = ref(null)
 const envelopeForm = ref(defaultEnvelopeForm())
 
 function defaultEnvelopeForm() {
-  return { name: '', accountId: '', targetAmount: '', deadline: '', initialAmount: '', fromEnvelopeId: '' }
+  return { name: '', accountId: '', targetAmount: '', months: '', initialAmount: '', fromEnvelopeId: '' }
 }
+
+// ─── Échéance en mois : libellé du mois visé + mensualité simulée ───
+// Le mois est du calendrier (calculé ici) ; la mensualité est un montant, donc l'API la calcule.
+const MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']
+const targetMonthLabel = computed(() => {
+  const n = Number(envelopeForm.value.months)
+  if (envelopeForm.value.months === '' || !Number.isInteger(n) || n < 0) return null
+  const now = new Date()
+  const d = new Date(now.getFullYear(), now.getMonth() + n, 1)
+  return `${MONTHS_FR[d.getMonth()]} ${d.getFullYear()}`
+})
+
+const simulation = ref(null)      // { deadline, months, remaining, monthlySuggestion } renvoyé par l'API
+const simulating = ref(false)
+let simulationSeq = 0
+watch(
+  () => {
+    const f = envelopeForm.value
+    return [f.months, f.targetAmount, f.initialAmount, editingEnvelopeId.value].join('|')
+  },
+  async () => {
+    const f = envelopeForm.value
+    if (f.months === '' || f.targetAmount === '') { simulation.value = null; return }
+    const seq = ++simulationSeq
+    simulating.value = true
+    try {
+      const { data } = await simulateEnvelope({
+        months: Number(f.months),
+        targetAmount: parseFloat(f.targetAmount),
+        // En création le déjà-versé est le montant initial ; en édition, l'API le lit en base
+        currentTotal: editingEnvelopeId.value ? null : (parseFloat(f.initialAmount) || 0),
+        envelopeId: editingEnvelopeId.value,
+      })
+      if (seq === simulationSeq) simulation.value = data
+    } catch {
+      if (seq === simulationSeq) simulation.value = null
+    } finally {
+      if (seq === simulationSeq) simulating.value = false
+    }
+  },
+)
+
+// L'enveloppe d'une ligne mensualisée voit son échéance réécrite par le template à chaque cycle
+const editingEnvelopeIsLinked = computed(() =>
+  !!envelopes.value.find((e) => e.id === editingEnvelopeId.value)?.linkedTemplateLineId
+)
 
 // ─── Invariant : le montant initial ne dépasse pas le disponible hors enveloppes du compte ───
 const availability = ref(null) // { balance, envelopesTotal, available } du compte choisi
@@ -283,7 +329,7 @@ function openEditEnvelope(envelope) {
     name: envelope.name,
     accountId: envelope.accountId || '',
     targetAmount: envelope.targetAmount ?? '',
-    deadline: envelope.deadline || '',
+    months: envelope.deadlineMonths ?? '',
     initialAmount: '',
     fromEnvelopeId: '', // même forme que defaultEnvelopeForm : initialTooHigh la lit
   }
@@ -297,7 +343,7 @@ async function submitEnvelope() {
     name: f.name,
     accountId: f.accountId || null,
     targetAmount: f.targetAmount === '' ? null : parseFloat(f.targetAmount),
-    deadline: f.deadline || null,
+    months: f.months === '' ? null : Number(f.months),
   }
   try {
     if (editingEnvelopeId.value) {
@@ -517,8 +563,13 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <input v-model="envelopeForm.targetAmount" type="number" step="0.01" class="input w-32" placeholder="4500" />
         </label>
         <label class="field">
-          <span>Échéance (optionnelle)</span>
-          <input v-model="envelopeForm.deadline" type="date" class="input w-40" />
+          <span class="flex items-center gap-1">Échéance dans (optionnelle) <HelpTip text="Le nombre de mois avant l'échéance, à partir du mois en cours. 0 = ce mois-ci. L'app en déduit le mois visé et la part à mettre de côté chaque mois." /></span>
+          <div class="flex items-center gap-2">
+            <input v-model="envelopeForm.months" type="number" min="0" step="1" class="input w-20" placeholder="12" />
+            <span class="text-[13px]" :class="targetMonthLabel ? 'text-gray-500' : 'text-gray-400'">
+              {{ targetMonthLabel ? 'mois → ' + targetMonthLabel : 'mois' }}
+            </span>
+          </div>
         </label>
         <label v-if="!editingEnvelopeId" class="field">
           <span>Montant initial</span>
@@ -532,6 +583,22 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           </select>
         </label>
       </div>
+      <!-- Simulation : essayer plusieurs couples cible / échéance avant de valider -->
+      <p v-if="envelopeForm.months !== '' && envelopeForm.targetAmount !== ''" class="text-[12px] mt-2" :class="simulation ? 'text-gray-500' : 'text-gray-400'">
+        <template v-if="simulation && simulation.monthlySuggestion !== null">
+          <template v-if="simulation.remaining > 0">
+            Reste <span class="num">{{ fmt(simulation.remaining) }}</span> à réunir en
+            <b>{{ simulation.months === 0 ? 'ce mois-ci' : simulation.months + ' mois' }}</b>
+            → <b class="num is-credit">{{ fmt(simulation.monthlySuggestion) }}/mois</b>{{ targetMonthLabel ? ` jusqu'à ${targetMonthLabel}` : '' }}.
+          </template>
+          <template v-else>Cible déjà atteinte : aucune mensualité à prévoir.</template>
+        </template>
+        <template v-else-if="simulating">Calcul…</template>
+      </p>
+      <p v-if="editingEnvelopeIsLinked" class="text-[12px] mt-1 text-amber-600">
+        Enveloppe pilotée par une ligne mensualisée du template : son échéance sera recalculée automatiquement au prochain cycle.
+      </p>
+
       <!-- Rappel du disponible : l'invariant Σ enveloppes ≤ solde du compte -->
       <p v-if="!editingEnvelopeId && envelopeForm.accountId && availability" class="text-[12px] mt-2" :class="initialTooHigh ? 'text-red-500' : initialOverdraws ? 'text-amber-600' : 'text-gray-400'">
         <template v-if="availability.available === null">Solde de {{ availability.accountName }} inconnu (saisir le solde de début de mois) — pas de contrôle possible.</template>

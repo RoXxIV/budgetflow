@@ -10,6 +10,8 @@ const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { n
 router.get("/", wrap((req, res) => res.json(service.list())));
 // Disponible hors enveloppes d'un compte (avant /:id)
 router.get("/availability/:accountId", wrap((req, res) => res.json(service.availability(Number(req.params.accountId)))));
+// Simulation « cible en N mois » du formulaire : ne touche pas la base
+router.post("/simulate", wrap((req, res) => res.json(service.simulate(req.body || {}))));
 router.get("/:id", wrap((req, res) => res.json(service.getById(Number(req.params.id)))));
 router.post("/", wrap((req, res) => res.status(201).json(service.create(req.body))));
 router.put("/:id", wrap((req, res) => res.json(service.update(Number(req.params.id), req.body))));

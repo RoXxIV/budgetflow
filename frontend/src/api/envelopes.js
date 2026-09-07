@@ -10,4 +10,5 @@ export const getContributions = (id) => api.get(`/envelopes/${id}/contributions`
 export const addContribution = (id, data) => api.post(`/envelopes/${id}/contributions`, data)
 export const removeContribution = (id, contribId) => api.delete(`/envelopes/${id}/contributions/${contribId}`)
 export const getAvailability = (accountId) => api.get(`/envelopes/availability/${accountId}`)
+export const simulateEnvelope = (data) => api.post('/envelopes/simulate', data)
 export const reallocateEnvelope = (id, data) => api.post(`/envelopes/${id}/reallocate`, data)
