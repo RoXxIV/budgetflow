@@ -37,11 +37,31 @@ const periods = computed(() => (range.value === 'all' ? basePeriods.value : base
 // mais qu'un mois suivant existe déjà (créé en avance), la liste a un trou au milieu — une
 // tranche contiguë décalerait toutes les valeurs d'un cran sous les mauvais labels (revue 04/09)
 const sliceIdxs = computed(() => periods.value.map((p) => allPeriods.value.indexOf(p)))
+
+/**
+ * Extrait d'une série complète les seules valeurs des périodes affichées.
+ *
+ * On pioche par indice, jamais par tranche : toutes les séries arrivent alignées sur
+ * `allPeriods`, et c'est cet alignement qui garantit qu'une valeur reste sous son mois.
+ *
+ * @param {Array<number|null>} points La série complète, alignée sur allPeriods.
+ * @returns {Array<number|null>} Les valeurs des périodes visibles, dans l'ordre.
+ */
 const slice = (points) => sliceIdxs.value.map((i) => points[i])
+
+// Libellés courts de l'axe X (« sept. 26 ») ; UTC pour ne pas glisser d'un mois
+// selon le fuseau, le 1er du mois à minuit local pouvant tomber la veille
 const labels = computed(() => periods.value.map((p) => {
   const [y, m] = p.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit', timeZone: 'UTC' })
 }))
+
+/**
+ * Écrit une période en toutes lettres, pour un titre (« Septembre 2026 »).
+ *
+ * @param {string} p La période au format AAAA-MM.
+ * @returns {string} Le mois et l'année, première lettre en majuscule.
+ */
 const monthName = (p) => {
   if (!p) return ''
   const [y, m] = p.split('-').map(Number)
@@ -52,18 +72,43 @@ const monthName = (p) => {
 // ─── Palette stable : une entité garde sa couleur, affectée par rang de montant (§4) ───
 const PALETTE = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-6)']
 const OTHER = 'var(--chart-other)'
+// Somme d'une série sur tout l'historique, trous comptés pour zéro
 const totalOf = (points) => points.reduce((s, v) => s + (v || 0), 0)
+
+/**
+ * Attribue une couleur à chaque entité, par rang de montant.
+ *
+ * Le rang est calculé sur l'historique COMPLET, pas sur la période affichée : sans
+ * cela, changer de fenêtre (3 mois → 12 mois) redistribuerait les couleurs et le
+ * lecteur perdrait ses repères d'un graphique à l'autre. Le modulo fait boucler la
+ * palette au-delà de six entités — celles-là finissent de toute façon dans « Autres ».
+ *
+ * @param {Array<{id: number, points: number[]}>} list Les entités à colorer.
+ * @returns {Map<number, string>} L'identifiant de chaque entité vers sa couleur.
+ */
 const colorMapOf = (list) => {
   const ranked = [...list].sort((a, b) => totalOf(b.points) - totalOf(a.points))
   return new Map(ranked.map((e, i) => [e.id, PALETTE[i % PALETTE.length]]))
 }
+
+/**
+ * Moyenne mensuelle d'une série sur la période affichée.
+ *
+ * Sert à classer les entités dans le sélecteur : « ce poste me coûte X par mois ».
+ *
+ * @param {Array<number|null>} points La série complète.
+ * @returns {number} La moyenne, arrondie au centime.
+ */
 const avgOf = (points) => {
   const p = slice(points)
   return p.length ? Math.round((p.reduce((s, v) => s + (v || 0), 0) / p.length) * 100) / 100 : 0
 }
 
 // ─── Collections ─────────────────────────────────────────
-// Patrimoine : soldes de début de mois, trous comblés par la dernière valeur connue (stock)
+// Patrimoine : un solde est un STOCK, pas un flux — un mois sans relevé ne vaut pas
+// zéro, il vaut encore le dernier solde connu. On comble donc les trous en reportant
+// la dernière valeur, sinon la courbe plongerait à zéro puis remonterait. `raw` garde
+// les valeurs d'origine, avec leurs trous, pour l'affichage en tableau.
 const savingsRaw = computed(() => (stats.value?.savings || []).map((s) => {
   let last = 0
   return { id: s.accountId, name: s.name, points: s.points.map((v) => (v === null || v === undefined ? last : (last = v))), raw: s.points }
@@ -82,7 +127,16 @@ const savingsSel = ref([])
 const envSel = ref([])
 const themeSel = ref([])
 const catSel = ref([])
+// Les n entités qui pèsent le plus lourd sur tout l'historique
 const topIds = (raw, n) => [...raw].sort((a, b) => totalOf(b.points) - totalOf(a.points)).slice(0, n).map((e) => e.id)
+
+/**
+ * Choisit ce qui est tracé à l'ouverture de la page.
+ *
+ * Tout afficher donnerait un graphique illisible à trente séries : on part des plus
+ * gros postes, le reste étant regroupé dans « Autres ». L'utilisateur ajuste ensuite
+ * par le sélecteur.
+ */
 function initSelections() {
   savingsSel.value = topIds(savingsRaw.value, 6)
   envSel.value = topIds(envsRaw.value, 6)
@@ -90,7 +144,17 @@ function initSelections() {
   catSel.value = topIds(catsRaw.value, 5)
 }
 
-// Items du sélecteur : triés par montant décroissant sur la période
+/**
+ * Prépare la liste d'un sélecteur : nom, couleur et montant, du plus gros au plus petit.
+ *
+ * `valueOf` diffère selon la nature de la donnée : moyenne mensuelle pour un flux
+ * (dépenses, versements), dernière valeur connue pour un stock (solde de compte).
+ *
+ * @param {import('vue').Ref<Array>} raw Les entités de la collection.
+ * @param {import('vue').Ref<Map>} colors La table des couleurs de cette collection.
+ * @param {(entity: object) => number} valueOf Le montant à afficher et à trier.
+ * @returns {Array<{id: number, name: string, color: string, avg: number}>}
+ */
 const makeItems = (raw, colors, valueOf) => [...raw.value]
   .map((e) => ({ id: e.id, name: e.name, color: colors.value.get(e.id), avg: valueOf(e) }))
   .sort((a, b) => b.avg - a.avg)
@@ -99,7 +163,20 @@ const envItems = computed(() => makeItems(envsRaw, envColors, (e) => avgOf(e.poi
 const themeItems = computed(() => makeItems(themesRaw, themeColors, (e) => avgOf(e.points)))
 const catItems = computed(() => makeItems(catsRaw, catColors, (e) => avgOf(e.points)))
 
-// Séries tracées : sélection + « Autres » agrégé (jamais plus de 6 couleurs, §4)
+/**
+ * Compose les séries à tracer : la sélection, plus un agrégat « Autres ».
+ *
+ * Regrouper le reste plutôt que de le masquer garde les totaux justes — sans cela, la
+ * somme des bandes d'une aire empilée ne vaudrait plus le total réel. « Autres » n'est
+ * ajouté que s'il pèse quelque chose, pour ne pas traîner une série vide.
+ *
+ * @param {Array} raw Toutes les entités de la collection.
+ * @param {Array<number>} selectedIds Les entités à tracer nommément.
+ * @param {Map<number, string>} colors La table des couleurs.
+ * @param {object} [options]
+ * @param {boolean} [options.withOther] false pour ne pas agréger le reste.
+ * @returns {Array<{key: string, name: string, color: string, points: number[]}>}
+ */
 function buildSeries(raw, selectedIds, colors, { withOther = true } = {}) {
   const inSel = raw.filter((e) => selectedIds.includes(e.id))
     .sort((a, b) => totalOf(b.points) - totalOf(a.points))
@@ -125,7 +202,17 @@ const revDepSeries = computed(() => [
   { key: 'dep', name: 'Dépenses', color: 'var(--chart-1)', points: typesVisible.value.map((t) => t?.real.depense ?? 0) },
 ])
 
-// ─── Bandeau (§8) : calculé sur la période affichée ───
+/**
+ * Les chiffres du bandeau de tête, calculés sur la seule période affichée.
+ *
+ * Le taux d'épargne vaut null quand les revenus sont nuls : afficher 0 % laisserait
+ * croire qu'on n'épargne pas, alors qu'on ne peut simplement pas se prononcer.
+ * Le patrimoine se lit sur la dernière colonne, et son évolution est l'écart entre la
+ * première et la dernière.
+ *
+ * @returns {{n: number, taux: number|null, epargneMois: number, depensesMois: number,
+ *   patrimoine: number, patDelta: number}|null} null tant qu'aucun mois n'est affiché.
+ */
 const banner = computed(() => {
   const ts = typesVisible.value.filter(Boolean)
   if (!ts.length) return null
@@ -148,10 +235,21 @@ const banner = computed(() => {
 const repPeriod = ref('')
 watch(allPeriods, (p) => { if (!p.includes(repPeriod.value)) repPeriod.value = basePeriods.value.at(-1) || p.at(-1) || '' })
 const repIdx = computed(() => allPeriods.value.indexOf(repPeriod.value))
+// Mois précédent / suivant du panneau de répartition, sans sortir de l'historique
 const repStep = (d) => {
   const i = repIdx.value + d
   if (i >= 0 && i < allPeriods.value.length) repPeriod.value = allPeriods.value[i]
 }
+
+/**
+ * Prépare la répartition d'un mois : prévu d'un côté, réel de l'autre.
+ *
+ * Les deux barres partagent volontairement la MÊME échelle — le plus grand des quatre
+ * totaux — pour qu'on puisse les comparer d'un coup d'œil. Deux échelles autonomes
+ * donneraient deux barres pleines et masqueraient l'écart, qui est tout l'intérêt.
+ *
+ * @returns {object|null} Les segments en pourcentage et les restes en euros, ou null.
+ */
 const rep = computed(() => {
   const t = (stats.value?.types || []).find((x) => x.period === repPeriod.value)
   if (!t) return null
@@ -169,11 +267,25 @@ const rep = computed(() => {
 const views = ref({ pat: 'chart', env: 'chart', themes: 'chart', revdep: 'chart', cats: 'chart' })
 const setView = (k, v) => { views.value = { ...views.value, [k]: v } }
 
-// Tableaux : toutes les entités, valeurs brutes, moyenne et total
+/**
+ * Prépare les lignes de la vue Tableau d'un panneau.
+ *
+ * Contrairement aux graphiques, le tableau montre TOUTES les entités, sans « Autres » :
+ * on vient y chercher un chiffre précis. Il affiche aussi `raw` quand elle existe —
+ * les soldes non relevés y restent des trous (« — ») plutôt que d'être comblés, pour
+ * ne pas faire passer un report pour une mesure.
+ *
+ * @param {Array} raw Les entités de la collection.
+ * @param {Map<number, string>} colors La table des couleurs.
+ * @returns {Array<{id: number, name: string, color: string, cells: Array, avg: number}>}
+ */
 const tableRows = (raw, colors) => [...raw]
   .sort((a, b) => totalOf(b.points) - totalOf(a.points))
   .map((e) => ({ id: e.id, name: e.name, color: colors.get(e.id), cells: slice(e.raw || e.points), avg: avgOf(e.points) }))
+
+// Ligne de total du tableau : une somme par colonne, donc par mois
 const colTotals = (rows) => periods.value.map((_, i) => rows.reduce((s, r) => s + (r.cells[i] || 0), 0))
+// Un montant inconnu s'affiche « — » : ne rien savoir n'est pas valoir zéro
 const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 const pct0 = (n) => Math.round(n) + ' %'
 </script>

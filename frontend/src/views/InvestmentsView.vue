@@ -18,6 +18,7 @@ const assets = ref([])
 const accounts = ref([])
 const settings = ref(null)
 
+/** Recharge tout l'écran : actifs, comptes, réglages, puis l'historique du graphique. */
 async function load() {
   const [aRes, accRes, sRes] = await Promise.all([getAssets(), getAccounts(), getSettings()])
   assets.value = aRes.data
@@ -35,13 +36,33 @@ const fmtPct = (n) => (n === null || n === undefined ? '—'
 const signedEur = (n) => (n === null || n === undefined ? '—' : (n < 0 ? '−' : '+') + fmt(Math.abs(n)))
 const gainClass = (n) => (n === null || n === undefined ? 'meta' : n >= 0 ? 'is-credit' : 'is-over')
 // « 1er sept. 2026 » — jamais d'ISO à l'écran
+/**
+ * Écrit une date ISO en français court (« 1er sept. 2026 »).
+ *
+ * Le `T00:00:00` force une lecture en heure locale : sans lui, une date seule est lue
+ * en UTC et recule d'un jour dès qu'on est à l'est de Greenwich.
+ *
+ * @param {string} iso La date au format AAAA-MM-JJ.
+ * @returns {string} La date en clair, chaîne vide si absente.
+ */
 const frDate = (iso) => {
   if (!iso) return ''
   const d = new Date(iso + 'T00:00:00')
   return (d.getDate() === 1 ? '1er' : d.getDate()) + ' ' + d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
 }
-// Tags de classe : « Crypto » (les capitales sont proscrites), sauf les sigles (ETF, PEA…)
+
+// Les sigles gardent leurs capitales là où les autres classes sont écrites en bas de casse
 const SIGLES = new Set(['ETF', 'PEA', 'SCPI', 'PER', 'CTO'])
+
+/**
+ * Met en forme le nom d'une classe d'actif pour l'affichage.
+ *
+ * « crypto » devient « Crypto », mais « etf » devient « ETF » : un sigle en bas de
+ * casse se lirait comme un mot.
+ *
+ * @param {string|null} t La classe telle qu'elle est saisie.
+ * @returns {string} La classe affichable.
+ */
 const typeLabel = (t) => (!t ? '' : SIGLES.has(t.toUpperCase()) ? t.toUpperCase() : t.charAt(0).toUpperCase() + t.slice(1).toLowerCase())
 
 const types = computed(() => settings.value?.investmentTypes || [])
@@ -51,7 +72,20 @@ const closedAssets = computed(() => assets.value.filter((a) => a.isClosed))
 // Registre trié par valeur décroissante, les non valorisés en dernier
 const sortedAssets = computed(() => [...openAssets.value].sort((a, b) => (b.value ?? -1) - (a.value ?? -1)))
 
-// ─── Totaux ──────────────────────────────────────────────
+/**
+ * Les totaux du portefeuille, et la plus-value.
+ *
+ * Le point délicat : tous les actifs n'ont pas forcément été valorisés. La plus-value
+ * n'est donc calculée que sur ceux qui le sont, et comparée à leur SEUL investi —
+ * rapporter un gain partiel à l'investi total le sous-estimerait. Elle vaut null tant
+ * qu'aucun actif n'est valorisé : on ne sait pas, ce n'est pas zéro.
+ *
+ * Les retraits entrent dans le calcul (`value + withdrawn − invested`) : de l'argent
+ * sorti reste du gain réalisé, sans quoi vendre ferait chuter la performance affichée.
+ *
+ * @returns {{invested: number, withdrawn: number, value: number|null, gain: number|null,
+ *   gainPct: number|null, monthlyDca: number}}
+ */
 const totals = computed(() => {
   const list = openAssets.value
   const invested = list.reduce((s, a) => s + a.invested, 0)
@@ -70,17 +104,27 @@ const totals = computed(() => {
 // Poids d'un actif dans la valeur totale (colonne poids, brief §4)
 const weightPct = (a) => (a.value === null || !totals.value.value ? null : (a.value / totals.value.value) * 100)
 
-// Date de la dernière valorisation du portefeuille ; > 30 jours → à mettre à jour (brief §3)
+// La plus récente des valorisations ; le tri alphabétique suffit sur des dates ISO
 const latestValuationDate = computed(() => {
   const dates = openAssets.value.map((a) => a.valuationDate).filter(Boolean)
   return dates.length ? dates.sort()[dates.length - 1] : null
 })
+// Passé un mois, les valeurs affichées ne veulent plus dire grand-chose : on le signale.
+// Un portefeuille jamais valorisé n'est pas « périmé », il est simplement vide de mesures.
 const valuationStale = computed(() => {
   if (!latestValuationDate.value) return false
   return (Date.now() - new Date(latestValuationDate.value + 'T00:00:00').getTime()) / 86400000 > 30
 })
 
-// ─── Répartition (brief §5a) : un segment par actif au prorata de la valeur ───
+/**
+ * Barre de répartition : un segment par actif, au prorata de sa valeur.
+ *
+ * Rien n'est affiché sous deux actifs valorisés — une barre pleine à 100 % n'apprend
+ * rien. Les segments sont des nuances d'une même encre, pas une palette : la
+ * répartition se lit par les tailles, la couleur n'a rien à coder ici.
+ *
+ * @returns {Array<{id: number, name: string, pct: number, opacity: number}>}
+ */
 const repartition = computed(() => {
   const valued = sortedAssets.value.filter((a) => a.value !== null && a.value > 0)
   const total = valued.reduce((s, a) => s + a.value, 0)
@@ -95,6 +139,23 @@ const repartition = computed(() => {
 // ─── Évolution (brief §5b) : valorisations mensuelles vs investi cumulé ───
 const history = ref(null) // { labels, valeur[], investi[] } — null si < 3 mois de valorisations
 const historyError = ref(false) // panne API ≠ « pas encore 3 valorisations » : deux messages différents
+/**
+ * Reconstruit l'historique du graphique : la valeur du portefeuille face à l'investi.
+ *
+ * Les deux courbes ne se calculent pas de la même façon, et c'est tout l'enjeu :
+ *  - la VALEUR est un stock. Pour un mois donné, on prend la dernière valorisation
+ *    connue de chaque actif à cette date — un actif non revalorisé depuis deux mois
+ *    garde sa dernière valeur au lieu de disparaître de la somme.
+ *  - l'INVESTI est un cumul de flux : tous les versements moins les retraits depuis
+ *    l'origine.
+ *
+ * L'écart entre les deux courbes est la plus-value latente. En dessous de trois mois
+ * de valorisations, on n'affiche rien : deux points ne font pas une tendance.
+ *
+ * L'échec réseau est distingué du manque de données (`historyError`) : ce sont deux
+ * messages différents pour l'utilisateur, « réessayez » n'a rien à voir avec
+ * « continuez à valoriser ».
+ */
 async function loadHistory() {
   const list = assets.value.filter((a) => !a.isClosed)
   historyError.value = false
@@ -135,10 +196,19 @@ const chartSeries = computed(() => (history.value ? [
 // ─── Mettre à jour : valorisation groupée, un champ par actif (brief §3) ───
 const updateOpen = ref(false)
 const updateForm = ref({ date: '', values: {} })
+/** Ouvre la valorisation groupée : un champ par actif ouvert, tous vides. */
 function openBulkUpdate() {
   updateForm.value = { date: today(), values: Object.fromEntries(openAssets.value.map((a) => [a.id, ''])) }
   updateOpen.value = true
 }
+
+/**
+ * Enregistre les valorisations saisies, une par actif renseigné.
+ *
+ * Les appels sont séquentiels et chaque champ est vidé dès que sa valeur est passée :
+ * si le troisième échoue, un nouveau clic ne repostera pas les deux premiers en double.
+ * L'écran est rechargé même en cas d'échec, pour refléter ce qui est réellement enregistré.
+ */
 async function submitBulkUpdate() {
   const f = updateForm.value
   const entries = Object.entries(f.values).filter(([, v]) => v !== '' && v !== null)
@@ -158,11 +228,15 @@ const formOpen = ref(false)
 const editingId = ref(null)
 const form = ref({})
 
+// Nouvel actif : on propose d'office le premier compte d'investissement, qui est
+// presque toujours le bon
 function openAdd() {
   editingId.value = null
   form.value = { name: '', type: types.value[0] || '', accountId: accounts.value.find((a) => a.type === 'investissement')?.id || '', monthlyDca: '' }
   formOpen.value = true
 }
+
+/** Ouvre le formulaire pré-rempli sur un actif existant. */
 function openEdit(asset) {
   editingId.value = asset.id
   form.value = { name: asset.name, type: asset.type || '', accountId: asset.accountId || '', monthlyDca: asset.monthlyDca || '' }
@@ -179,9 +253,26 @@ async function submit() {
     await load()
   } catch (e) { apiError(e) }
 }
+/**
+ * Clôt un actif, ou le rouvre.
+ *
+ * La clôture est la voie normale pour un actif revendu : elle le sort des totaux tout
+ * en gardant son historique, là où la suppression l'effacerait.
+ *
+ * @param {object} asset L'actif à basculer.
+ */
 async function toggleClosed(asset) {
   try { await updateAsset(asset.id, { isClosed: !asset.isClosed }); await load() } catch (e) { apiError(e) }
 }
+
+/**
+ * Supprime un actif, après confirmation.
+ *
+ * Le serveur refuse dès qu'il porte des mouvements (« jamais de perte ») : la
+ * suppression ne sert qu'à effacer une ligne créée par erreur.
+ *
+ * @param {object} asset L'actif à supprimer.
+ */
 async function removeConfirm(asset) {
   const ok = await confirmDialog({ title: "Supprimer l'actif", message: `Supprimer « ${asset.name} » ? (impossible s'il a des mouvements : clôturez-le pour garder l'historique)`, confirmLabel: 'Supprimer', danger: true })
   if (!ok) return
@@ -199,23 +290,42 @@ const valuationForm = ref({ value: '', date: '' })
 const movementForm = ref({ kind: 'versement', amount: '', date: '', counterpartAccountId: '', notes: '' })
 const today = () => new Date().toISOString().substring(0, 10)
 
+/** Déplie le panneau d'un actif, ou le replie s'il l'était déjà. */
 async function togglePanel(asset) {
   if (openId.value === asset.id) { openId.value = null; return }
   await openPanel(asset)
 }
+
+/**
+ * Ouvre le panneau détaillé d'un actif et charge son historique.
+ *
+ * Les listes sont vidées AVANT le chargement : sans cela, le panneau afficherait
+ * brièvement les mouvements de l'actif précédent, ce qui se lit comme une erreur.
+ *
+ * @param {object} asset L'actif à détailler.
+ */
 async function openPanel(asset) {
   openId.value = asset.id
-  movements.value = [] // jamais les données de l'actif précédent pendant le chargement
+  movements.value = []
   valuations.value = []
   valuationForm.value = { value: asset.value ?? '', date: today() }
   movementForm.value = { kind: 'versement', amount: '', date: today(), counterpartAccountId: accounts.value.find((a) => a.isMain)?.id || '', notes: '' }
   await refreshPanel(asset)
 }
+/** Relit mouvements et valorisations de l'actif ouvert. */
 async function refreshPanel(asset) {
   const [mRes, vRes] = await Promise.all([getAssetMovements(asset.id), getAssetValuations(asset.id)])
   movements.value = mRes.data
   valuations.value = vRes.data
 }
+/**
+ * Enregistre une valorisation ponctuelle depuis le panneau.
+ *
+ * Le double rechargement est voulu : `load()` met à jour les totaux de tout l'écran,
+ * `refreshPanel()` la liste ouverte en dessous.
+ *
+ * @param {object} asset L'actif concerné.
+ */
 async function submitValuation(asset) {
   if (valuationForm.value.value === '') return
   try {
@@ -226,6 +336,16 @@ async function submitValuation(asset) {
 async function deleteValuation(asset, v) {
   try { await removeAssetValuation(asset.id, v.id); await load(); await refreshPanel(asset) } catch (e) { apiError(e) }
 }
+/**
+ * Enregistre un versement ou un retrait sur un actif.
+ *
+ * Le compte de contrepartie est ce qui rend le mouvement cohérent avec le reste de
+ * l'app : l'argent vient d'un compte et y retourne. Après enregistrement, seuls le
+ * montant et la note sont vidés — la nature, la date et le compte restent, pour
+ * enchaîner plusieurs saisies semblables.
+ *
+ * @param {object} asset L'actif concerné.
+ */
 async function submitMovement(asset) {
   const f = movementForm.value
   if (!f.amount) return

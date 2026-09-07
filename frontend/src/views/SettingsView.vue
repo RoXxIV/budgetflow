@@ -11,7 +11,13 @@ import { eur } from '@/lib/format.js'
 import { CATEGORY_PRESETS, CATEGORY_PALETTE, CATEGORY_TYPES } from '@/lib/categories.js'
 import { THEME_OPTIONS, getThemePref, setThemePref } from '@/lib/theme.js'
 
-// Autofocus des champs d'édition en place (curseur en fin de texte)
+/**
+ * Directive v-focus : donne le focus à un champ dès son apparition, curseur en fin
+ * de texte pour compléter plutôt que remplacer.
+ *
+ * setSelectionRange n'existe pas sur un <input type="number"> : l'exception est
+ * avalée, le focus reste acquis.
+ */
 const vFocus = {
   mounted: (el) => { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length) } catch { /* type number */ } },
 }
@@ -23,6 +29,7 @@ const themes = ref([])
 const templateLines = ref([])
 const calculators = ref([])
 
+/** Recharge les cinq collections de la page en un seul aller-retour groupé. */
 async function load() {
   const [setRes, catRes, themeRes, tlRes, calcRes] = await Promise.all([
     getSettings(), getCategories(), getThemes(), getTemplateLines(), getCalculators(),
@@ -36,12 +43,32 @@ async function load() {
 onMounted(async () => { try { await load() } catch (e) { apiError(e) } })
 
 const fmt = eur
-// Première lettre en majuscule à la saisie (les sigles courts restent tels quels)
+
+/**
+ * Met une majuscule initiale à un nom saisi.
+ *
+ * Les sigles courts tout en capitales sont laissés intacts : « CB » ne doit pas
+ * devenir « Cb ».
+ *
+ * @param {string} s Le texte saisi.
+ * @returns {string} Le texte avec son initiale en majuscule.
+ */
 const capFirst = (s) => (s.length <= 3 && s === s.toUpperCase() ? s : s.charAt(0).toUpperCase() + s.slice(1))
 
 // ─── Un seul modèle d'enregistrement : au blur, indicateur « Enregistré » 2 s ───
 const savedIn = ref('')
 let savedTimer = null
+
+/**
+ * Affiche « Enregistré » sur un panneau, deux secondes.
+ *
+ * La page n'a pas de bouton « Sauver » : tout part au blur. Ce témoin est le seul
+ * retour visible, sans quoi l'utilisateur ne saurait pas si sa saisie a été prise.
+ * Le minuteur est remis à zéro à chaque appel — deux enregistrements rapprochés ne
+ * font pas disparaître le témoin plus tôt.
+ *
+ * @param {string} panel Le panneau concerné ('general', 'categories', 'themes'…).
+ */
 function flashSaved(panel) {
   savedIn.value = panel
   clearTimeout(savedTimer)
@@ -49,25 +76,45 @@ function flashSaved(panel) {
 }
 
 // ─── Édition en place : une ligne se lit comme du texte, devient un champ au clic ───
+// Une seule ligne éditable à la fois dans toute la page : `key` désigne laquelle
+// (« cat12 », « theme3 », « rate »…), `val` porte la saisie en cours
 const edit = ref({ key: null, val: '' })
-function startEdit(key, val) { edit.value = { key, val: String(val ?? '') } }
-function cancelEdit() { edit.value = { key: null, val: '' } }
+const startEdit = (key, val) => { edit.value = { key, val: String(val ?? '') } }
+const cancelEdit = () => { edit.value = { key: null, val: '' } }
 
 // ─── Menus ⋯ ─────────────────────────────────────────────
 const menuKey = ref(null)
 
 // ─── Général ─────────────────────────────────────────────
 const CURRENCIES = ['EUR', 'USD', 'CHF', 'GBP']
+// Une devise enregistrée hors liste reste proposée : la changer ne doit pas être
+// un aller sans retour
 const currencyOptions = computed(() => {
   const c = settings.value?.currency
   return c && !CURRENCIES.includes(c) ? [c, ...CURRENCIES] : CURRENCIES
 })
+
+/**
+ * Enregistre une modification des réglages généraux.
+ *
+ * En cas d'échec, les réglages sont relus depuis le serveur : l'écran doit montrer ce
+ * qui est réellement enregistré, pas ce que l'utilisateur croyait avoir posé.
+ *
+ * @param {object} patch Les champs à modifier.
+ */
 async function saveGeneral(patch) {
   try {
     settings.value = (await updateSettings(patch)).data
     flashSaved('general')
   } catch (e) { apiError(e); settings.value = (await getSettings()).data }
 }
+/**
+ * Enregistre le taux d'épargne visé, à la sortie du champ.
+ *
+ * Une saisie illisible laisse la valeur en place plutôt que de la remettre à zéro en
+ * silence — un objectif d'épargne effacé par accident ne se remarque pas. Le taux est
+ * borné à 0-100 : au-delà, la phrase d'exemple n'aurait plus de sens.
+ */
 async function commitRate() {
   if (edit.value.key !== 'rate') return
   const raw = parseFloat(String(edit.value.val).replace(',', '.'))
@@ -76,41 +123,52 @@ async function commitRate() {
   const v = Math.min(100, Math.max(0, raw))
   if (v !== settings.value.savingRate) await saveGeneral({ savingRate: v })
 }
-// « 40 % de 2 418,00 € = 967,20 € par mois » — sur les revenus prévus du template
+// Revenus du mois-type : la somme des lignes rangées dans une catégorie de type revenu
 const revenusPrevus = computed(() => {
   const revCats = new Set(categories.value.filter((c) => c.type === 'revenu').map((c) => c.id))
   return templateLines.value.reduce((s, l) => s + (revCats.has(l.categoryId) ? (l.plannedAmount || 0) : 0), 0)
 })
+// Traduit le taux en euros (« 40 % de 2 418,00 € = 967,20 € par mois ») : un
+// pourcentage seul ne parle pas, un montant si
 const savingsPhrase = computed(() => {
   const rate = settings.value?.savingRate || 0
   if (!rate || !revenusPrevus.value) return ''
   return `${rate} % de ${fmt(revenusPrevus.value)} = ${fmt(Math.round(revenusPrevus.value * rate) / 100)} par mois.`
 })
 
-// Bascule clair / sombre / système (préférence locale au navigateur, pas en base)
+// Bascule clair / sombre / système. Cette préférence vit dans le navigateur, pas en
+// base : elle est propre à la machine, pas à l'utilisateur.
 const themePref = ref(getThemePref())
+
+/** Applique le thème choisi et le retient. */
 function changeTheme() {
   setThemePref(themePref.value)
   flashSaved('general')
 }
 
 const newPaymentMethod = ref('')
+
+/** Ajoute un moyen de paiement, en ignorant les doublons. */
 async function addPaymentMethod() {
   const v = capFirst(newPaymentMethod.value.trim())
   if (!v || settings.value.paymentMethods.includes(v)) return
   newPaymentMethod.value = ''
   await saveGeneral({ paymentMethods: [...settings.value.paymentMethods, v] })
 }
+/** Retire un moyen de paiement de la liste proposée aux saisies. */
 async function removePaymentMethod(m) {
   await saveGeneral({ paymentMethods: settings.value.paymentMethods.filter((x) => x !== m) })
 }
 const newInvestmentType = ref('')
+
+/** Ajoute une classe d'investissement (ETF, Crypto…), en ignorant les doublons. */
 async function addInvestmentType() {
   const v = capFirst(newInvestmentType.value.trim())
   if (!v || settings.value.investmentTypes.includes(v)) return
   newInvestmentType.value = ''
   await saveGeneral({ investmentTypes: [...settings.value.investmentTypes, v] })
 }
+/** Retire une classe d'investissement de la liste proposée. */
 async function removeInvestmentType(t) {
   await saveGeneral({ investmentTypes: settings.value.investmentTypes.filter((x) => x !== t) })
 }
@@ -122,10 +180,14 @@ const TYPE_HINTS = {
   epargne: 'comptée dans « mis de côté », pas dans les dépenses',
   transfert: 'bouge les soldes, exclue des stats de dépenses',
 }
+// Prochaine couleur libre de la palette fermée ; au-delà de douze catégories, on
+// recommence le tour plutôt que d'inventer une couleur hors palette
 const nextColor = () => CATEGORY_PALETTE.find((p) => !categories.value.some((c) => c.color === p)) || CATEGORY_PALETTE[categories.value.length % 12]
 const colorPickerFor = ref(null) // id de la catégorie dont la palette est ouverte ('new' pour l'ajout)
 
 const newCategory = ref({ name: '', type: 'depense', color: null })
+
+/** Crée une catégorie ; sans couleur choisie, elle prend la prochaine libre. */
 async function addCategory() {
   const name = capFirst(newCategory.value.name.trim())
   if (!name) return
@@ -136,6 +198,14 @@ async function addCategory() {
     flashSaved('categories')
   } catch (e) { apiError(e) }
 }
+/**
+ * Renomme une catégorie, à la sortie du champ.
+ *
+ * Un nom vide ou inchangé n'appelle pas le serveur. En cas d'échec — un nom déjà pris,
+ * par exemple — la liste est relue pour effacer la modification optimiste affichée.
+ *
+ * @param {object} category La catégorie renommée.
+ */
 async function commitCatName(category) {
   if (edit.value.key !== 'cat' + category.id) return
   const name = edit.value.val.trim()
@@ -147,10 +217,24 @@ async function commitCatName(category) {
     flashSaved('categories')
   } catch (e) { apiError(e); categories.value = (await getCategories()).data }
 }
+/**
+ * Change le type d'une catégorie (dépense, revenu, épargne, transfert).
+ *
+ * Loin d'être cosmétique : le type décide de quel côté la catégorie tombe dans tous
+ * les totaux et toutes les statistiques.
+ *
+ * @param {object} category La catégorie, dont `type` porte déjà la nouvelle valeur.
+ */
 async function setCatType(category) {
   try { await updateCategory(category.id, { type: category.type }); flashSaved('categories') }
   catch (e) { apiError(e); categories.value = (await getCategories()).data }
 }
+/**
+ * Change la couleur d'une catégorie et referme la palette.
+ *
+ * @param {object} category La catégorie.
+ * @param {string} color La couleur choisie, prise dans la palette fermée.
+ */
 async function setCatColor(category, color) {
   colorPickerFor.value = null
   if (color === category.color) return
@@ -161,7 +245,18 @@ async function setCatColor(category, color) {
   } catch (e) { apiError(e) }
 }
 
+// Combien de lignes s'appuient sur cette catégorie, template et mois confondus
 const catUsage = (c) => (c.templateLines || 0) + (c.monthLines || 0)
+
+/**
+ * Supprime une catégorie, après un avertissement proportionné.
+ *
+ * Le message change selon l'usage : une catégorie inutilisée part sans cérémonie,
+ * une catégorie employée annonce combien de lignes basculeront en « Sans catégorie ».
+ * Le `force` passé au serveur est précisément cette acceptation.
+ *
+ * @param {object} category La catégorie à supprimer.
+ */
 async function removeCategoryConfirm(category) {
   const used = catUsage(category)
   const ok = await confirmDialog({
@@ -182,7 +277,17 @@ async function removeCategoryConfirm(category) {
 const ariaMsg = ref('')
 const dragId = ref(null)      // catégorie en cours de glissement
 const dragArmed = ref(null)   // poignée pressée : la ligne devient draggable
+/** Début de glissement : mémorise la catégorie déplacée. */
 function onDragStart(category) { dragId.value = category.id }
+
+/**
+ * Réordonne pendant le glissement, à chaque survol d'une autre ligne.
+ *
+ * La liste locale est réarrangée en direct pour que l'utilisateur voie le résultat
+ * sous son curseur ; rien n'est envoyé au serveur avant le relâchement.
+ *
+ * @param {object} category La catégorie survolée.
+ */
 function onDragOver(category) {
   if (dragId.value === null || dragId.value === category.id) return
   const list = [...categories.value]
@@ -191,12 +296,27 @@ function onDragOver(category) {
   list.splice(to, 0, list.splice(from, 1)[0])
   categories.value = list
 }
+/**
+ * Fin de glissement : enregistre le nouvel ordre.
+ *
+ * En cas d'échec, la liste est relue — l'ordre affiché ne doit jamais différer de
+ * celui qui est enregistré.
+ */
 async function onDragEnd() {
   dragId.value = null
   dragArmed.value = null
   try { await reorderCategories(categories.value.map((c, i) => ({ id: c.id, order: i }))); flashSaved('categories') }
   catch (e) { apiError(e); categories.value = (await getCategories()).data }
 }
+/**
+ * Déplace une catégorie au clavier (Alt+↑/↓), alternative au glisser-déposer.
+ *
+ * Le déplacement est annoncé dans une zone aria-live : au clavier, on ne voit pas
+ * forcément la ligne bouger, il faut donc l'énoncer.
+ *
+ * @param {number} index Position actuelle.
+ * @param {number} delta -1 pour monter, +1 pour descendre.
+ */
 async function moveCategory(index, delta) {
   const target = index + delta
   if (target < 0 || target >= categories.value.length) return
@@ -208,6 +328,7 @@ async function moveCategory(index, delta) {
   catch (e) { apiError(e) }
 }
 
+/** Crée d'un coup les catégories proposées, quand la liste est vide. */
 async function applyPresets() {
   try {
     for (const p of CATEGORY_PRESETS) await createCategory(p)
@@ -218,7 +339,11 @@ async function applyPresets() {
 // ─── Thèmes : plus de couleur stockée à la saisie, recherche, tri, fusion via menu ───
 const themeSearch = ref('')
 const themeSort = ref('alpha') // 'alpha' | 'usage'
+// Combien d'objets portent ce thème — lignes, entrées et calculateurs confondus
 const themeUsage = (t) => (t.lines || 0) + (t.entries || 0) + (t.calculators || 0)
+
+// Liste filtrée puis triée. Le tri « par usage » remonte les MOINS utilisés en tête :
+// on trie par usage quand on cherche à faire le ménage, pas à admirer ses classiques.
 const sortedThemes = computed(() => {
   const q = themeSearch.value.trim().toLowerCase()
   const list = themes.value.filter((t) => !q || t.name.toLowerCase().includes(q))
@@ -227,6 +352,8 @@ const sortedThemes = computed(() => {
     : [...list].sort((a, b) => a.name.localeCompare(b.name, 'fr')) // A-Z explicite, sans dépendre de l'ordre du backend
 })
 const newTheme = ref('')
+
+/** Crée un thème. */
 async function addTheme() {
   const name = capFirst(newTheme.value.trim())
   if (!name) return
@@ -237,6 +364,11 @@ async function addTheme() {
     flashSaved('themes')
   } catch (e) { apiError(e) }
 }
+/**
+ * Renomme un thème, à la sortie du champ.
+ *
+ * @param {object} theme Le thème renommé.
+ */
 async function commitThemeName(theme) {
   if (edit.value.key !== 'theme' + theme.id) return
   const name = edit.value.val.trim()
@@ -248,6 +380,14 @@ async function commitThemeName(theme) {
     flashSaved('themes')
   } catch (e) { apiError(e); themes.value = (await getThemes()).data }
 }
+/**
+ * Supprime un thème, après un avertissement proportionné à son usage.
+ *
+ * Le message oriente vers la FUSION quand le thème sert déjà : elle garde
+ * l'historique là où la suppression le disperse en « sans thème ».
+ *
+ * @param {object} theme Le thème à supprimer.
+ */
 async function removeThemeConfirm(theme) {
   const used = themeUsage(theme)
   const ok = await confirmDialog({
@@ -267,10 +407,20 @@ async function removeThemeConfirm(theme) {
 const mergeFor = ref(null)     // thème source
 const mergeTargetId = ref('')
 onUnmounted(() => { clearTimeout(savedTimer); clearTimeout(calcCheckTimer) })
+/**
+ * Ouvre la fusion d'un thème vers un autre.
+ *
+ * @param {object} theme Le thème source, celui qui disparaîtra.
+ */
 function openMerge(theme) {
   mergeFor.value = theme
   mergeTargetId.value = ''
 }
+/**
+ * Exécute la fusion : tout ce qui portait le thème source passe sur la cible.
+ *
+ * Le message de retour vient du serveur, qui sait combien d'objets ont bougé.
+ */
 async function confirmMerge() {
   if (!mergeFor.value || !mergeTargetId.value) return
   try {
@@ -286,10 +436,19 @@ const calcForm = ref(null)      // éditeur ouvert (null = fermé)
 const calcCheck = ref(null)     // résultat du test de formule { ok, value | error }
 let calcCheckTimer = null
 
+/** Un calculateur vierge, tout à saisir. */
 function emptyCalculator() {
   return { id: null, name: '', formula: '', lineId: '', themeId: '', params: [], readings: [] }
 }
-// Preset : pas un module EDF en dur, juste un exemple pré-rempli que l'utilisateur adapte
+/**
+ * Un exemple pré-rempli, pour ne pas partir d'une formule blanche.
+ *
+ * C'est un point de départ à adapter, pas un module « électricité » codé en dur :
+ * prix, TVA et abonnement sont des paramètres comme les autres, et la formule
+ * s'édite librement.
+ *
+ * @returns {object} Le calculateur d'exemple.
+ */
 function exampleCalculator() {
   return {
     id: null,
@@ -309,11 +468,20 @@ function exampleCalculator() {
     ],
   }
 }
+/**
+ * Ouvre l'éditeur sur un calculateur existant, ou vierge.
+ *
+ * La copie profonde est nécessaire : l'éditeur modifie params et readings en place,
+ * et sans elle la liste affichée derrière changerait avant tout enregistrement.
+ *
+ * @param {object|null} calc Le calculateur à éditer, null pour en créer un.
+ */
 function openCalculator(calc) {
   calcForm.value = calc ? JSON.parse(JSON.stringify({ ...calc, lineId: calc.lineId || '', themeId: calc.themeId || '' })) : emptyCalculator()
   calcCheck.value = null
   scheduleCheck()
 }
+/** Ouvre l'éditeur sur l'exemple pré-rempli. */
 function openExample() {
   calcForm.value = exampleCalculator()
   calcCheck.value = null
@@ -321,9 +489,12 @@ function openExample() {
 }
 function closeCalculator() { calcForm.value = null }
 
-function addParam() { calcForm.value.params.push({ symbol: '', label: '', value: 0, unit: '' }) }
-function addReading() { calcForm.value.readings.push({ symbol: '', label: '', kind: 'index', unit: '' }) }
+// Un paramètre est une constante (prix du kWh) ; un relevé est saisi chaque mois
+const addParam = () => calcForm.value.params.push({ symbol: '', label: '', value: 0, unit: '' })
+const addReading = () => calcForm.value.readings.push({ symbol: '', label: '', kind: 'index', unit: '' })
 
+// Symboles utilisables dans la formule. Les relevés valent 1 pour le test : on vérifie
+// que la formule se CALCULE, pas qu'elle donne le bon montant — il n'y a pas encore de relevé.
 const calcSymbols = computed(() => {
   if (!calcForm.value) return []
   return [
@@ -331,11 +502,25 @@ const calcSymbols = computed(() => {
     ...calcForm.value.readings.map((r) => ({ symbol: r.symbol, value: 1, kind: r.kind })),
   ].filter((s) => s.symbol)
 })
+/**
+ * Insère un symbole à la fin de la formule, en un clic.
+ *
+ * Évite les fautes de frappe sur des noms comme `prixHC`, qui feraient échouer le
+ * calcul sans que la cause saute aux yeux.
+ *
+ * @param {string} symbol Le symbole à insérer.
+ */
 function insertSymbol(symbol) {
   const f = calcForm.value
   f.formula = (f.formula || '').trimEnd() + (f.formula ? ' ' : '') + symbol + ' '
   scheduleCheck()
 }
+/**
+ * Teste la formule auprès du serveur, 300 ms après la dernière frappe.
+ *
+ * Le délai évite d'envoyer une requête par caractère, et surtout de signaler une
+ * erreur sur une formule qu'on est en train d'écrire.
+ */
 function scheduleCheck() {
   clearTimeout(calcCheckTimer)
   calcCheckTimer = setTimeout(async () => {
@@ -346,6 +531,12 @@ function scheduleCheck() {
     } catch (e) { calcCheck.value = { ok: false, error: e.message } }
   }, 300)
 }
+/**
+ * Enregistre le calculateur.
+ *
+ * Les paramètres et relevés sans symbole sont écartés : ce sont des lignes ajoutées
+ * puis laissées vides, elles n'ont rien à faire dans la formule.
+ */
 async function saveCalculator() {
   const f = calcForm.value
   if (!f.name.trim()) return
@@ -365,6 +556,14 @@ async function saveCalculator() {
     flashSaved('calculators')
   } catch (e) { apiError(e) }
 }
+/**
+ * Supprime un calculateur et ses relevés, après confirmation.
+ *
+ * Les régularisations déjà posées dans les mois restent : ce sont des montants
+ * enregistrés, pas des projections du calculateur.
+ *
+ * @param {object} calc Le calculateur à supprimer.
+ */
 async function removeCalculatorConfirm(calc) {
   const ok = await confirmDialog({ title: 'Supprimer le calculateur', message: `« ${calc.name} » et tous ses relevés mensuels seront supprimés. Les régularisations déjà posées dans les mois restent.`, confirmLabel: 'Supprimer', danger: true })
   if (!ok) return

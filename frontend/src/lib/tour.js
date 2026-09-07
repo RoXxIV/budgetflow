@@ -34,4 +34,13 @@ export const TOUR_STEPS = [
 // La visite se termine en rendant la main sur la page Mois
 export const TOUR_END = '/mois'
 
+/**
+ * Position d'une route dans la visite.
+ *
+ * C'est ce qui permet à TourGuide de ne rien mémoriser : la route affichée dit à
+ * quelle étape on en est.
+ *
+ * @param {string} path Le chemin de la route courante.
+ * @returns {number} L'indice de l'étape, ou -1 si la route n'en fait pas partie.
+ */
 export const tourIndexOf = (path) => TOUR_STEPS.findIndex((s) => s.path === path)

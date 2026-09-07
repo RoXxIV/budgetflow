@@ -12,18 +12,39 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 
+// ─── Pile des modales ouvertes ────────────────────────────
+// Chaque instance s'identifie par un symbole unique et s'inscrit dans une pile
+// partagée par toute l'application (portée à window : les composants ne se
+// connaissent pas entre eux). Sans elle, une confirmation posée par-dessus une
+// modale d'édition fermerait les deux d'un seul Échap.
 const uid = Symbol('modal')
 const stack = (window.__bfModalStack ||= [])
+
+// Entrée dans la pile à l'ouverture, sortie à la fermeture. `immediate` couvre
+// le cas d'une modale montée déjà ouverte.
 watch(() => props.open, (o) => {
   const i = stack.indexOf(uid)
   if (o && i === -1) stack.push(uid)
   else if (!o && i !== -1) stack.splice(i, 1)
 }, { immediate: true })
 
+/**
+ * Ferme la modale sur Échap — mais seulement si c'est celle du dessus.
+ *
+ * L'écouteur est posé sur window par chaque modale ouverte : toutes reçoivent la
+ * touche. Seule la dernière de la pile réagit, les autres ignorent l'événement.
+ *
+ * @param {KeyboardEvent} e L'événement clavier venant de window.
+ */
 function onKey(e) {
   if (e.key === 'Escape' && props.open && stack[stack.length - 1] === uid) emit('close')
 }
+
 onMounted(() => window.addEventListener('keydown', onKey))
+
+// Démontage : on retire l'écouteur et on se dépile, y compris si le composant
+// disparaît alors qu'il était encore ouvert (sinon la pile garderait un fantôme
+// qui empêcherait les modales suivantes de répondre à Échap).
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
   const i = stack.indexOf(uid)

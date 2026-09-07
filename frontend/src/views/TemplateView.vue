@@ -22,6 +22,7 @@ const settings = ref(null)
 const currentMonth = ref(null)   // mois ouvert du calendrier (cible de la propagation), ou null
 const envelopes = ref([])        // pour afficher / changer le compte hôte d'une ligne mensualisée
 
+/** Recharge tout l'écran en un seul aller-retour groupé. */
 async function load() {
   const [lRes, cRes, tRes, aRes, sRes, mRes, eRes] = await Promise.all([
     getTemplateLines(), getCategories(), getThemes(), getAccounts(), getSettings(), getCurrentMonth(), getEnvelopes(),
@@ -37,7 +38,18 @@ async function load() {
 const envelopeById = (id) => envelopes.value.find((e) => e.id === id) || null
 onMounted(async () => { try { await load() } catch (e) { apiError(e) } })
 
-// ─── Propagation vers le mois en cours ───────────────────
+/**
+ * Copie une ligne du budget type dans le mois en cours.
+ *
+ * Un mois ne se remplit du budget type qu'à sa naissance : une ligne ajoutée après
+ * coup n'apparaîtrait qu'au mois suivant. Cette propagation comble ce décalage, sans
+ * jamais toucher au réel déjà saisi.
+ *
+ * @param {object} line La ligne du budget type à propager.
+ * @param {object} [options]
+ * @param {boolean} [options.ask] false pour enchaîner sans reposer la question
+ *   (l'appelant vient déjà de la poser).
+ */
 async function applyToCurrentMonth(line, { ask = true } = {}) {
   if (!currentMonth.value) return
   if (ask) {
@@ -55,7 +67,17 @@ const fmt = eur
 const themeById = (id) => themes.value.find((t) => t.id === id) || null
 const activeAccounts = computed(() => accounts.value.filter((a) => a.isActive)) // saisies : comptes actifs seulement
 
-// Point de couleur désaturé à 65 % : la couleur reste une identité, jamais une donnée
+/**
+ * Désature une couleur de catégorie vers son gris, à 65 %.
+ *
+ * Les pastilles servent à reconnaître une catégorie, pas à crier : on mélange la
+ * couleur d'origine avec sa propre luminance (formule de perception 0,299/0,587/0,114,
+ * qui pondère le vert plus que le bleu, comme l'œil). Une valeur illisible retombe sur
+ * l'encre neutre plutôt que de casser l'affichage.
+ *
+ * @param {string} hex La couleur de la catégorie, au format #rrggbb.
+ * @returns {string} La couleur désaturée en rgb(), ou un token neutre.
+ */
 function desat(hex) {
   if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return 'var(--c-ink-3)'
   const n = parseInt(hex.slice(1), 16)
@@ -72,6 +94,19 @@ const sharingOn = computed(() => pots.value.length > 0)
 // ─── Cagnotte : prévu théorique, même formule que le mois (pot.service) ───
 // payé par moi = Σ prévus des lignes ½ ; total = + part du partenaire ; à envoyer = ma part − payé par moi.
 // Compté dans les totaux pour que le template et le mois affichent le même chiffre.
+/**
+ * Calcule où en est une cagnotte : ce que chacun a payé, et ce qu'il reste à envoyer.
+ *
+ * Même formule que le backend (pot.service), pour que le budget type et le mois
+ * affichent le même chiffre. Le raisonnement : on somme ce que J'AI déjà payé sur mes
+ * lignes ½, on y ajoute ce que le partenaire a payé pour obtenir le total commun, on
+ * en prend ma part (50 % par défaut), et l'écart avec ce que j'ai déjà sorti est ce
+ * que je dois encore envoyer — négatif si j'ai trop payé.
+ *
+ * @param {object} pot La ligne de cagnotte.
+ * @returns {{sharedByMe: number, partnerPaid: number, total: number, myShare: number,
+ *   myPart: number, partnerName: string, toSend: number}}
+ */
 const potCalc = (pot) => {
   const defaultPotId = pots.value[0]?.id ?? null
   const sharedByMe = lines.value.reduce((s, l) => {
@@ -90,6 +125,19 @@ const potCalc = (pot) => {
 }
 // Les totaux raisonnent en mois-type : une ligne non mensuelle compte pour sa part
 // mensuelle (monthlyAmount, calculé par le backend), pas pour son montant prélevé.
+/**
+ * Ce qu'une ligne pèse dans un mois-type.
+ *
+ * Trois cas : une cagnotte compte pour ce qu'il reste à envoyer ; une ligne non
+ * mensuelle compte pour sa part mensuelle (`monthlyAmount`, calculé côté serveur) et
+ * non pour son montant prélevé ; une ligne mensuelle compte pour son montant.
+ *
+ * C'est ce qui empêche un abonnement annuel de 79,99 € de gonfler le total d'un mois
+ * de 79,99 € au lieu de 6,67 €.
+ *
+ * @param {object} l La ligne.
+ * @returns {number} Son poids mensuel, en euros.
+ */
 const lineAmount = (l) => (l.isPot ? potCalc(l).toSend : (l.monthlyAmount ?? l.plannedAmount ?? 0))
 const potTip = (l) => {
   const p = potCalc(l)
@@ -99,6 +147,18 @@ const potTip = (l) => {
 // Part lissée d'un groupe : ce que les lignes non mensuelles y pèsent chaque mois.
 // Sans ça le total ne colle pas avec la somme des montants affichés, qui sont les
 // montants réellement prélevés (79,99 € une fois par an, pas 6,67 € par mois).
+/**
+ * Repère les lignes non mensuelles d'un groupe et ce qu'elles y pèsent.
+ *
+ * Nécessaire parce que la colonne affiche les montants RÉELLEMENT prélevés (79,99 €
+ * une fois par an) alors que le total raisonne en mois-type (6,67 €) : sans cette
+ * mention, le total ne collerait pas avec la somme des lignes visibles, et se lirait
+ * comme une erreur.
+ *
+ * @param {Array<object>} grpLines Les lignes du groupe.
+ * @returns {{count: number, monthly: number, charged: number, lines: Array}|null}
+ *   null si le groupe n'a que des lignes mensuelles.
+ */
 const smoothedInfo = (grpLines) => {
   const cycliques = grpLines.filter((l) => (l.intervalMonths || 1) > 1)
   if (!cycliques.length) return null
@@ -121,6 +181,15 @@ const TYPE_ORDER = { revenu: 0, depense: 1, epargne: 2, transfert: 3 }
 const TYPE_LABELS = { depense: 'dépenses', revenu: 'revenus', epargne: 'épargne', transfert: 'transferts' }
 
 // Ordre de lecture d'un budget (brief §4) : revenus, puis dépenses par total décroissant, transferts en dernier
+/**
+ * Range les lignes par catégorie, dans l'ordre de lecture d'un budget.
+ *
+ * Revenus d'abord, puis dépenses de la plus lourde à la plus légère, épargne, et
+ * transferts en dernier. Les lignes orphelines — sans catégorie, ou pointant sur une
+ * catégorie supprimée — sont regroupées à part plutôt que perdues.
+ *
+ * @returns {Array<{category: object, lines: Array, total: number, smoothed: object|null}>}
+ */
 const groups = computed(() => {
   const result = categories.value.map((c) => ({
     category: c,
@@ -134,7 +203,16 @@ const groups = computed(() => {
       || (a.category.type === 'depense' ? b.total - a.total : 0))
 })
 
-// ─── Totaux prévisionnels (le type de la catégorie pilote) ─
+/**
+ * Les totaux prévisionnels du mois-type, par nature.
+ *
+ * C'est le TYPE DE LA CATÉGORIE qui décide, pas la ligne : additionner un salaire et
+ * un loyer ne voudrait rien dire. Le reste est ce qui subsiste des revenus une fois
+ * les dépenses, l'épargne et les transferts prélevés.
+ *
+ * @returns {{depense: number, revenu: number, epargne: number, transfert: number,
+ *   counts: object, reste: number}}
+ */
 const totals = computed(() => {
   const byType = { depense: 0, revenu: 0, epargne: 0, transfert: 0 }
   const counts = { depense: 0, revenu: 0, epargne: 0, transfert: 0 }
@@ -145,7 +223,17 @@ const totals = computed(() => {
   }
 })
 
-// Barre de composition sur la base des revenus (brief §2) — segments d'une même encre
+/**
+ * Barre de composition : à quoi passent les revenus du mois-type.
+ *
+ * Rapportée aux revenus, jamais au total des dépenses : la question est « quelle part
+ * de ce que je gagne part où ? ». Sans revenus, elle n'a pas de sens et n'est pas
+ * affichée. Les segments sont des nuances d'une même encre — leur taille porte
+ * l'information, pas leur couleur.
+ *
+ * @returns {{segs: Array<{key: string, label: string, pct: number, opacity: number}>,
+ *   restePct: number}|null}
+ */
 const compo = computed(() => {
   const t = totals.value
   if (!(t.revenu > 0)) return null
@@ -158,12 +246,27 @@ const compo = computed(() => {
   return { segs, restePct: (t.reste / t.revenu) * 100 }
 })
 
-// ─── Colonnes de ligne (brief §5) ────────────────────────
+/**
+ * Écrit la périodicité d'une ligne (« mensuel », « annuel, lissé »).
+ *
+ * @param {object} l La ligne.
+ * @returns {string} Sa périodicité en clair.
+ */
 const periodLabel = (l) => {
   const n = l.intervalMonths || 1
   const base = n === 1 ? 'mensuel' : n === 3 ? 'trimestriel' : n === 6 ? 'semestriel' : n === 12 ? 'annuel' : `tous les ${n} mois`
   return l.envelopeId ? base + ', lissé' : base
 }
+/**
+ * Infobulle d'une ligne non mensuelle : le montant prélevé, sa part mensuelle, et où
+ * en est la mise de côté.
+ *
+ * C'est là que se règle la confusion possible entre les deux montants — celui de la
+ * colonne (ce qui est prélevé) et celui du total (ce que ça coûte par mois).
+ *
+ * @param {object} l La ligne.
+ * @returns {string} L'explication, vide pour une ligne mensuelle.
+ */
 const periodTip = (l) => {
   const n = l.intervalMonths || 1
   if (n <= 1) return ''
@@ -187,6 +290,15 @@ const shareTip = (l) => {
 
 // ─── Vue par catégorie / par échéance (brief §8) ─────────
 const viewMode = ref('categorie')
+/**
+ * Range les lignes par jour du mois, pour la vue « par échéance ».
+ *
+ * Le jour ne se lit pas au même endroit selon la ligne : `recurringDay` pour une
+ * mensuelle, le jour de la prochaine échéance pour une cyclique. Les lignes sans date
+ * sont regroupées en fin de liste plutôt qu'écartées.
+ *
+ * @returns {Array<{day: number|null, lines: Array, total: number, smoothed: object|null}>}
+ */
 const dayGroups = computed(() => {
   const map = new Map()
   for (const l of lines.value) {
@@ -210,11 +322,33 @@ const displayGroups = computed(() => (viewMode.value === 'categorie'
       typeLabel: '', count: g.lines.length, total: g.total, smoothed: g.smoothed, lines: g.lines, orig: null,
     }))))
 
-// ─── Édition du montant en place (brief §6) : enregistré au blur ───
+// ─── Édition du montant en place ─────────────────────────
+
+/**
+ * Prépare la cellule de montant pour la saisie, au focus.
+ *
+ * La cellule affiche « 1 234,50 € » ; on la remplace par la valeur brute et on la
+ * présélectionne, pour taper par-dessus sans effacer à la main.
+ *
+ * @param {object} line La ligne éditée.
+ * @param {FocusEvent} e L'événement de focus.
+ */
 function startAmountEdit(line, e) {
   e.target.value = String(line.plannedAmount ?? 0).replace('.', ',')
   e.target.select()
 }
+
+/**
+ * Enregistre le montant saisi, à la sortie du champ.
+ *
+ * Saisie tolérante : espaces (fines comprises), virgule décimale et € sont acceptés.
+ * Une valeur invalide ou inchangée n'appelle pas le serveur, et le champ est réaffiché
+ * à sa valeur d'avant — y compris en cas d'échec réseau, pour qu'il ne montre jamais
+ * autre chose que ce qui est réellement enregistré.
+ *
+ * @param {object} line La ligne éditée.
+ * @param {FocusEvent} e L'événement de sortie de champ.
+ */
 async function commitAmount(line, e) {
   const raw = e.target.value.replace(/[\s  €]/g, '').replace(',', '.')
   const v = parseFloat(raw)
@@ -235,6 +369,15 @@ const menuLineId = ref(null)
 const openLineId = ref(null)   // id de ligne existante en édition, ou 'new-<catId>' pour un ajout
 const form = ref({})
 
+/**
+ * Valeurs de départ du formulaire d'une nouvelle ligne.
+ *
+ * Le compte « Depuis » est pré-rempli au compte principal, sauf pour un revenu : un
+ * salaire ne part d'aucun de mes comptes, il y arrive.
+ *
+ * @param {object} category La catégorie dans laquelle la ligne est créée.
+ * @returns {object} Le formulaire vierge.
+ */
 function defaultForm(category) {
   return {
     label: '',
@@ -284,16 +427,34 @@ const showVers = computed(() =>
 // « Vers » ne propose jamais le compte « Depuis » (un virement vers soi-même n'a pas de sens)
 const versAccounts = computed(() => activeAccounts.value.filter((a) => a.id !== form.value.fromAccountId))
 
+/**
+ * Ouvre le formulaire d'ajout dans une catégorie donnée.
+ *
+ * L'identifiant `new-<catId>` est une chaîne là où une édition porte un nombre :
+ * c'est ce qui distingue l'ajout de la modification au moment d'enregistrer.
+ *
+ * @param {object} category La catégorie d'accueil.
+ */
 function openAdd(category) {
   openLineId.value = `new-${category.id}`
   modalLine.value = null
   modalCategory.value = category
   form.value = defaultForm(category)
 }
+
+/** Bouton d'ajout général : ouvre le formulaire sur la première catégorie venue. */
 function openAddGlobal() {
   if (categories.value.length) openAdd(categories.value[0])
 }
 
+/**
+ * Ouvre le formulaire pré-rempli sur une ligne existante.
+ *
+ * Les champs vides deviennent '' plutôt que null, qu'un <select> afficherait
+ * littéralement. La case « mensualiser » se déduit de l'existence d'une enveloppe liée.
+ *
+ * @param {object} line La ligne à modifier.
+ */
 function openEdit(line) {
   openLineId.value = line.id
   modalLine.value = line
@@ -326,6 +487,17 @@ function closePanel() {
   modalLine.value = null
 }
 
+/**
+ * Traduit le formulaire en charge utile pour l'API.
+ *
+ * Le chemin inverse d'openEdit : les '' redeviennent null ou 0. Deux règles y sont
+ * appliquées au passage — une ligne mensualisée n'a pas de compte « Vers » (le
+ * paiement part vers l'extérieur, l'enveloppe ne fait qu'attendre), et les champs de
+ * cagnotte ou de partage sont remis à zéro dès que la case correspondante est décochée,
+ * pour ne pas laisser traîner des valeurs orphelines.
+ *
+ * @returns {object} Le corps de la requête.
+ */
 function formData() {
   const f = form.value
   return {
@@ -349,6 +521,16 @@ function formData() {
   }
 }
 
+/**
+ * Enregistre la ligne, puis règle tout ce qui en découle.
+ *
+ * Trois choses s'enchaînent après la sauvegarde :
+ *  1. une ligne mensuelle qui vient d'être créée peut être ajoutée au mois en cours,
+ *     sans quoi elle n'apparaîtrait qu'au mois suivant ;
+ *  2. cocher ou décocher « mensualiser » crée ou délie l'enveloppe qui lisse la charge ;
+ *  3. changer le compte hôte d'une enveloppe qui contient déjà de l'argent déclenche un
+ *     virement système — l'argent doit physiquement suivre, et ça se confirme.
+ */
 async function submit() {
   if (!form.value.label.trim()) return
   const f = form.value
@@ -394,6 +576,14 @@ async function submit() {
   } catch (e) { apiError(e) }
 }
 
+/**
+ * Retire une ligne du budget type, après confirmation.
+ *
+ * Les copies déjà présentes dans les mois ne sont pas touchées : elles se détachent du
+ * template et gardent leur réel. Le message le dit, parce que c'est contre-intuitif.
+ *
+ * @param {object} line La ligne à retirer.
+ */
 async function removeLineConfirm(line) {
   const ok = await confirmDialog({
     title: 'Supprimer du template',
@@ -408,7 +598,18 @@ async function removeLineConfirm(line) {
   } catch (e) { apiError(e) }
 }
 
-// ─── Réordonnancement dans une catégorie ─────────────────
+/**
+ * Monte ou descend une ligne dans sa catégorie.
+ *
+ * L'ordre est global à tout le budget type, pas propre à chaque catégorie : on réécrit
+ * donc le rang de TOUTES les lignes, groupe par groupe, en substituant la liste
+ * réordonnée à celle du groupe concerné. Ne renuméroter que le groupe créerait des
+ * rangs en double d'un groupe à l'autre.
+ *
+ * @param {object} group Le groupe contenant la ligne.
+ * @param {number} index Position actuelle dans le groupe.
+ * @param {number} delta -1 pour monter, +1 pour descendre.
+ */
 async function moveLine(group, index, delta) {
   const target = index + delta
   if (target < 0 || target >= group.lines.length) return

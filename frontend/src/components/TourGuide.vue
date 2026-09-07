@@ -11,15 +11,32 @@ import { TOUR_STEPS, TOUR_END, tourIndexOf } from '@/lib/tour.js'
 const router = useRouter()
 const route = useRoute()
 
+// L'étape n'est pas stockée : la route affichée la donne. Un rafraîchissement au
+// milieu de la visite reprend donc au bon endroit, sans état à resynchroniser.
 const index = computed(() => tourIndexOf(route.path))
+// null hors des routes de la visite : le panneau ne s'affiche alors pas
 const step = computed(() => TOUR_STEPS[index.value] || null)
 const isLast = computed(() => index.value === TOUR_STEPS.length - 1)
 
+/**
+ * Passe à l'onglet suivant, ou clôt la visite si c'était le dernier.
+ *
+ * Naviguer suffit à faire changer le panneau : il suit la route, il n'a pas de
+ * compteur propre à incrémenter.
+ */
 async function next() {
   if (isLast.value) return finish()
   router.push(TOUR_STEPS[index.value + 1].path)
 }
 
+/**
+ * Termine la visite — bouton « Terminer » comme lien « Passer la visite ».
+ *
+ * Pose le drapeau côté serveur, rafraîchit l'état partagé pour que la barre de
+ * navigation redevienne cliquable, puis rend la main sur la page Mois. Le `finally`
+ * garantit la sortie même si l'appel échoue : mieux vaut une visite rejouée au
+ * prochain démarrage qu'un utilisateur enfermé dans le panneau.
+ */
 async function finish() {
   try { await completeTour() } finally {
     await refreshOnboarding()

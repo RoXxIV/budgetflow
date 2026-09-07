@@ -14,15 +14,19 @@ import { eur } from '@/lib/format.js'
 const subs = ref([])
 const themes = ref([])
 
+/** Recharge la liste des abonnements et celle des thèmes. */
 async function load() {
   const [sRes, tRes] = await Promise.all([getSubscriptions(), getThemes()])
   subs.value = sRes.data
   themes.value = tRes.data
 }
+
+// Premier passage : le bac à sable est amorcé une fois avec les abonnements du mois
+// courant et les lignes mensualisées, pour ne pas partir d'une page blanche. Ensuite
+// il vit sa vie — l'import ne se rejoue jamais, sinon il écraserait les simulations.
 onMounted(async () => {
   try {
     await load()
-    // Premier passage : on copie les abonnements du mois courant + les mensualisées
     if (!subs.value.length) {
       const { data } = await importSubscriptions()
       subs.value = data.subscriptions
@@ -35,26 +39,76 @@ const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'aoû
 const WEEKDAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
 const PERIOD_LABELS = { mensuel: 'mensuel', annuel: 'annuel', hebdo: 'hebdo' }
 
-// Équivalent mensuel : la monnaie commune des totaux
+/**
+ * Ramène un prix à son équivalent mensuel.
+ *
+ * Sans ça, additionner un abonnement annuel et un hebdomadaire ne voudrait rien dire.
+ * L'hebdomadaire passe par 52 semaines / 12 mois, et non par 4 : un mois compte
+ * 4,33 semaines, et l'écart se voit sur l'année.
+ *
+ * @param {number} price Le prix tel qu'il est prélevé.
+ * @param {'mensuel'|'annuel'|'hebdo'} period Sa périodicité.
+ * @returns {number} Le coût mensuel équivalent.
+ */
 const monthlyEq = (price, period) => (period === 'annuel' ? price / 12 : period === 'hebdo' ? (price * 52) / 12 : price)
+
+/**
+ * Écrit l'échéance d'un abonnement en clair.
+ *
+ * Le champ `day` ne veut pas dire la même chose selon la périodicité : jour de la
+ * semaine (1-7) en hebdomadaire, jour du mois partout ailleurs. En annuel, le mois
+ * peut être connu sans le jour, d'où le libellé construit par morceaux.
+ *
+ * @param {object} s L'abonnement.
+ * @returns {string} Par exemple « le mardi », « 15 mars », « le 3 », ou « — ».
+ */
 const dueLabel = (s) => {
   if (s.period === 'hebdo') return s.day ? 'le ' + WEEKDAYS[s.day - 1] : '—'
   if (s.period === 'annuel') return s.month ? (s.day ? s.day + ' ' : '') + MONTHS[s.month - 1] : '—'
   return s.day ? 'le ' + s.day : '—'
 }
 
+// Décocher un abonnement simule une résiliation : il sort de tous les totaux
 const activeSubs = computed(() => subs.value.filter((s) => s.isActive))
+// Ce que coûtent réellement les abonnements aujourd'hui, par mois
 const totalMonthly = computed(() => activeSubs.value.reduce((t, s) => t + monthlyEq(s.price, s.period), 0))
-// Simulation : `sim` remplace le prix quand il est renseigné (0 = résiliation simulée)
+// Au moins une simulation en cours : c'est ce qui déclenche l'affichage comparatif
 const hasSim = computed(() => activeSubs.value.some((s) => s.sim !== null))
+// Même total, mais chaque `sim` renseigné remplace le prix réel (0 = offre abandonnée)
 const simMonthly = computed(() => activeSubs.value.reduce((t, s) => t + monthlyEq(s.sim ?? s.price, s.period), 0))
+// L'économie mensuelle, arrondie au centime — négative quand on économise
 const simDelta = computed(() => Math.round((simMonthly.value - totalMonthly.value) * 100) / 100)
 
 // ─── Édition inline de la simulation (le geste central de la page) ───
+
+/**
+ * Prépare la case de simulation pour la saisie, au focus.
+ *
+ * La cellule affiche un montant formaté (« 12,14 € ») ; on le remplace par sa valeur
+ * brute et on la présélectionne, pour taper par-dessus sans effacer à la main.
+ *
+ * @param {object} s L'abonnement de la ligne.
+ * @param {FocusEvent} e L'événement de focus, dont la cible est le champ.
+ */
 function startSim(s, e) {
   e.target.value = s.sim === null ? '' : String(s.sim).replace('.', ',')
   e.target.select()
 }
+
+/**
+ * Enregistre la simulation saisie, à la sortie du champ.
+ *
+ * La saisie est tolérante : espaces (fines comprises), virgule décimale et symbole €
+ * sont acceptés. Un champ vidé remet la simulation à null — pas à zéro, qui veut dire
+ * « résilié » et vaudrait 0 € dans les totaux.
+ *
+ * Trois cas ne déclenchent aucun appel réseau : valeur invalide, valeur négative, ou
+ * valeur inchangée. Dans tous ces cas — échec réseau compris — le champ est réaffiché
+ * à sa valeur d'avant, pour qu'il ne mente jamais sur ce qui est réellement enregistré.
+ *
+ * @param {object} s L'abonnement de la ligne.
+ * @param {FocusEvent} e L'événement de sortie de champ.
+ */
 async function commitSim(s, e) {
   const raw = e.target.value.replace(/[\s  €]/g, '').replace(',', '.')
   const sim = raw === '' ? null : parseFloat(raw)
@@ -66,6 +120,11 @@ async function commitSim(s, e) {
   } catch (err) { apiError(err); e.target.value = s.sim === null ? '' : fmt(s.sim) }
 }
 
+/**
+ * Bascule un abonnement entre actif et résilié (simulé).
+ *
+ * @param {object} s L'abonnement à basculer.
+ */
 async function toggleActive(s) {
   try { await updateSubscription(s.id, { isActive: !s.isActive }); subs.value = (await getSubscriptions()).data } catch (e) { apiError(e) }
 }
@@ -76,16 +135,34 @@ const formOpen = ref(false)
 const editingId = ref(null)
 const form = ref({})
 
+/** Ouvre le formulaire vide, pour ajouter un abonnement (réel ou hypothétique). */
 function openAdd() {
   editingId.value = null
   form.value = { name: '', themeId: '', period: 'mensuel', price: '', sim: '', day: '', month: '' }
   formOpen.value = true
 }
+
+/**
+ * Ouvre le formulaire pré-rempli sur un abonnement existant.
+ *
+ * Les champs vides du modèle deviennent '' plutôt que null : un <select> ou un <input>
+ * lié à null afficherait « null » au lieu de rester vide.
+ *
+ * @param {object} s L'abonnement à modifier.
+ */
 function openEdit(s) {
   editingId.value = s.id
   form.value = { name: s.name, themeId: s.themeId || '', period: s.period, price: s.price, sim: s.sim ?? '', day: s.day || '', month: s.month || '' }
   formOpen.value = true
 }
+
+/**
+ * Enregistre le formulaire : création ou modification selon `editingId`.
+ *
+ * Le chemin inverse d'openEdit : les '' du formulaire redeviennent null ou 0 pour
+ * l'API. Un prix laissé vide vaut 0 — c'est le cas d'un abonnement purement
+ * hypothétique, qu'on ajoute pour n'en simuler que le coût.
+ */
 async function submit() {
   const f = form.value
   if (!f.name.trim()) return
@@ -103,6 +180,14 @@ async function submit() {
     subs.value = (await getSubscriptions()).data
   } catch (e) { apiError(e) }
 }
+/**
+ * Retire un abonnement du tracker, après confirmation.
+ *
+ * Suppression franche, sans précaution d'historique : cette page est un bac à sable,
+ * rien de ce qu'elle contient n'alimente les mois, le budget type ou les enveloppes.
+ *
+ * @param {object} s L'abonnement à retirer.
+ */
 async function removeConfirm(s) {
   const ok = await confirmDialog({ title: "Supprimer l'abonnement", message: `Retirer « ${s.name} » du tracker ? (rien d'autre n'est touché — c'est un bac à sable)`, confirmLabel: 'Supprimer', danger: true })
   if (!ok) return

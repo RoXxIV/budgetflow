@@ -11,39 +11,82 @@ const props = defineProps({
   height: { type: Number, default: 260 },
 })
 
+// ─── Repère du dessin ─────────────────────────────────────
+// Largeur fixe de 900 unités, étirée par le viewBox : tout se calcule dans ce
+// repère, jamais en pixels écran.
 const W = 900
-const PAD = { l: 58, r: 24, t: 14, b: 28 }
-const plotW = W - PAD.l - PAD.r
+const PAD = { l: 58, r: 24, t: 14, b: 28 } // la marge gauche loge les montants de l'axe
+const plotW = W - PAD.l - PAD.r            // largeur utile, hors marges
 const H = computed(() => props.height)
-const plotH = computed(() => H.value - PAD.t - PAD.b)
+const plotH = computed(() => H.value - PAD.t - PAD.b) // hauteur utile, hors marges
 
+// Une aire ne descend jamais sous zéro : trous et négatifs sont ramenés à 0
 const val = (v) => (v === null || v === undefined ? 0 : Math.max(0, v))
-// Cumuls : cum[j][i] = somme des séries 0..j au mois i
+
+/**
+ * Cumule les séries les unes sur les autres, dans l'ordre reçu.
+ *
+ * C'est le cœur de l'empilement : `cums[j][i]` vaut la somme des séries 0 à j au
+ * mois i. La bande d'une série se dessine entre son cumul et celui d'en dessous,
+ * et le dernier cumul donne le total — donc le contour supérieur.
+ *
+ * @returns {number[][]} Un tableau de cumuls par série, chacun long comme les libellés.
+ */
 const cums = computed(() => {
-  let prev = props.labels.map(() => 0)
+  let prev = props.labels.map(() => 0) // socle : le bas de la première bande
   return props.series.map((s) => {
     const c = props.labels.map((_, i) => prev[i] + val(s.points[i]))
     prev = c
     return c
   })
 })
+
+// Sommet de l'empilement, donc de l'échelle ; le 1 évite une division par zéro
 const maxVal = computed(() => Math.max(1, ...(cums.value.at(-1) || [1])))
+
+/**
+ * Arrondit un pas de graduation à une valeur « ronde ».
+ *
+ * Sans cela les repères tomberaient sur des montants illisibles (1 237 €, 2 474 €…).
+ * On prend le plus petit pas de la forme 1, 2, 2,5, 5 ou 10 × une puissance de dix
+ * qui couvre la valeur demandée.
+ *
+ * @param {number} raw Le pas idéal, avant arrondi.
+ * @returns {number} Le pas rond immédiatement supérieur.
+ */
 const niceStep = (raw) => {
-  const pow = Math.pow(10, Math.floor(Math.log10(raw)))
+  const pow = Math.pow(10, Math.floor(Math.log10(raw))) // puissance de dix (1, 10, 100…)
   for (const m of [1, 2, 2.5, 5, 10]) if (raw <= m * pow) return m * pow
-  return 10 * pow
+  return 10 * pow // filet : ne devrait jamais être atteint
 }
+
+// Diviser par 3 vise 4 graduations en comptant le zéro
 const step = computed(() => niceStep(maxVal.value / 3))
+// Sommet de l'axe, arrondi au pas : la dernière graduation tombe juste
 const yMax = computed(() => Math.ceil(maxVal.value / step.value) * step.value)
+// Graduations de 0 au sommet ; le 1e-9 absorbe les arrondis des flottants
 const ticks = computed(() => {
   const t = []
   for (let v = 0; v <= yMax.value + 1e-9; v += step.value) t.push(v)
   return t
 })
+// Abscisse du i-ème mois ; un mois unique se pose au milieu plutôt qu'à gauche
 const x = (i) => PAD.l + (props.labels.length <= 1 ? plotW / 2 : (i / (props.labels.length - 1)) * plotW)
+// Ordonnée d'une valeur : l'axe SVG descend, d'où la soustraction à la hauteur
 const y = (v) => PAD.t + plotH.value - (v / yMax.value) * plotH.value
 
-// Bande j : bord haut = cum j, bord bas = cum j-1 (parcouru à l'envers)
+/**
+ * Trace la bande fermée d'une série empilée.
+ *
+ * Une aire est un polygone : on longe son bord supérieur de gauche à droite (le
+ * cumul de la série), puis on revient de droite à gauche par son bord inférieur
+ * (le cumul de la série précédente, ou la ligne zéro pour la première), et on
+ * ferme avec « Z ». Le retour en sens inverse est ce qui empêche le polygone de
+ * se croiser en sablier.
+ *
+ * @param {number} j Rang de la série dans l'empilement, 0 pour celle du bas.
+ * @returns {string} L'attribut `d` du <path>, fermé.
+ */
 const areaPath = (j) => {
   const top = cums.value[j]
   const bottom = j === 0 ? props.labels.map(() => 0) : cums.value[j - 1]
@@ -52,23 +95,40 @@ const areaPath = (j) => {
   for (let i = bottom.length - 1; i >= 0; i--) d += ' L ' + x(i).toFixed(1) + ' ' + y(bottom[i]).toFixed(1)
   return d + ' Z'
 }
+
+// Contour du total : le dernier cumul, tracé en ligne ouverte par-dessus les bandes
 const totalPath = computed(() => {
   const top = cums.value.at(-1) || []
   let d = ''
   top.forEach((v, i) => { d += (i ? ' L ' : 'M ') + x(i).toFixed(1) + ' ' + y(v).toFixed(1) })
   return d
 })
+// Indice du dernier mois, où se pose la pastille de fin de courbe
 const lastI = computed(() => props.labels.length - 1)
 
-const hover = ref(null)
+// ─── Survol : on vise un mois, jamais une bande ───────────
+const hover = ref(null) // indice du mois survolé, null hors du graphique
 const svgEl = ref(null)
+
+/**
+ * Traduit la position du curseur en indice de mois, et arme le crosshair.
+ *
+ * On cherche le mois le plus proche horizontalement, quelle que soit la hauteur du
+ * curseur : viser une bande fine serait pénible. La position écran est ramenée dans
+ * le repère du SVG, puis bornée pour que les marges restent rattachées aux extrémités.
+ *
+ * @param {PointerEvent} evt L'événement de déplacement du pointeur.
+ */
 function onMove(evt) {
   if (!svgEl.value || !props.labels.length) return
   const rect = svgEl.value.getBoundingClientRect()
-  const px = ((evt.clientX - rect.left) / rect.width) * W
+  const px = ((evt.clientX - rect.left) / rect.width) * W // position écran → repère du SVG
   const i = Math.round(((px - PAD.l) / plotW) * (props.labels.length - 1))
   hover.value = Math.min(props.labels.length - 1, Math.max(0, i))
 }
+
+// ─── Infobulle ────────────────────────────────────────────
+// Séries du mois survolé, sans les valeurs nulles, de la plus grosse à la plus petite
 const tipRows = computed(() => {
   if (hover.value === null) return []
   return props.series
@@ -76,13 +136,17 @@ const tipRows = computed(() => {
     .filter((r) => r.value !== 0)
     .sort((a, b) => b.value - a.value)
 })
+// Total lu dans le dernier cumul plutôt que resommé : c'est la valeur qui est dessinée
 const tipTotal = computed(() => (hover.value === null ? 0 : (cums.value.at(-1)?.[hover.value] ?? 0)))
+// L'infobulle bascule à gauche du curseur passé 60 % de largeur, pour ne pas déborder
 const tipStyle = computed(() => {
   if (hover.value === null) return {}
   const left = (x(hover.value) / W) * 100
   return left > 60 ? { right: (100 - left + 2) + '%' } : { left: (left + 2) + '%' }
 })
+// Graduations sans centimes ; seule celle du haut porte le symbole € (l'axe n'a pas de titre)
 const fmtTick = (n, isTop) => n.toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + (isTop ? ' €' : '')
+// Un seul libellé X sur ~12+ mois serré : on saute un mois sur deux au besoin
 const xEvery = computed(() => (props.labels.length > 14 ? 2 : 1))
 </script>
 

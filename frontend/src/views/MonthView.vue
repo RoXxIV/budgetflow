@@ -58,6 +58,14 @@ const calcOpen = ref(false)        // bloc calculateurs replié par défaut
 const assets = ref([])             // actifs ouverts
 const monthAssetMovements = ref([]) // versements / retraits datés dans le mois
 
+/**
+ * Charge tout ce qui dépend d'un mois, en un seul aller-retour groupé.
+ *
+ * Enveloppes et actifs sont filtrés sur les seuls ouverts : un objet clôturé garde son
+ * historique mais n'a plus à recevoir de saisie.
+ *
+ * @param {number} monthId Le mois à charger.
+ */
 async function loadMonthData(monthId) {
   const [lRes, eRes, sumRes, envRes, mcRes, calcRes, aRes, amRes] = await Promise.all([
     getMonthLines(monthId), getMonthEntries(monthId), getMonthSummary(monthId),
@@ -74,6 +82,12 @@ async function loadMonthData(monthId) {
   monthAssetMovements.value = amRes.data
 }
 
+/**
+ * Affiche un mois : ses données, ses soldes de départ, et l'ouverture par défaut
+ * de ses sections.
+ *
+ * @param {object} month Le mois à ouvrir.
+ */
 async function openMonth(month) {
   current.value = month
   const [sRes] = await Promise.all([getMonthSnapshots(month.id), loadMonthData(month.id)])
@@ -81,6 +95,7 @@ async function openMonth(month) {
   applyOpenDefaults()
 }
 
+/** Relit le mois courant après une saisie (les totaux du serveur font foi). */
 async function reload() {
   await loadMonthData(current.value.id)
 }
@@ -91,6 +106,12 @@ const notesSaved = ref(false)
 let notesSavedTimer = null
 onUnmounted(() => clearTimeout(notesSavedTimer))
 watch(() => current.value?.id, () => { monthNotes.value = current.value?.notes || '' })
+/**
+ * Enregistre la note du mois, à la sortie du champ.
+ *
+ * Rien n'est envoyé si le texte n'a pas changé — la comparaison ignore les espaces de
+ * bord, pour ne pas déclencher une écriture sur un simple passage dans le champ.
+ */
 async function saveNotes() {
   if (!current.value || monthNotes.value.trim() === (current.value.notes || '').trim()) return
   try {
@@ -108,14 +129,32 @@ const assetMovementForm = ref({})
 const movementsForAsset = (asset) => monthAssetMovements.value.filter((m) => m.assetId === asset.id)
 const monthInvestedTotal = computed(() => monthAssetMovements.value.filter((m) => m.kind === 'versement').reduce((s, m) => s + m.amount, 0))
 
+/**
+ * Coche le versement récurrent (DCA) d'un actif pour ce mois.
+ *
+ * Case à sens unique, comme partout dans le registre : dès qu'un mouvement réel
+ * existe, il fait foi et la case ne rejoue plus. Pour revenir en arrière, on supprime
+ * le mouvement.
+ *
+ * @param {object} asset L'actif concerné.
+ */
 async function toggleDca(asset) {
-  if (movementsForAsset(asset).length) return // ☐ à sens unique : le réel remplace le prévu
+  if (movementsForAsset(asset).length) return
   try {
     await dcaAsset(current.value.id, asset.id)
     await reload()
   } catch (e) { apiError(e) }
 }
 
+/**
+ * Déplie le détail d'un actif et prépare le formulaire de mouvement.
+ *
+ * La date proposée reste TOUJOURS dans le mois de la fiche : aujourd'hui si on y est,
+ * le 1er sinon. Saisir dans un mois passé ne doit pas y poser une entrée datée
+ * d'aujourd'hui, qui tomberait dans le mauvais mois.
+ *
+ * @param {object} asset L'actif à déplier.
+ */
 function toggleAsset(asset) {
   if (openAssetId.value === asset.id) { openAssetId.value = null; return }
   openAssetId.value = asset.id
@@ -128,6 +167,11 @@ function toggleAsset(asset) {
   }
 }
 
+/**
+ * Enregistre un versement ou un retrait sur un actif, depuis le mois.
+ *
+ * @param {object} asset L'actif concerné.
+ */
 async function submitAssetMovement(asset) {
   const f = assetMovementForm.value
   if (!f.amount) return
@@ -143,6 +187,14 @@ async function deleteAssetMovement(m) {
 }
 
 // ─── Calculateurs : saisie des relevés, régularisation ───
+/**
+ * Enregistre les relevés d'un calculateur et récupère l'estimation recalculée.
+ *
+ * Le serveur renvoie le calculateur complet — estimé, écart avec la mensualité — et on
+ * l'assigne en place plutôt que de tout recharger : seule cette carte a changé.
+ *
+ * @param {object} calc Le calculateur, dont `readings` porte la saisie.
+ */
 async function saveReadings(calc) {
   try {
     const readings = calc.readings.map((r) => ({ defId: r.defId, previous: r.previous, current: r.current }))
@@ -151,6 +203,15 @@ async function saveReadings(calc) {
   } catch (e) { apiError(e) }
 }
 
+/**
+ * Pose la régularisation : l'écart entre la consommation estimée et la mensualité
+ * prélevée devient une entrée sur la ligne concernée.
+ *
+ * Rejouable — une nouvelle régularisation remplace la précédente au lieu de s'y
+ * ajouter, ce que le message de confirmation annonce.
+ *
+ * @param {object} calc Le calculateur à régulariser.
+ */
 async function regularize(calc) {
   const verb = calc.line?.regularisation ? 'Mettre à jour' : 'Créer'
   const ok = await confirmDialog({ title: `${verb} la régularisation`, message: `Une entrée de ${fmt(calc.gap)} sera posée sur « ${calc.line.label} » (écart entre l'estimé ${fmt(calc.estimate)} et la mensualité ${fmt(calc.line.planned)}).${calc.line?.regularisation ? ' La précédente est remplacée.' : ''}`, confirmLabel: verb })
@@ -167,6 +228,12 @@ const fmtNum = (n) => (n === null || n === undefined ? '—' : Number(n).toLocal
 const pots = computed(() => lines.value.filter((l) => l.isPot))
 const sharingOn = computed(() => pots.value.length > 0)
 
+/**
+ * Dit où en est une cagnotte, du point de vue de l'utilisateur.
+ *
+ * @param {object} line La ligne de cagnotte.
+ * @returns {string} « à envoyer à X », « X vous doit », ou « équilibré ».
+ */
 function potStatus(line) {
   const p = line.pot
   if (!p) return ''
@@ -183,6 +250,11 @@ const sortedMonths = computed(() => [...monthsList.value].sort((a, b) => a.perio
 const curIdx = computed(() => sortedMonths.value.findIndex((m) => m.id === current.value?.id))
 const prevMonthTarget = computed(() => (curIdx.value > 0 ? sortedMonths.value[curIdx.value - 1] : null))
 const nextMonthTarget = computed(() => (curIdx.value >= 0 ? sortedMonths.value[curIdx.value + 1] || null : null))
+/**
+ * Navigue au mois précédent ou suivant, sans sortir de la liste.
+ *
+ * @param {number} d -1 pour reculer, +1 pour avancer.
+ */
 function stepMonth(d) {
   const t = d < 0 ? prevMonthTarget.value : nextMonthTarget.value
   if (t) openMonth(t)
@@ -195,6 +267,15 @@ const nextPeriodName = computed(() => {
   const s = d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
   return s.charAt(0).toUpperCase() + s.slice(1)
 })
+/**
+ * Change de mois depuis le sélecteur, ou ouvre la création.
+ *
+ * L'option « nouveau mois » remet le sélecteur sur le mois courant avant d'ouvrir le
+ * formulaire : si l'utilisateur renonce, la liste ne doit pas rester sur une option
+ * qui ne correspond à aucun mois.
+ *
+ * @param {Event} e L'événement de changement du <select>.
+ */
 function onMonthSelect(e) {
   const v = e.target.value
   if (v === '__new') {
@@ -222,7 +303,16 @@ watch(stickySentinel, (el) => {
   }
 })
 
-// Couleur de catégorie désaturée (~65 %) : seule couleur libre admise dans le registre
+/**
+ * Désature une couleur de catégorie vers son gris, à 65 %.
+ *
+ * On mélange la couleur avec sa propre luminance (formule de perception
+ * 0,299/0,587/0,114, qui pondère le vert plus que le bleu, comme l'œil). Une pastille
+ * sert à reconnaître une catégorie, pas à attirer le regard sur elle.
+ *
+ * @param {string} hex La couleur de la catégorie, au format #rrggbb.
+ * @returns {string} La couleur désaturée en rgb(), ou un token neutre.
+ */
 function desat(hex) {
   if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return 'var(--c-ink-3)'
   const n = parseInt(hex.slice(1), 16)
@@ -231,7 +321,7 @@ function desat(hex) {
   const mix = (c) => Math.round(c * 0.65 + gray * 0.35)
   return 'rgb(' + mix(r) + ',' + mix(g) + ',' + mix(b) + ')'
 }
-// Variante de remplissage de la barre de section (§5.8)
+// Barre de section : ambre à partir de 85 % du prévu, rouge au-delà de 100 %
 const barVariant = (group) => {
   if (!group.planned) return ''
   const ratio = group.actual / group.planned
@@ -239,7 +329,16 @@ const barVariant = (group) => {
   if (ratio >= 0.85) return 'is-warn'
   return ''
 }
-// Ligne à signaler : cagnotte à régler, ou échéance passée non pointée (§5.6)
+/**
+ * Faut-il signaler cette ligne ?
+ *
+ * Deux motifs : une cagnotte avec de l'argent à envoyer, ou une échéance dépassée non
+ * pointée. Le second ne vaut que pour le mois EN COURS — dans un mois passé, tout est
+ * en retard par construction, et tout signaler ne signalerait plus rien.
+ *
+ * @param {object} line La ligne à examiner.
+ * @returns {boolean} true s'il y a matière à alerter.
+ */
 function rowAlert(line) {
   if (line.isPot && line.pot && line.pot.toSend > 0 && !isPaid(line)) return true
   if (line.recurringDay && !isPaid(line) && line.plannedAmount > 0 && current.value) {
@@ -258,6 +357,16 @@ const isOverfull = (env) => !!env.effectiveTarget && env.total > env.effectiveTa
 // ─── « Annuler ce mois-ci » : cette mensualité / ce DCA ne sera pas versé ce mois ───
 // Le Reste à vivre cesse de le déduire ; rien d'autre ne bouge, tout revient le mois suivant.
 const isSkipped = (kind, id) => !!summaryData.value?.skips?.some((s) => s.kind === kind && s.targetId === id)
+
+/**
+ * Annule (ou rétablit) une mensualité ou un DCA pour ce mois seulement.
+ *
+ * Le reste à vivre cesse de le déduire ; rien d'autre ne bouge, et tout revient au
+ * mois suivant. C'est une exception ponctuelle, pas une modification du budget type.
+ *
+ * @param {'envelope'|'asset'} kind La nature de l'objet sauté.
+ * @param {number} id Son identifiant.
+ */
 async function toggleSkip(kind, id) {
   try {
     if (isSkipped(kind, id)) await removeMonthSkip(current.value.id, kind, id)
@@ -270,9 +379,16 @@ async function toggleSkip(kind, id) {
 // Vide l'enveloppe vers le compte choisi (virement système tracé), l'échéance repart d'un
 // cycle — et c'est l'utilisateur qui crée ensuite sa ligne de dépense pour le paiement réel.
 const liquidation = ref(null) // { env, toAccountId }
+
+/**
+ * Ouvre la liquidation d'une enveloppe mensualisée.
+ *
+ * @param {object} env L'enveloppe à vider vers un compte.
+ */
 function openLiquidation(env) {
   liquidation.value = { env, toAccountId: accounts.value.find((a) => a.isMain)?.id || '' }
 }
+/** Vide l'enveloppe vers le compte choisi ; la dépense réelle reste à saisir. */
 async function confirmLiquidation() {
   const l = liquidation.value
   if (!l?.toAccountId) return
@@ -283,6 +399,14 @@ async function confirmLiquidation() {
   } catch (e) { apiError(e) }
 }
 
+/**
+ * Déplie une enveloppe et prépare le versement.
+ *
+ * Le montant est pré-rempli à la mensualité suggérée, et la date reste dans le mois de
+ * la fiche : le geste courant est « je verse ce qui est prévu », il doit tenir en un clic.
+ *
+ * @param {object} env L'enveloppe à déplier.
+ */
 function toggleEnvelope(env) {
   if (openEnvelopeId.value === env.id) { openEnvelopeId.value = null; return }
   openEnvelopeId.value = env.id
@@ -296,6 +420,11 @@ function toggleEnvelope(env) {
   }
 }
 
+/**
+ * Verse un montant dans une enveloppe depuis le mois.
+ *
+ * @param {object} env L'enveloppe alimentée.
+ */
 async function submitContribution(env) {
   const f = contribForm.value
   if (!f.amount) return
@@ -315,7 +444,14 @@ async function deleteContribution(c) {
   try { await removeContribution(c.envelopeId, c.id); await reload() } catch (e) { apiError(e) }
 }
 
-// ☐ versé : contribution de la mensualité suggérée, depuis le compte principal (virtuelle si c'est aussi l'hôte)
+/**
+ * Case « versé » : verse la mensualité suggérée en un clic.
+ *
+ * Ne fait rien si un versement normal existe déjà ce mois-ci — la case est à sens
+ * unique, comme le pointage des lignes.
+ *
+ * @param {object} env L'enveloppe à alimenter.
+ */
 async function contributeSuggested(env) {
   if (contribsForEnvelope(env).some((c) => c.kind === 'normale')) return
   const today = new Date().toISOString().substring(0, 10)
@@ -337,12 +473,21 @@ const themeById = (id) => themes.value.find((t) => t.id === id) || null
 const accountById = (id) => accounts.value.find((a) => a.id === id) || null // liste complète : les entrées passées gardent leur nom
 const activeAccounts = computed(() => accounts.value.filter((a) => a.isActive)) // saisies : comptes actifs seulement
 const entriesForLine = (line) => entriesAll.value.filter((e) => e.lineId === line.id)
-// Une seule entrée avec un détail → la ligne s'affiche « Amazon — TV » (déplier pour le multi)
+// Une seule entrée avec un détail → la ligne s'affiche « Amazon — TV », sans déplier.
+// Au-delà d'une entrée, le détail n'a plus de sens sur la ligne : il faut la dérouler.
 const singleEntryDetail = (line) => {
   const es = entriesForLine(line)
   return es.length === 1 ? (es[0].label || null) : null
 }
-// Tous les thèmes portés par la ligne et ses entrées (dédupliqués), visibles sans déplier
+/**
+ * Tous les thèmes portés par une ligne et ses entrées, sans doublon.
+ *
+ * Une entrée peut porter un thème différent de sa ligne — « Courses » avec une entrée
+ * « Chat » — et cela doit se voir sans avoir à dérouler.
+ *
+ * @param {object} line La ligne.
+ * @returns {Array<object>} Les thèmes distincts trouvés.
+ */
 const themesForLine = (line) => {
   const ids = new Set()
   if (line.themeId) ids.add(line.themeId)
@@ -359,6 +504,14 @@ const isPaid = (line) => entriesForLine(line).length > 0
 // ─── Groupes par catégorie ───────────────────────────────
 const NO_CATEGORY = { id: null, name: 'Sans catégorie', type: 'depense', color: '#9ca3af' }
 
+/**
+ * Range les lignes du mois par catégorie, avec leur prévu et leur réel.
+ *
+ * Les lignes orphelines — sans catégorie, ou pointant sur une catégorie supprimée —
+ * sont regroupées à part plutôt que perdues.
+ *
+ * @returns {Array<{category: object, lines: Array, planned: number, actual: number}>}
+ */
 const groups = computed(() => {
   const result = categories.value.map((c) => ({
     category: c,
@@ -387,6 +540,14 @@ try { manualOpen = JSON.parse(localStorage.getItem(CATS_LS) || '{}') } catch { m
 const openCats = ref(new Set())
 const isCatOpen = (group) => openCats.value.has(group.category.id ?? 'none')
 const defaultOpen = (group) => group.lines.length > 0 || group.planned > 0
+/**
+ * Plie ou déplie une section, et retient le choix.
+ *
+ * Le choix manuel prime sur la règle par défaut et survit au rechargement
+ * (localStorage) : replier une section qu'on ne veut plus voir doit tenir.
+ *
+ * @param {object} group Le groupe concerné.
+ */
 function toggleCatOpen(group) {
   const key = group.category.id ?? 'none'
   const set = new Set(openCats.value)
@@ -395,6 +556,12 @@ function toggleCatOpen(group) {
   manualOpen[key] = set.has(key)
   try { localStorage.setItem(CATS_LS, JSON.stringify(manualOpen)) } catch { /* stockage indisponible */ }
 }
+/**
+ * Décide quelles sections sont dépliées à l'ouverture d'un mois.
+ *
+ * Le choix manuel de l'utilisateur l'emporte ; à défaut, une section qui a des lignes
+ * ou un prévu s'ouvre, une section vide reste fermée.
+ */
 function applyOpenDefaults() {
   openCats.value = new Set(
     groups.value.filter((g) => manualOpen[g.category.id ?? 'none'] ?? defaultOpen(g)).map((g) => g.category.id ?? 'none')
@@ -404,6 +571,7 @@ function applyOpenDefaults() {
 // En-têtes enrichis (addendum §2) : avancement du pointage et aperçu des sections repliées
 const pointableLines = (group) => group.lines.filter((l) => l.plannedAmount > 0 || l.isPot)
 const pointedCount = (group) => pointableLines(group).filter((l) => isPaid(l)).length
+// Aperçu d'une section repliée : les trois premiers libellés, puis « +n »
 const sectionPreview = (group) => {
   const names = group.lines.slice(0, 3).map((l) => l.label || 'Sans libellé')
   return names.join(', ') + (group.lines.length > 3 ? ' +' + (group.lines.length - 3) : '')
@@ -414,7 +582,17 @@ const sectionPreview = (group) => {
 // non encaissés — si on compte les factures prévues, on compte les revenus prévus.
 const resteAVivre = computed(() => summaryData.value?.tiles.projete ?? null)
 
-// À faire ce mois (addendum §5) : retards, cagnottes à régler, échéances ≤ 7 jours
+/**
+ * Le pense-bête du mois : ce qui est en retard, à régler ou imminent.
+ *
+ * Trois motifs, dans cet ordre de gravité : une cagnotte à envoyer, une échéance
+ * dépassée, une échéance dans les sept jours. Les lignes déjà pointées sont écartées,
+ * et les échéances ne comptent que dans le mois EN COURS — dans un mois passé, tout
+ * serait « en retard ». La liste est bornée à six : un pense-bête de trente lignes ne
+ * se lit plus.
+ *
+ * @returns {Array<{line: object, cat: object, kind: 'send'|'late'|'soon', due: string|null}>}
+ */
 const todoLines = computed(() => {
   if (!current.value) return []
   const today = new Date().toISOString().substring(0, 10)
@@ -435,6 +613,14 @@ const todoLines = computed(() => {
   }
   return list.sort((a, b) => ((a.due || '') < (b.due || '') ? -1 : 1)).slice(0, 6)
 })
+/**
+ * Saute du pense-bête à la ligne concernée dans le registre.
+ *
+ * Déplie la section au besoin, puis attend le rendu (`nextTick`) avant de faire
+ * défiler : sans cette attente, la cible n'est pas encore dans le DOM.
+ *
+ * @param {object} t L'élément du pense-bête.
+ */
 async function jumpToLine(t) {
   const key = t.cat.id ?? 'none'
   if (!openCats.value.has(key)) toggleCatOpen({ category: t.cat })
@@ -450,6 +636,18 @@ async function jumpToLine(t) {
 const CONTRIB_LABELS = { initiale: 'montant initial', ajustement: 'ajustement', reaffectation: 'réaffectation' }
 const internalOpen = ref(true)
 const accName = (id) => accounts.value.find((a) => a.id === id)?.name || '?'
+/**
+ * Les mouvements internes du mois : ce qui déplace de l'argent sans être une dépense.
+ *
+ * Deux sources réunies puis triées par date : les entrées sans ligne ni rattachement
+ * (virement libre, clôture d'enveloppe entre comptes, désactivation de compte), et les
+ * contributions administratives d'enveloppes (montant initial, ajustement,
+ * réaffectation). Les versements normaux et les dépenses prises dans une enveloppe en
+ * sont exclus : ils ont déjà leur place dans le registre.
+ *
+ * @returns {Array<{key: string, date: string, entry: object|null, label: string,
+ *   detail: string, amount: number, signed: boolean}>}
+ */
 const internalMovements = computed(() => {
   const rows = []
   for (const e of entriesAll.value) {
@@ -485,6 +683,8 @@ const newMonth = ref({ period: '', snapshots: {} })
 const suggested = ref({})          // solde live de fin du mois précédent, par compte (suggestion)
 const previousPeriod = ref(null)
 const newEnvelopes = ref([])       // [{ id, name, accountId, accountName, total (cumul), value (saisie) }]
+// Écart entre le cumul connu d'une enveloppe et le montant saisi au recalage ;
+// null quand il n'y a rien à recaler
 const envelopeDelta = (e) => {
   if (e.value === '' || e.value == null) return null
   const d = Math.round((parseFloat(e.value) - e.total) * 100) / 100
@@ -492,10 +692,20 @@ const envelopeDelta = (e) => {
 }
 // « = compte » : recopie le solde saisi pour le compte hôte (enveloppe seule sur son compte)
 const envelopesOnAccount = (accountId) => newEnvelopes.value.filter((e) => e.accountId === accountId).length
+/**
+ * Recopie le solde saisi du compte dans son enveloppe.
+ *
+ * Raccourci pour le cas fréquent d'une enveloppe seule sur son compte : les deux
+ * valeurs sont alors identiques, autant ne les saisir qu'une fois.
+ *
+ * @param {object} e L'enveloppe du formulaire de création.
+ */
 function copyAccountBalance(e) {
   const v = newMonth.value.snapshots[e.accountId]
   if (v !== '' && v != null) e.value = v
 }
+// Écart entre le solde proposé (fin du mois précédent) et celui qui est saisi :
+// c'est l'ajustement bancaire du mois, intérêts et arrondis compris
 const suggestionDelta = (accountId) => {
   const s = suggested.value[accountId]
   const v = newMonth.value.snapshots[accountId]
@@ -512,6 +722,13 @@ const newMonthName = computed(() => {
   return label.charAt(0).toUpperCase() + label.slice(1)
 })
 
+/**
+ * Ouvre la création de mois, pré-remplie par le serveur.
+ *
+ * Les soldes proposés sont ceux de fin du mois précédent : une suggestion à corriger,
+ * pas une vérité — les arrondis et intérêts bancaires font toujours un petit écart.
+ * Les enveloppes sont proposées à leur cumul actuel, à recaler de la même façon.
+ */
 async function openCreateForm() {
   const { data } = await getMonthPrefill()
   const map = {}
@@ -528,6 +745,12 @@ async function openCreateForm() {
   createFormOpen.value = true
 }
 
+/**
+ * Crée le mois : soldes de départ, recalage des enveloppes, et copie du budget type.
+ *
+ * Seules les enveloppes réellement modifiées sont envoyées (`envelopeDelta` non nul) :
+ * renvoyer les autres poserait des ajustements à zéro dans leur historique.
+ */
 async function submitCreate() {
   if (!newMonth.value.period || newMonthTaken.value) return
   const snapshotList = Object.entries(newMonth.value.snapshots)
@@ -545,6 +768,12 @@ async function submitCreate() {
 }
 
 // ─── Clôture ─────────────────────────────────────────────
+/**
+ * Clôt le mois, ou le rouvre.
+ *
+ * Un mois clôturé est figé : entrées, pointages et contributions datées dedans sont
+ * verrouillés. C'est réversible, et le message le dit — sans quoi on n'ose pas clore.
+ */
 async function toggleClosed() {
   const action = current.value.isClosed ? 'Rouvrir' : 'Clôturer'
   const ok = await confirmDialog({
@@ -564,8 +793,18 @@ async function toggleClosed() {
 // Enveloppe insuffisante (ligne mensualisée) : le backend répond ENVELOPE_SHORT → modal « vider et prendre le reste sur … »
 const shortfall = ref(null) // { line, envelopeName, available, missing, amount, accountId }
 
+/**
+ * Pointe une ligne : crée l'entrée correspondant au montant prévu.
+ *
+ * Case à sens unique — dès qu'une entrée existe, c'est elle qu'on manipule, pas la
+ * case. Cas particulier : une ligne mensualisée dont l'enveloppe n'a pas assez ; le
+ * serveur répond ENVELOPE_SHORT et on ouvre la fenêtre « vider l'enveloppe et prendre
+ * le reste sur… », plutôt que de refuser sèchement.
+ *
+ * @param {object} line La ligne à pointer.
+ */
 async function togglePaid(line) {
-  if (isPaid(line)) return // ☐ à sens unique : dès qu'une entrée existe, on gère les entrées elles-mêmes (×)
+  if (isPaid(line)) return
   try {
     await payLine(current.value.id, line.id)
     await reload()
@@ -579,6 +818,7 @@ async function togglePaid(line) {
   }
 }
 
+/** Pointe la ligne en complétant l'enveloppe insuffisante depuis le compte choisi. */
 async function confirmShortfall() {
   const s = shortfall.value
   if (!s?.accountId) return
@@ -592,12 +832,25 @@ async function confirmShortfall() {
 // ─── Entrées (déroulé par ligne : liste seulement, la saisie passe par le modal) ─
 const openEntriesLineId = ref(null)
 
-// Date par défaut : toujours dans le mois de la fiche (aujourd'hui si on y est, sinon le 1er)
+/**
+ * Date proposée pour une saisie : toujours dans le mois de la fiche.
+ *
+ * Aujourd'hui si on est dans ce mois, le 1er sinon. Sans cette règle, saisir dans un
+ * mois passé y poserait une entrée datée d'aujourd'hui — donc rattachée au mauvais mois.
+ *
+ * @returns {string} La date au format AAAA-MM-JJ.
+ */
 function defaultDate() {
   const today = new Date().toISOString().substring(0, 10)
   return current.value && !today.startsWith(current.value.period) ? `${current.value.period}-01` : today
 }
 
+/**
+ * Date proposée pour une entrée : le jour de prélèvement de la ligne s'il existe.
+ *
+ * @param {object} line La ligne concernée.
+ * @returns {string} La date au format AAAA-MM-JJ.
+ */
 function defaultEntryDate(line) {
   if (line.recurringDay && current.value) {
     return `${current.value.period}-${String(line.recurringDay).padStart(2, '0')}`
@@ -611,6 +864,14 @@ function toggleEntries(line) {
 
 const envelopeById = (id) => envelopes.value.find((e) => e.id === id) || null
 
+/**
+ * Supprime une entrée.
+ *
+ * C'est ainsi qu'on « dépointe » une ligne : la case réapparaît quand la dernière
+ * entrée disparaît, si un prévu subsiste.
+ *
+ * @param {object} entry L'entrée à supprimer.
+ */
 async function removeEntry(entry) {
   try { await deleteEntry(current.value.id, entry.id); await reload() } catch (e) { apiError(e) }
 }
@@ -622,6 +883,15 @@ const entryForm = ref({})
 const entryModalOpen = computed(() => entryModalLine.value !== null)
 const entryLineIsRevenu = computed(() => !!entryModalLine.value && lineCategoryType(entryModalLine.value) === 'revenu')
 
+/**
+ * Ouvre la saisie d'une entrée, pré-remplie depuis sa ligne.
+ *
+ * Le sens s'inverse selon la nature : une dépense part d'une source (`source`,
+ * préfixée « a: » pour un compte, « e: » pour une enveloppe), un revenu arrive sur un
+ * compte crédité (`creditAccountId`).
+ *
+ * @param {object} line La ligne à laquelle rattacher l'entrée.
+ */
 function openAddEntry(line) {
   entryModalLine.value = line
   entryModalEntry.value = null
@@ -642,6 +912,12 @@ function openAddEntry(line) {
   }
 }
 
+/**
+ * Ouvre une entrée existante en modification.
+ *
+ * @param {object} line Sa ligne.
+ * @param {object} e L'entrée à modifier.
+ */
 function openEditEntry(line, e) {
   entryModalLine.value = line
   entryModalEntry.value = e
@@ -683,6 +959,16 @@ const entryIsTransfer = computed(() =>
   )
 )
 
+/**
+ * Traduit le formulaire d'entrée en charge utile pour l'API.
+ *
+ * Le compte de l'entrée dépend du sens : celui qui est crédité pour un revenu, la
+ * source pour une dépense. Une dépense prise dans une enveloppe porte les deux — le
+ * compte hôte ET l'enveloppe — parce qu'elle sort bien du compte, en consommant au
+ * passage la réserve.
+ *
+ * @returns {object} Le corps de la requête.
+ */
 function entryPayload() {
   const f = entryForm.value
   const isRevenu = entryLineIsRevenu.value
@@ -702,6 +988,7 @@ function entryPayload() {
   }
 }
 
+/** Enregistre l'entrée : création ou modification. */
 async function submitEntryModal() {
   const p = entryPayload()
   if (isNaN(p.amount) || !p.amount) return
@@ -724,6 +1011,15 @@ const lineFormCategoryType = computed(() => {
 
 const lineFormCategory = ref(null)
 
+/**
+ * Ouvre l'ajout d'une ligne dans une catégorie.
+ *
+ * Le formulaire accepte un montant RÉEL en plus du prévu : rempli, l'entrée est créée
+ * dans la foulée. C'est le geste courant — « j'ai dépensé 40 € chez Amazon » n'a pas à
+ * demander deux saisies.
+ *
+ * @param {object} category La catégorie d'accueil.
+ */
 function openAddLine(category) {
   lineFormId.value = `new-${category.id}`
   lineFormCategory.value = category
@@ -776,6 +1072,14 @@ const versAccountsEntry = computed(() => activeAccounts.value.filter((a) => a.id
 
 const lineFormLine = ref(null) // ligne en cours d'édition (pour supprimer / reporter dans le template)
 
+/**
+ * Ouvre une ligne du mois en modification.
+ *
+ * `actualAmount` reste vide : à l'édition, on ne crée plus d'entrée à la volée, elles
+ * se gèrent une par une dans le déroulé de la ligne.
+ *
+ * @param {object} line La ligne à modifier.
+ */
 function openEditLine(line) {
   lineFormId.value = line.id
   lineFormLine.value = line
@@ -809,6 +1113,15 @@ function closeLineForm() {
 const lineModalOpen = computed(() => lineFormId.value !== null)
 const lineModalAdding = computed(() => typeof lineFormId.value === 'string')
 
+/**
+ * Traduit le formulaire de ligne en charge utile pour l'API.
+ *
+ * Un revenu n'a pas de compte source ni de moyen de paiement ; les champs de cagnotte
+ * et de partage sont remis à zéro dès que la case correspondante est décochée, pour ne
+ * pas laisser traîner des valeurs orphelines.
+ *
+ * @returns {object} Le corps de la requête.
+ */
 function lineFormData() {
   const f = lineForm.value
   const isRevenu = lineFormCategoryType.value === 'revenu'
@@ -830,6 +1143,13 @@ function lineFormData() {
   }
 }
 
+/**
+ * Enregistre la ligne, et crée son entrée si un montant réel a été saisi.
+ *
+ * Les deux appels sont enchaînés à la création seulement : la ligne d'abord, pour
+ * obtenir son identifiant, l'entrée ensuite. Une cagnotte est exclue — son montant est
+ * calculé, il ne se saisit pas.
+ */
 async function submitLineForm() {
   if (!lineForm.value.label.trim()) return
   const f = lineForm.value
@@ -864,6 +1184,14 @@ async function submitLineForm() {
   } catch (e) { apiError(e) }
 }
 
+/**
+ * Supprime une ligne du mois, après confirmation.
+ *
+ * Le message annonce le nombre d'entrées emportées : supprimer une ligne pointée
+ * efface aussi ce qui a été saisi dessus.
+ *
+ * @param {object} line La ligne à supprimer.
+ */
 async function removeLineConfirm(line) {
   const n = entriesForLine(line).length
   const ok = await confirmDialog({
@@ -879,6 +1207,14 @@ async function removeLineConfirm(line) {
   } catch (e) { apiError(e) }
 }
 
+/**
+ * Remonte une ligne du mois vers le budget type.
+ *
+ * Ses valeurs — prévu, comptes, jour, thème — deviennent le standard des mois
+ * suivants. Le chemin inverse de la propagation offerte par la page Template.
+ *
+ * @param {object} line La ligne à remonter.
+ */
 async function pushToTemplate(line) {
   const ok = await confirmDialog({ title: 'Reporter dans le template', message: `Les valeurs de « ${line.label} » (prévu, comptes, jour, thème…) deviennent le standard : les prochains mois les utiliseront.`, confirmLabel: 'Reporter' })
   if (!ok) return
@@ -892,9 +1228,21 @@ async function pushToTemplate(line) {
 // Le réel remplace le prévu dès qu'il existe ; la case ☐ n'apparaît que sur une ligne
 // avec un prévu et AUCUNE entrée (à sens unique : pour annuler, supprimez les entrées avec ×,
 // la case revient alors si le prévu reste).
+// Dépassement : le réel excède le prévu (une ligne sans prévu ne peut pas dépasser)
 function overBudget(line) {
   return line.plannedAmount > 0 && line.actualAmount > line.plannedAmount
 }
+
+/**
+ * Faut-il afficher la case à pointer ?
+ *
+ * Jamais si des entrées existent — le réel a pris le relais du prévu. Une cagnotte
+ * n'est cochable que s'il y a réellement quelque chose à régler ; une ligne ordinaire,
+ * dès qu'elle a un prévu.
+ *
+ * @param {object} line La ligne.
+ * @returns {boolean} true si la case doit apparaître.
+ */
 function showCheckbox(line) {
   if (entriesForLine(line).length > 0) return false
   if (line.isPot) return !!line.pot && line.pot.toSend !== 0 // cagnotte : dès qu'il y a quelque chose à régler (rien sans calcul)
@@ -905,6 +1253,7 @@ function showCheckbox(line) {
 const snapshotsOpen = ref(false)
 const snapshotEdits = ref({})
 
+/** Ouvre l'édition des soldes de départ, pré-remplie avec ceux du mois. */
 function openSnapshots() {
   const map = {}
   accounts.value.forEach((a) => {
@@ -914,6 +1263,13 @@ function openSnapshots() {
   snapshotsOpen.value = !snapshotsOpen.value
 }
 
+/**
+ * Enregistre les soldes de départ du mois.
+ *
+ * Les champs laissés vides sont écartés plutôt qu'enregistrés à zéro : un solde
+ * inconnu n'est pas un solde nul. La synthèse est relue dans la foulée — le disponible
+ * et le reste à vivre se calculent tous les deux à partir de ces soldes.
+ */
 async function saveSnapshots() {
   const list = Object.entries(snapshotEdits.value)
     .filter(([, v]) => v !== '' && v !== null)

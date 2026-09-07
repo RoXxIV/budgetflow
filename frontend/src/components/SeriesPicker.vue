@@ -11,17 +11,35 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:selected'])
 
-const open = ref(false)
+const open = ref(false)   // menu déroulé
 const search = ref('')
+
+// Filtre sur le nom, insensible à la casse ; sans recherche, la liste complète
+// (déjà triée par montant décroissant par le parent)
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
   return q ? props.items.filter((i) => i.name.toLowerCase().includes(q)) : props.items
 })
+
+// La sélection appartient au parent : on la lit, on ne la stocke pas
 const isOn = (id) => props.selected.includes(id)
+
+/**
+ * Ajoute ou retire une série de la sélection.
+ *
+ * Le composant ne détient aucun état de sélection : il émet la nouvelle liste
+ * complète et le parent la répercute (v-model:selected). D'où la copie plutôt
+ * qu'une mutation en place, que Vue ne verrait pas.
+ *
+ * @param {number|string} id Identifiant de la série cliquée.
+ */
 function toggle(id) {
   emit('update:selected', isOn(id) ? props.selected.filter((x) => x !== id) : [...props.selected, id])
 }
+
+// Raccourci : les cinq plus gros postes, la vue par défaut d'un graphique lisible
 function top5() { emit('update:selected', props.items.slice(0, 5).map((i) => i.id)) }
+// Repartir d'un graphique vide pour composer sa propre sélection
 function none() { emit('update:selected', []) }
 </script>
 

@@ -18,6 +18,7 @@ const envelopes = ref([])
 const netWorth = ref(null)
 const error = ref('')
 
+/** Recharge comptes, enveloppes et patrimoine — les trois vont ensemble. */
 async function load() {
   try {
     const [accRes, envRes, nwRes] = await Promise.all([getAccounts(), getEnvelopes(), getNetWorth()])
@@ -31,8 +32,18 @@ async function load() {
 }
 onMounted(load)
 
+// Le détail du patrimoine pour un compte : solde de début de mois, solde live, valeur de marché
 const netWorthOf = (accountId) => netWorth.value?.accounts.find((a) => a.accountId === accountId) || null
-// Écart du solde depuis le début du mois en cours (null si inconnu ou nul)
+
+/**
+ * De combien le solde a bougé depuis le début du mois.
+ *
+ * Renvoie null dans deux cas distincts mais qui s'affichent pareil : solde inconnu
+ * (rien à comparer) ou écart nul (rien à signaler).
+ *
+ * @param {number} accountId Le compte.
+ * @returns {number|null} L'écart en euros, ou null.
+ */
 const monthDelta = (accountId) => {
   const a = netWorthOf(accountId)
   if (!a || a.balance == null || a.start == null) return null
@@ -42,8 +53,18 @@ const monthDelta = (accountId) => {
 
 // ─── Réaffectation entre enveloppes d'un même compte ─────
 const reallocForm = ref({ toEnvelopeId: '', amount: '' })
+// Une réaffectation ne se fait qu'entre enveloppes d'un MÊME compte : l'argent ne
+// bouge pas de la banque, seule sa réservation change
 const reallocTargets = (envelope) => envelopes.value.filter((e) => e.accountId === envelope.accountId && e.id !== envelope.id && !e.isClosed)
 
+/**
+ * Déplace de l'argent d'une enveloppe vers une autre du même compte.
+ *
+ * Aucun mouvement bancaire : deux contributions liées, l'une négative, l'autre
+ * positive. Le solde du compte est inchangé.
+ *
+ * @param {object} envelope L'enveloppe source.
+ */
 async function doReallocate(envelope) {
   const f = reallocForm.value
   if (!f.toEnvelopeId || !(parseFloat(f.amount) > 0)) return
@@ -66,15 +87,25 @@ const inactiveAccounts = computed(() => accounts.value.filter((a) => !a.isActive
 const fmt = eur // « 1 667,85 € », espaces fines insécables
 // « 4 mars » — jamais d'ISO à l'écran (même règle que la page Mois)
 const shortDate = (iso) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '')
+// Avancement vers la cible, plafonné à 100 % : une jauge ne déborde pas de sa barre
 const pct = (e) => (e.effectiveTarget ? Math.min(100, Math.round((e.total / e.effectiveTarget) * 100)) : null)
-// Enveloppe mensualisée au-delà de sa cible (jamais liquidée) : affichée en rouge
+// Au-delà de la cible : typiquement une mensualisée qu'on a oublié de liquider à
+// l'échéance, elle continue d'encaisser. Signalé en rouge, ce n'est pas une bonne nouvelle.
 const isOverfull = (e) => { const t = e.effectiveTarget ?? e.targetAmount; return !!t && e.total > t }
 
-// ─── Liquider et renouveler : vide l'enveloppe vers un compte, le cycle repart ───
+// ─── Liquider et renouveler ──────────────────────────────
 const liquidation = ref(null) // { env, toAccountId }
+
+/**
+ * Ouvre la liquidation d'une enveloppe mensualisée : l'échéance arrive, l'argent
+ * mis de côté retourne sur un compte et le cycle repart à zéro.
+ *
+ * @param {object} env L'enveloppe à liquider.
+ */
 function openLiquidation(env) {
   liquidation.value = { env, toAccountId: accounts.value.find((a) => a.isMain)?.id || '' }
 }
+/** Exécute la liquidation vers le compte choisi (la dépense reste à saisir). */
 async function confirmLiquidation() {
   const l = liquidation.value
   if (!l?.toAccountId) return
@@ -87,12 +118,33 @@ async function confirmLiquidation() {
 
 // ─── Registre des comptes groupé par type (brief Comptes §2/§4) ───
 const GROUP_LABELS = { courant: 'Comptes courants', epargne: 'Épargne', investissement: 'Investissement', especes: 'Espèces' }
-// Solde affiché : valeur de marché si valorisé, sinon solde live ; null = inconnu (on affiche « — », pas 0)
+/**
+ * Le solde à afficher pour un compte.
+ *
+ * `used` est ce que le backend a retenu : valeur de marché pour un compte
+ * d'investissement valorisé, solde live sinon. null reste null — un solde inconnu
+ * s'affiche « — », jamais 0, qui serait une information fausse.
+ *
+ * @param {object} a Le compte.
+ * @returns {number|null} Le solde, ou null s'il est inconnu.
+ */
 const accountBalance = (a) => {
   const r = netWorthOf(a.id)
   if (!r) return null
   return r.used ?? r.balance ?? null
 }
+/**
+ * Range les comptes actifs par type, du plus courant au plus lointain.
+ *
+ * Dans chaque groupe, le compte principal passe devant, puis les autres du plus
+ * garni au moins garni. Le -1e15 relègue les soldes inconnus en fin de liste plutôt
+ * que de les traiter comme des zéros. Un groupe vide n'est pas affiché.
+ *
+ * Le total ne compte que les comptes inclus dans le patrimoine : un compte joint suivi
+ * mais pas à soi ne doit pas gonfler la somme.
+ *
+ * @returns {Array<{type: string, label: string, accounts: Array, total: number}>}
+ */
 const accountGroups = computed(() =>
   ['courant', 'epargne', 'investissement', 'especes']
     .map((type) => {
@@ -117,14 +169,34 @@ const monthLabel = computed(() => {
 
 // Dépliage des enveloppes d'un compte + menu d'actions ⋯
 const openAccountId = ref(null)
+/** Déplie les enveloppes d'un compte ; sans enveloppe, il n'y a rien à déplier. */
 function toggleAccount(account) {
   if (!account.envelopes.length) return
   openAccountId.value = openAccountId.value === account.id ? null : account.id
 }
+
 const menuAccountId = ref(null)
+
+/**
+ * Désigne un compte comme principal.
+ *
+ * Le rôle se transfère, il ne se cumule pas : le serveur retire la marque à l'ancien.
+ * C'est aussi pourquoi il ne se décoche pas — il faut toujours un compte principal.
+ *
+ * @param {object} account Le nouveau compte principal.
+ */
 async function makeMain(account) {
   try { await updateAccount(account.id, { isMain: true }); await load() } catch (e) { apiError(e) }
 }
+
+/**
+ * Inclut ou exclut un compte du patrimoine.
+ *
+ * Pour un compte suivi mais qui n'est pas vraiment à soi (compte joint, compte pro) :
+ * il garde ses saisies mais sort du total.
+ *
+ * @param {object} account Le compte à basculer.
+ */
 async function togglePatrimoine(account) {
   try { await updateAccount(account.id, { includeInNetWorth: !account.includeInNetWorth }); await load() } catch (e) { apiError(e) }
 }
@@ -140,12 +212,21 @@ function defaultAccountForm() {
   return { name: '', type: 'courant', isMain: false, includeInNetWorth: true, allowOverdraft: false, multiProjects: false, initialBalance: '' }
 }
 
+/** Ouvre le formulaire vide pour créer un compte. */
 function openAddAccount() {
   editingAccountId.value = null
   accountForm.value = defaultAccountForm()
   accountFormOpen.value = true
 }
 
+/**
+ * Ouvre le formulaire pré-rempli sur un compte existant.
+ *
+ * `multiProjects` et `initialBalance` restent vides : ils n'ont de sens qu'à la
+ * création, ils décident de l'enveloppe créée d'office et de son premier versement.
+ *
+ * @param {object} account Le compte à modifier.
+ */
 function openEditAccount(account) {
   editingAccountId.value = account.id
   accountForm.value = {
@@ -160,6 +241,12 @@ function openEditAccount(account) {
   accountFormOpen.value = true
 }
 
+/**
+ * Enregistre le compte : création ou modification.
+ *
+ * À la création seulement, un compte épargne mono-projet reçoit d'office une
+ * enveloppe à son nom, alimentée du solde initial — d'où les deux champs supplémentaires.
+ */
 async function submitAccount() {
   const f = accountForm.value
   if (!f.name.trim()) return
@@ -180,7 +267,15 @@ async function submitAccount() {
   } catch (e) { apiError(e) }
 }
 
-// Suppression définitive : seulement pour un compte sans historique (créé par erreur) — sinon le backend refuse
+/**
+ * Supprime définitivement un compte, après confirmation.
+ *
+ * Le serveur refuse dès qu'il porte de l'histoire — entrées, soldes, lignes ou
+ * enveloppes. Cette action ne sert qu'à effacer un compte créé par erreur ; pour tous
+ * les autres, la voie est la désactivation.
+ *
+ * @param {object} account Le compte à supprimer.
+ */
 async function removeAccountConfirm(account) {
   const ok = await confirmDialog({
     title: 'Supprimer définitivement',
@@ -194,6 +289,16 @@ async function removeAccountConfirm(account) {
 // ─── Désactivation (l'historique reste, réactivable) ─────
 const deactivation = ref(null) // { account, balance, toAccountId } : le compte a un solde à virer d'abord
 
+/**
+ * Désactive un compte : il sort des saisies et du bilan, son historique reste.
+ *
+ * Deux issues possibles. Sans solde, c'est immédiat. Avec un solde, le serveur refuse
+ * par un code ACCOUNT_HAS_BALANCE — l'argent ne peut pas disparaître du bilan sans
+ * aller quelque part. On ouvre alors la fenêtre qui demande où le virer, en proposant
+ * le compte principal.
+ *
+ * @param {object} account Le compte à désactiver.
+ */
 async function deactivateConfirm(account) {
   const ok = await confirmDialog({
     title: 'Désactiver le compte',
@@ -216,6 +321,7 @@ async function deactivateConfirm(account) {
   }
 }
 
+/** Vire le solde vers le compte choisi, puis désactive. */
 async function confirmDeactivation() {
   const d = deactivation.value
   if (!d?.toAccountId) return
@@ -226,6 +332,7 @@ async function confirmDeactivation() {
   } catch (e) { apiError(e) }
 }
 
+/** Réactive un compte désactivé : il revient dans les saisies et le bilan. */
 async function reactivate(account) {
   try { await setAccountActive(account.id, true); await load() } catch (e) { apiError(e) }
 }
@@ -252,7 +359,13 @@ const targetMonthLabel = computed(() => {
 
 const simulation = ref(null)      // { deadline, months, remaining, monthlySuggestion } renvoyé par l'API
 const simulating = ref(false)
+// Numéro d'ordre des requêtes : seule la dernière lancée a le droit d'écrire le
+// résultat. Sans lui, une réponse lente arrivée après une plus récente afficherait
+// une mensualité qui ne correspond plus à ce qui est saisi.
 let simulationSeq = 0
+
+// Toute modification de la cible, de l'échéance ou du montant initial relance la
+// simulation auprès de l'API — le front n'invente aucun montant, il affiche le sien.
 watch(
   () => {
     const f = envelopeForm.value
@@ -295,6 +408,10 @@ watch(() => envelopeForm.value.accountId, async (id) => {
 const siblingEnvelopes = computed(() =>
   envelopes.value.filter((e) => e.accountId === envelopeForm.value.accountId && !e.isClosed && e.id !== editingEnvelopeId.value)
 )
+// L'invariant du projet : la somme des enveloppes d'un compte ne dépasse pas son
+// solde. Un montant pris dans une autre enveloppe se compare à ELLE, pas au disponible
+// du compte — l'argent est déjà là, il change juste d'étiquette. Découvert autorisé :
+// jamais bloquant, seulement signalé.
 const initialTooHigh = computed(() => {
   const f = envelopeForm.value
   const amount = parseFloat(f.initialAmount)
@@ -314,6 +431,12 @@ const initialOverdraws = computed(() => {
     && availability.value?.available != null && amount > availability.value.available
 })
 
+/**
+ * Ouvre le formulaire de création d'enveloppe.
+ *
+ * @param {number|string} [accountId] Compte hôte pré-sélectionné ; vide pour une
+ *   enveloppe virtuelle, dont l'argent attend sur le compte principal.
+ */
 function openAddEnvelope(accountId = '') {
   editingEnvelopeId.value = null
   envelopeForm.value = { ...defaultEnvelopeForm(), accountId }
@@ -322,6 +445,15 @@ function openAddEnvelope(accountId = '') {
 
 const editingEnvelope = ref(null) // l'enveloppe telle qu'elle était (pour détecter un déplacement de compte)
 
+/**
+ * Ouvre le formulaire pré-rempli sur une enveloppe existante.
+ *
+ * L'enveloppe d'origine est mise de côté dans `editingEnvelope` : c'est en la
+ * comparant à la saisie qu'on détectera un changement de compte hôte, qui impose un
+ * virement.
+ *
+ * @param {object} envelope L'enveloppe à modifier.
+ */
 function openEditEnvelope(envelope) {
   editingEnvelopeId.value = envelope.id
   editingEnvelope.value = envelope
@@ -336,6 +468,18 @@ function openEditEnvelope(envelope) {
   envelopeFormOpen.value = true
 }
 
+/**
+ * Enregistre l'enveloppe : création ou modification.
+ *
+ * Le cas délicat est le déplacement vers un autre compte hôte alors que l'enveloppe
+ * contient de l'argent : celui-ci doit PHYSIQUEMENT suivre, donc un virement système
+ * est enregistré dans le mois en cours. On le confirme d'abord, parce que ça touche
+ * aux soldes de deux comptes.
+ *
+ * La comparaison porte sur les hôtes RÉELS : une enveloppe virtuelle est hébergée par
+ * le compte principal, donc passer de « virtuelle » à « compte principal » ne déplace
+ * rien et ne doit rien déclencher.
+ */
 async function submitEnvelope() {
   const f = envelopeForm.value
   if (!f.name.trim()) return
@@ -375,10 +519,24 @@ async function submitEnvelope() {
   } catch (e) { apiError(e) }
 }
 
+/**
+ * Clôt une enveloppe, ou la rouvre.
+ *
+ * @param {object} envelope L'enveloppe à basculer.
+ */
 async function toggleClosed(envelope) {
   try { await updateEnvelope(envelope.id, { isClosed: !envelope.isClosed }); await load() } catch (e) { apiError(e) }
 }
 
+/**
+ * Supprime une enveloppe, ou bascule vers la clôture si elle porte de l'histoire.
+ *
+ * Même schéma que la désactivation d'un compte : le serveur refuse par un code
+ * ENVELOPE_HAS_FUNDS, et on ouvre la fenêtre qui demande ce que devient l'argent.
+ * Rien ne se perd, tout se réaffecte.
+ *
+ * @param {object} envelope L'enveloppe à supprimer.
+ */
 async function removeEnvelopeConfirm(envelope) {
   const ok = await confirmDialog({ title: "Supprimer l'enveloppe", message: `Supprimer « ${envelope.name} » ? (avec un historique, elle sera clôturée à la place — rien n'est perdu)`, confirmLabel: 'Supprimer', danger: true })
   if (!ok) return
@@ -400,6 +558,15 @@ const envelopeDeleteTargets = computed(() => {
   if (!d) return []
   return envelopes.value.filter((e) => e.id !== d.envelope.id && !e.isClosed)
 })
+/**
+ * Destination proposée d'office pour le contenu d'une enveloppe clôturée.
+ *
+ * Une autre enveloppe de préférence, sinon le compte principal. Le préfixe distingue
+ * les deux : « e:12 » pour une enveloppe, « a:3 » pour un compte.
+ *
+ * @param {object} envelope L'enveloppe en cours de clôture, à exclure des candidats.
+ * @returns {string} La destination préfixée, ou '' s'il n'y en a aucune.
+ */
 function defaultDestination(envelope) {
   const env = envelopes.value.find((e) => e.id !== envelope.id && !e.isClosed)
   if (env) return 'e:' + env.id
@@ -407,6 +574,12 @@ function defaultDestination(envelope) {
   return acc ? 'a:' + acc.id : ''
 }
 
+/**
+ * Clôt l'enveloppe, seule ou en réaffectant son contenu.
+ *
+ * Réaffecter vers une enveloppe d'un autre compte déclenche côté serveur le virement
+ * qui va avec : l'argent doit suivre son étiquette.
+ */
 async function confirmEnvelopeDelete() {
   const d = envelopeDelete.value
   if (!d) return
@@ -428,6 +601,14 @@ const openEnvelopeId = ref(null)
 const contributions = ref([])
 const contribForm = ref({ amount: '', date: new Date().toISOString().substring(0, 10), notes: '' })
 
+/**
+ * Déplie le détail d'une enveloppe et charge ses contributions.
+ *
+ * La liste est vidée avant le chargement : sans cela, on verrait brièvement les
+ * contributions de l'enveloppe précédente, ce qui se lit comme une erreur.
+ *
+ * @param {object} envelope L'enveloppe à déplier.
+ */
 async function toggleContribs(envelope) {
   if (openEnvelopeId.value === envelope.id) { openEnvelopeId.value = null; return }
   openEnvelopeId.value = envelope.id
@@ -436,6 +617,15 @@ async function toggleContribs(envelope) {
   try { contributions.value = (await getContributions(envelope.id)).data } catch (e) { apiError(e) }
 }
 
+/**
+ * Ajoute un versement dans l'enveloppe.
+ *
+ * Après enregistrement, seuls le montant et la note sont vidés — la date reste, pour
+ * enchaîner plusieurs versements du même jour. `load()` est rappelé car un versement
+ * change le disponible du compte hôte, affiché ailleurs sur la page.
+ *
+ * @param {object} envelope L'enveloppe alimentée.
+ */
 async function submitContribution(envelope) {
   const f = contribForm.value
   if (!f.amount) return
@@ -447,6 +637,12 @@ async function submitContribution(envelope) {
   } catch (e) { apiError(e) }
 }
 
+/**
+ * Retire une contribution.
+ *
+ * @param {object} envelope L'enveloppe concernée.
+ * @param {number} contribId La contribution à retirer.
+ */
 async function deleteContribution(envelope, contribId) {
   try {
     await removeContribution(envelope.id, contribId)

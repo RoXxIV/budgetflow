@@ -3,19 +3,44 @@ import { ref, watch, nextTick } from 'vue'
 import AppModal from '@/components/AppModal.vue'
 import { useDialogState } from '@/composables/useDialog.js'
 
+// Hôte unique des dialogues de l'application, monté une seule fois dans App.vue.
+// Les vues n'ouvrent pas de modale elles-mêmes : elles appellent confirmDialog() ou
+// promptDialog() (composables/useDialog.js), qui posent une demande dans cet état
+// partagé et attendent une promesse. C'est ici qu'elle est affichée puis résolue.
 const state = useDialogState()
 const promptInput = ref(null)
 
+/**
+ * Ferme la confirmation et rend la réponse à qui l'attend.
+ *
+ * L'ordre compte : on vide l'état AVANT de résoudre la promesse. L'appelant peut
+ * enchaîner sur une seconde confirmation, et elle serait effacée par ce nettoyage
+ * s'il venait après.
+ *
+ * @param {boolean} result true si l'utilisateur a confirmé, false s'il a annulé.
+ */
 function closeConfirm(result) {
   const c = state.confirm
   state.confirm = null
   c?.resolve(result)
 }
+
+/**
+ * Ferme la saisie et rend le texte à qui l'attend.
+ *
+ * Même précaution d'ordre que pour la confirmation.
+ *
+ * @param {string|null} result Le texte saisi, ou null si l'utilisateur a annulé.
+ */
 function closePrompt(result) {
   const p = state.prompt
   state.prompt = null
   p?.resolve(result)
 }
+
+// À l'ouverture d'une saisie, le champ prend le focus et son contenu est
+// présélectionné : on peut taper par-dessus la valeur proposée sans l'effacer
+// à la main. nextTick attend que le champ soit réellement dans le DOM.
 watch(() => state.prompt, async (p) => {
   if (p) { await nextTick(); promptInput.value?.focus(); promptInput.value?.select() }
 })

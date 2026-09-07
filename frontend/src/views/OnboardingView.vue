@@ -65,6 +65,7 @@ onMounted(async () => {
   ready.value = true
 })
 
+/** Relit tout ce que le guide affiche : comptes, catégories, thèmes, budget type. */
 async function refresh() {
   const [acc, cat, th, tpl] = await Promise.all([getAccounts(), getCategories(), getThemes(), getTemplateLines()])
   accounts.value = acc.data
@@ -73,6 +74,14 @@ async function refresh() {
   templateLines.value = tpl.data
 }
 
+/**
+ * Va à une étape, et oriente l'animation dans le sens du déplacement.
+ *
+ * `maxStep` ne redescend jamais : revenir en arrière ne doit ni vider la barre de
+ * progression, ni verrouiller les étapes déjà franchies.
+ *
+ * @param {number} index L'étape visée, indice dans STEPS.
+ */
 async function goTo(index) {
   direction.value = index > stepIndex.value ? 1 : -1
   stepIndex.value = index
@@ -89,6 +98,12 @@ const ACCOUNT_TYPES = [
 const accountForm = ref({ name: '', type: 'courant' })
 const accountTypeLabel = (type) => ACCOUNT_TYPES.find((t) => t.value === type)?.label || type
 
+/**
+ * Ajoute un compte à la liste de l'étape 1.
+ *
+ * @returns {Promise<boolean>} true si la création a abouti — « Continuer » s'en sert
+ *   pour ne pas avancer sur un échec.
+ */
 async function addAccount() {
   const f = accountForm.value
   if (!f.name.trim() || busy.value) return
@@ -105,11 +120,20 @@ async function addAccount() {
 // « Continuer » ne laisse jamais une saisie en plan : ce qui est tapé dans le champ
 // est ajouté avant de passer à la suite. Sans cela, un nom saisi mais non ajouté
 // laissait le bouton grisé sans explication.
+/** Ajoute le compte en cours de saisie, puis passe aux catégories. */
 async function continueFromAccounts() {
   if (accountForm.value.name.trim() && !(await addAccount())) return
   if (accounts.value.length) await goTo(1)
 }
 
+/**
+ * Retire un compte de la liste.
+ *
+ * Un compte épargne porte déjà une enveloppe créée d'office : le serveur refuse alors
+ * sa suppression (« jamais de perte ») et son message dit quoi faire.
+ *
+ * @param {object} account Le compte à retirer.
+ */
 async function removeAccount(account) {
   if (busy.value) return
   busy.value = true
@@ -127,6 +151,12 @@ const presetsUsed = computed(() =>
   CATEGORY_PRESETS.every((p) => categories.value.some((c) => c.name.toLowerCase() === p.name.toLowerCase()))
 )
 
+/**
+ * Crée les catégories proposées, en sautant celles qui existent déjà.
+ *
+ * Le contrôle par nom permet de cliquer le lien après en avoir ajouté à la main, sans
+ * récolter de doublon ni d'erreur d'unicité.
+ */
 async function applyPresets() {
   if (busy.value) return
   busy.value = true
@@ -139,6 +169,11 @@ async function applyPresets() {
   } catch (e) { apiError(e) } finally { busy.value = false }
 }
 
+/**
+ * Ajoute une catégorie.
+ *
+ * @returns {Promise<boolean>} true si la création a abouti.
+ */
 async function addCategory() {
   const f = categoryForm.value
   if (!f.name.trim() || busy.value) return
@@ -151,11 +186,20 @@ async function addCategory() {
   } catch (e) { apiError(e); return false } finally { busy.value = false }
 }
 
+/** Ajoute la catégorie en cours de saisie, puis passe aux thèmes. */
 async function continueFromCategories() {
   if (categoryForm.value.name.trim() && !(await addCategory())) return
   if (categories.value.length) await goTo(2)
 }
 
+/**
+ * Retire une catégorie.
+ *
+ * Refusé par le serveur si elle sert déjà à une ligne du budget type — son message
+ * explique alors ce qui l'utilise.
+ *
+ * @param {object} category La catégorie à retirer.
+ */
 async function removeCategory(category) {
   if (busy.value) return
   busy.value = true
@@ -171,6 +215,7 @@ const themePresetsUsed = computed(() =>
   THEME_PRESETS.every((name) => themes.value.some((t) => t.name.toLowerCase() === name.toLowerCase()))
 )
 
+/** Crée les thèmes proposés, en sautant ceux qui existent déjà. */
 async function applyThemePresets() {
   if (busy.value) return
   busy.value = true
@@ -183,6 +228,11 @@ async function applyThemePresets() {
   } catch (e) { apiError(e) } finally { busy.value = false }
 }
 
+/**
+ * Ajoute un thème.
+ *
+ * @returns {Promise<boolean>} true si la création a abouti.
+ */
 async function addTheme() {
   if (!themeName.value.trim() || busy.value) return
   busy.value = true
@@ -194,11 +244,17 @@ async function addTheme() {
   } catch (e) { apiError(e); return false } finally { busy.value = false }
 }
 
+/** Ajoute le thème en cours de saisie, puis passe au budget type (étape facultative). */
 async function continueFromThemes() {
   if (themeName.value.trim() && !(await addTheme())) return
   await goTo(3)
 }
 
+/**
+ * Retire un thème.
+ *
+ * @param {object} theme Le thème à retirer.
+ */
 async function removeTheme(theme) {
   if (busy.value) return
   busy.value = true
@@ -212,6 +268,11 @@ async function removeTheme(theme) {
 // La saisie se fait dans la vraie page Template, avec toutes ses options (jour de
 // prélèvement, périodicité, compte, cagnotte…) : la dupliquer ici n'en donnerait
 // qu'une version appauvrie. Le guide y envoie, le bouton Terminer ramène.
+/**
+ * Retire une ligne du budget type depuis le guide.
+ *
+ * @param {object} line La ligne à retirer.
+ */
 async function removeTemplateLine(line) {
   if (busy.value) return
   busy.value = true
@@ -221,6 +282,7 @@ async function removeTemplateLine(line) {
   } catch (e) { apiError(e) } finally { busy.value = false }
 }
 
+// Une ligne peut n'avoir aucune catégorie : elle se range alors dans « Sans catégorie »
 const categoryName = (id) => categories.value.find((c) => c.id === id)?.name || 'Sans catégorie'
 
 // Le type de la catégorie pilote, comme dans la page Template : additionner un revenu
@@ -235,6 +297,13 @@ const templateTotals = computed(() => {
 })
 
 // ─── Fin du guide : aucun mois créé, on rend la main sur la page Mois ───
+/**
+ * Clôt le guide et rend la main à la visite guidée, qui démarre sur les Comptes.
+ *
+ * Le drapeau serveur est indispensable : le guide ne crée aucun mois, donc rien
+ * d'autre en base ne signerait sa fin. `refreshOnboarding` republie l'état pour que
+ * le routeur et la barre d'application le voient tout de suite.
+ */
 async function finish() {
   if (busy.value) return
   busy.value = true

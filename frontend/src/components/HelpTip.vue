@@ -2,7 +2,13 @@
 // Aide contextuelle discrète : un ⓘ qui révèle une courte explication au survol ou au clic.
 // Le texte est passé en prop ; pas de logique, pas de dépendance.
 import { ref } from 'vue'
-defineProps({ text: { type: String, required: true }, wide: { type: Boolean, default: false } })
+defineProps({
+  text: { type: String, required: true },      // le texte de l'infobulle
+  wide: { type: Boolean, default: false },      // bulle large, pour une explication longue
+})
+
+// Visible au survol ; le clic sert de bascule pour le tactile et le clavier,
+// où il n'y a pas de survol.
 const open = ref(false)
 </script>
 
