@@ -623,14 +623,7 @@ async function deleteMovement(asset, m) {
 /* ─── Bandeau ─── */
 .bandeau { padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); }
 .bandeau-row { display: flex; align-items: center; gap: var(--s-6); }
-.synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
-.synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
-.synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; display: flex; align-items: center; gap: var(--s-2); }
-.synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
-.synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
-.synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
-.synth-v { font-size: var(--t-amount); color: var(--c-ink); }
-.synth-v2 { font-size: var(--t-small); }
+.synth-sub { display: flex; align-items: center; gap: var(--s-2); }
 .synth-link { border-radius: var(--r-control); text-decoration: none; }
 .synth-link:hover .synth-k { color: var(--c-accent); text-decoration: underline; }
 
@@ -653,13 +646,11 @@ async function deleteMovement(asset, m) {
   padding-inline: var(--s-5);
 }
 .inv-head { min-height: 34px; padding-block: var(--s-2); border-bottom: 1px solid var(--c-line); background: var(--c-surface-sunken); border-radius: var(--r-container) var(--r-container) 0 0; }
-.colh { font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); text-align: right; line-height: 1.3; }
+.colh { line-height: 1.3; }
 .colh.is-left { text-align: left; }
 
 .inv-row { min-height: 48px; border-bottom: 1px solid var(--c-line); cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
 .inv-row:hover { background: var(--c-surface-hover); }
-.cell-label { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
-.row-label { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cell-support { font-size: 13px; color: var(--c-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cell-support-inline { display: none; font-size: var(--t-meta); }
 .cell-n { font-size: var(--t-body); color: var(--c-ink); text-align: right; }
@@ -670,7 +661,6 @@ async function deleteMovement(asset, m) {
 .weight-bar { width: 48px; height: 3px; border-radius: var(--r-pill); background: var(--c-track); overflow: hidden; }
 .weight-fill { display: block; height: 100%; background: var(--c-fill); }
 .cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
-.row-action { opacity: 0; }
 .inv-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
 
 .inv-total { min-height: var(--h-row); background: var(--c-surface-sunken); border-top: 1px solid var(--c-line-strong); border-radius: 0 0 var(--r-container) var(--r-container); }
@@ -680,8 +670,6 @@ async function deleteMovement(asset, m) {
 
 .inv-closed { border-top: 1px solid var(--c-line-strong); }
 .inv-sec-head { min-height: 40px; background: var(--c-surface-sunken); }
-.reg-sec-title { font-size: var(--t-section); font-weight: 600; color: var(--c-ink); }
-.reg-sec-count { font-size: var(--t-small); font-weight: 400; color: var(--c-ink-3); margin-left: var(--s-2); }
 .inv-row.is-closed { cursor: default; }
 .inv-row.is-closed:hover { background: none; }
 
@@ -715,7 +703,6 @@ async function deleteMovement(asset, m) {
 .evo-line { width: 16px; height: 0; border-top: 2px solid var(--c-ink); }
 .evo-line.is-dashed { border-top-style: dashed; border-top-color: var(--c-ink-3); }
 .evo-empty { font-size: 13px; color: var(--c-ink-3); padding: var(--s-4) 0; }
-
 
 /* ─── Modale valorisation groupée ─── */
 .bulk-row { display: flex; align-items: center; gap: var(--s-4); }

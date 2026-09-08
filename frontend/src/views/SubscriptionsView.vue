@@ -342,15 +342,6 @@ async function removeConfirm(s) {
 
 /* ─── Bandeau ─── */
 .bandeau { display: flex; align-items: center; gap: var(--s-6); padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); flex-wrap: wrap; }
-.synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
-.synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
-.synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; }
-.synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
-.synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
-.synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
-.synth-v { font-size: var(--t-amount); color: var(--c-ink); }
-.synth-v2 { font-size: var(--t-small); }
-.synth-meta { font-size: var(--t-small); color: var(--c-ink-3); font-weight: 400; }
 
 /* ─── Registre ─── */
 .sub-panel { overflow: visible; }
@@ -363,14 +354,11 @@ async function removeConfirm(s) {
   min-height: var(--h-row);
 }
 .sub-head { min-height: 30px; border-bottom: 1px solid var(--c-line); background: var(--c-surface-sunken); border-radius: var(--r-container) var(--r-container) 0 0; }
-.colh { font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); text-align: right; }
 .colh.is-left { text-align: left; }
 .sub-row { border-bottom: 1px solid var(--c-line); transition: background-color var(--dur-fast) var(--ease); }
 .sub-row:hover { background: var(--c-surface-hover); }
 .sub-row.is-inactive .row-label, .sub-row.is-inactive .cell-text, .sub-row.is-inactive .cell-n { color: var(--c-ink-3); }
 .cell-check { display: flex; justify-content: center; }
-.cell-label { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
-.row-label { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cell-text { font-size: 13px; color: var(--c-ink-2); white-space: nowrap; }
 .cell-text.num { text-align: left; }
 .cell-n { font-size: var(--t-body); color: var(--c-ink); text-align: right; }
