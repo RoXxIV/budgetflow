@@ -775,7 +775,9 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
           <span>Pris dans une enveloppe du compte</span>
           <select v-model="envelopeForm.fromEnvelopeId" class="input w-44">
             <option value="">— non (sur le disponible)</option>
-            <option v-for="e in siblingEnvelopes" :key="e.id" :value="e.id">{{ e.name }} ({{ fmt(e.total) }})</option>
+            <!-- Pas de montant ici : le contenu d'un <option> échappe au flou du mode
+                 discret, aucun filtre CSS ne s'y applique de façon fiable. -->
+            <option v-for="e in siblingEnvelopes" :key="e.id" :value="e.id">{{ e.name }}</option>
           </select>
         </label>
       </div>

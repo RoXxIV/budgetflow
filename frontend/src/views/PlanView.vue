@@ -445,7 +445,7 @@ function reinitialiser() {
             @change="recalculer"
           />
           <button v-if="capaciteSurchargee" class="link-btn" title="Revenir au reste calculé" @click="capaciteSaisie = ''; recalculer()">
-            reprendre {{ fmt(resteCalcule) }}
+            reprendre <span class="num">{{ fmt(resteCalcule) }}</span>
           </button>
           <HelpTip text="Ce que vous consacrez réellement à vos objectifs. Vide, c'est le reste calculé au-dessus ; vous pouvez saisir moins pour garder du volant." />
         </span>
@@ -556,7 +556,7 @@ function reinitialiser() {
           <span class="num recap-val">{{ fmt(g.paid) }}<template v-if="g.target"> / {{ fmt(g.target) }}</template></span>
           <span v-if="g.target === null" class="recap-when">sans fin</span>
           <span v-else-if="g.reached" class="recap-when is-credit">atteint {{ moisLong(g.reached) }}</span>
-          <span v-else class="recap-when is-over">il manque {{ fmt(g.shortfall) }}</span>
+          <span v-else class="recap-when is-over">il manque <span class="num">{{ fmt(g.shortfall) }}</span></span>
         </div>
       </div>
 

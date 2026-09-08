@@ -187,11 +187,20 @@ export function create(monthId, data) {
  * enveloppe garde son compte hôte, et un virement système garde le sien — dans les
  * deux cas, le compte n'est pas un choix de saisie mais une conséquence.
  *
+ * LE TOUT EST TRANSACTIONNEL : jusqu'à six écritures peuvent s'enchaîner, sur la ligne
+ * puis sur ses entrées. Un échec au milieu laisserait la ligne modifiée et ses entrées
+ * en arrière — exactement l'incohérence que cette propagation existe pour éviter
+ * (relevé de la revue du 08/09).
+ *
  * @param {number} id La ligne.
  * @param {object} data Les champs à changer ; ceux absents gardent leur valeur.
  * @returns {object} La ligne modifiée.
  */
 export function update(id, data) {
+  return tx(() => updateInner(id, data));
+}
+
+function updateInner(id, data) {
   const existing = get("SELECT * FROM budget_lines WHERE id = ?", id);
   if (!existing) throw httpError(404, "Ligne introuvable");
 
