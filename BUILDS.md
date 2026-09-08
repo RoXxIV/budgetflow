@@ -55,10 +55,21 @@ pourcentages, avec import depuis le Template ; guide de bienvenue et visite guid
 front/back), 236 tests, refonte du CSS commun, page Mois découpée en trois composants,
 backend documenté.
 
-**Le bouton « Télécharger » de la sauvegarde n'a jamais tourné dans l'app packagée.**
-Il fonctionne en navigateur ; dans la webview, il peut être inerte. **À vérifier sur ce
-build** : Paramètres → Vos données → Télécharger. Si rien ne se passe, le correctif est
-prévu (le backend écrit le fichier lui-même et affiche son chemin).
+**Installation vérifiée le 09/09, rien perdu.** La base en place n'a pas été touchée :
+403 écritures, 45 167,04 €, 9 comptes, 294 lignes de budget, dernière écriture au 05/09,
+`integrity_check` à `ok`. Les migrations 021 à 023 se sont appliquées au démarrage.
+
+**Le bouton « Télécharger » fonctionne dans l'app packagée** — c'était le point
+d'interrogation de ce build, il est levé. `Paramètres → Vos données → Télécharger` a
+produit un fichier de 233 Ko, intègre, contenant exactement la base installée.
+
+**Et il vaut mieux que la copie des trois fichiers.** La sauvegarde passe par
+`VACUUM INTO` : un fichier unique, cohérent, le `-wal` déjà replié dedans. Mesuré le même
+jour sur cette installation, dont le `-wal` pesait **1,68 Mo pour un `.db` de 221 Ko** —
+presque tout le travail récent vivait dans le journal. Le `.db` seul, isolé de ses
+journaux, ne rend que **390 écritures et 41 523,02 €**, dernière écriture au 31/08 :
+**13 écritures et 3 644,02 € disparues sans un message**. Copier à la main reste possible,
+mais alors les TROIS fichiers.
 
 ---
 
