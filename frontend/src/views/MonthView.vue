@@ -354,17 +354,21 @@ const envelopePct = (env) => (env.effectiveTarget ? Math.min(100, Math.round((en
 // Enveloppe mensualisée au-delà de sa cible (abonnement repoussé, jamais liquidé) : affichée en rouge
 const isOverfull = (env) => !!env.effectiveTarget && env.total > env.effectiveTarget
 
-// ─── « Annuler ce mois-ci » : cette mensualité / ce DCA ne sera pas versé ce mois ───
-// Le Reste à vivre cesse de le déduire ; rien d'autre ne bouge, tout revient le mois suivant.
+// ─── « Annuler ce mois-ci » : cette dépense n'aura pas lieu ce mois ───
+// Trois cibles : une mensualité d'enveloppe, un DCA, ou une LIGNE du budget.
+// Le Reste à vivre cesse de la déduire ; rien d'autre ne bouge, tout revient le mois suivant.
 const isSkipped = (kind, id) => !!summaryData.value?.skips?.some((s) => s.kind === kind && s.targetId === id)
 
 /**
- * Annule (ou rétablit) une mensualité ou un DCA pour ce mois seulement.
+ * Annule (ou rétablit) une mensualité, un DCA ou une ligne pour ce mois seulement.
  *
  * Le reste à vivre cesse de le déduire ; rien d'autre ne bouge, et tout revient au
  * mois suivant. C'est une exception ponctuelle, pas une modification du Template.
  *
- * @param {'envelope'|'asset'} kind La nature de l'objet sauté.
+ * Pour une ligne, c'est l'alternative à la suppression : celle-ci efface la trace du
+ * geste et se rejoue à la main si on change d'avis.
+ *
+ * @param {'envelope'|'asset'|'line'} kind La nature de l'objet sauté.
  * @param {number} id Son identifiant.
  */
 async function toggleSkip(kind, id) {
@@ -512,12 +516,18 @@ const NO_CATEGORY = { id: null, name: 'Sans catégorie', type: 'depense', color:
  *
  * @returns {Array<{category: object, lines: Array, planned: number, actual: number}>}
  */
+// Les lignes annulées ce mois-ci quittent leur registre : elles ne comptent plus dans
+// les totaux, et les laisser à leur place ferait croire qu'elles pèsent encore. Elles
+// se retrouvent en bas de page, dans leur propre section.
+const lignesActives = computed(() => lines.value.filter((l) => !l.isSkipped))
+const lignesAnnulees = computed(() => lines.value.filter((l) => l.isSkipped))
+
 const groups = computed(() => {
   const result = categories.value.map((c) => ({
     category: c,
-    lines: lines.value.filter((l) => l.categoryId === c.id),
+    lines: lignesActives.value.filter((l) => l.categoryId === c.id),
   }))
-  const orphans = lines.value.filter((l) => !l.categoryId || !categories.value.some((c) => c.id === l.categoryId))
+  const orphans = lignesActives.value.filter((l) => !l.categoryId || !categories.value.some((c) => c.id === l.categoryId))
   if (orphans.length) result.push({ category: NO_CATEGORY, lines: orphans })
   return result
     .map((g) => ({
@@ -1192,6 +1202,19 @@ async function submitLineForm() {
  *
  * @param {object} line La ligne à supprimer.
  */
+/**
+ * Annule une ligne pour ce mois-ci, depuis son formulaire d'édition.
+ *
+ * Le formulaire se ferme dans la foulée : la ligne quitte son registre pour la section
+ * du bas, et la laisser ouverte sur un écran où elle n'est plus n'aurait aucun sens.
+ *
+ * @param {object} line La ligne du mois.
+ */
+async function annulerLigneCeMois(line) {
+  await toggleSkip('line', line.id)
+  closeLineForm()
+}
+
 async function removeLineConfirm(line) {
   const n = entriesForLine(line).length
   const ok = await confirmDialog({
@@ -1455,7 +1478,12 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
         <template v-if="!lineModalAdding && lineFormLine">
           <button v-if="lineFormLine.templateLineId" class="link text-xs" title="Les prochains mois utiliseront ces valeurs" @click="pushToTemplate(lineFormLine)">Reporter dans le template</button>
           <span v-else class="text-[11px] text-gray-400 self-center">ligne propre à ce mois</span>
-          <button class="btn-danger ml-auto" @click="removeLineConfirm(lineFormLine)">Supprimer</button>
+          <button
+            class="btn-secondary ml-auto"
+            title="Cette dépense n'a pas lieu ce mois-ci : elle sort du reste à vivre et passe en bas de page. Elle revient le mois prochain."
+            @click="annulerLigneCeMois(lineFormLine)"
+          >Pas ce mois-ci</button>
+          <button class="btn-danger" @click="removeLineConfirm(lineFormLine)">Supprimer</button>
         </template>
       </template>
     </AppModal>
@@ -1990,11 +2018,55 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
           <router-link to="/plan" class="link-accent aside-link" title="Bac à sable : répartir une capacité mensuelle entre plusieurs projets, et voir quand chacun tombe">Plan de financement →</router-link>
         </aside>
       </div>
+
+      <!-- ─── Annulées ce mois-ci ────────────────────────
+           Les lignes écartées du reste à vivre. Elles gardent leur montant prévu et
+           reviennent d'elles-mêmes le mois prochain : rien n'a été supprimé. -->
+      <div v-if="lignesAnnulees.length" class="panel annul-panel">
+        <div class="annul-head">
+          <h2 class="annul-title">Annulées ce mois-ci</h2>
+          <span class="annul-count num">{{ lignesAnnulees.length }}</span>
+          <span class="annul-hint">elles ne comptent pas dans le reste à vivre, et reviennent le mois prochain</span>
+        </div>
+        <div class="annul-list">
+          <div v-for="l in lignesAnnulees" :key="l.id" class="annul-row">
+            <span class="annul-label">{{ l.label }}</span>
+            <span class="annul-cat meta">{{ categories.find((c) => c.id === l.categoryId)?.name || 'sans catégorie' }}</span>
+            <span class="annul-amount num">{{ fmt(l.plannedAmount) }}</span>
+            <button
+              class="btn-secondary"
+              title="Recompter cette ligne dans le reste à vivre de ce mois"
+              @click="toggleSkip('line', l.id)"
+            >Réintégrer</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* ─── Annulées ce mois-ci : en bas de page, discrètes mais lisibles ─── */
+.annul-panel { padding: var(--s-4) var(--s-5); margin-top: var(--s-5); }
+.annul-head { display: flex; align-items: baseline; gap: var(--s-3); flex-wrap: wrap; margin-bottom: var(--s-3); }
+.annul-title { font-size: 15px; font-weight: 600; color: var(--c-ink); }
+.annul-count { font-size: 13px; font-weight: 400; color: var(--c-ink-3); }
+.annul-hint { font-size: var(--t-meta); color: var(--c-ink-3); }
+.annul-list { display: flex; flex-direction: column; }
+.annul-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 200px) 110px auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--c-line);
+}
+.annul-row:first-child { border-top: 0; }
+.annul-label { font-size: 14px; color: var(--c-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.annul-cat { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Le montant est barré : il existe toujours, mais il ne compte pas ce mois-ci */
+.annul-amount { text-align: right; color: var(--c-ink-3); text-decoration: line-through; }
+
 @reference "@/style.css";
 
 /* ─── Panneaux & utilitaires ─── */

@@ -100,7 +100,9 @@ export function create(monthId, data) {
   assertOpen(monthId);
   assertDateOpen(data.date);
   const cents = toCents(data.amount);
-  if (!cents) throw httpError(400, "Montant requis");
+  // Saisir 0 n'est pas une façon d'annuler une dépense : ça passerait pour « elle a bien
+  // eu lieu, et elle a coûté zéro ». Le geste existe, il est ailleurs — d'où le message.
+  if (!cents) throw httpError(400, "Un montant est requis. Pour dire que cette dépense n'a pas lieu ce mois-ci, utilisez « Annuler ce mois-ci » sur la ligne.");
   let line = null;
   if (data.lineId) {
     line = get("SELECT * FROM budget_lines WHERE id = ? AND month_id = ?", data.lineId, monthId);
@@ -169,7 +171,7 @@ export function update(id, data) {
   const val = (key, dbKey, transform = (v) => v) =>
     data[key] !== undefined ? transform(data[key]) : existing[dbKey];
   const cents = data.amount !== undefined ? toCents(data.amount) : existing.amount_cents;
-  if (!cents) throw httpError(400, "Montant requis");
+  if (!cents) throw httpError(400, "Un montant est requis. Pour retirer cette dépense, supprimez l'entrée ; pour dire qu'elle n'a pas lieu ce mois-ci, utilisez « Annuler ce mois-ci » sur la ligne.");
   const newEnvelopeId = data.envelopeId !== undefined ? (data.envelopeId || null) : existing.envelope_id;
   assertEnvelopeCanCover(newEnvelopeId, cents, existing.id);
   const newAccountId = data.accountId !== undefined ? (data.accountId || null) : existing.account_id;

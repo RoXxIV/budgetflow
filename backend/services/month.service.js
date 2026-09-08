@@ -41,10 +41,16 @@ function serialize(row) {
   };
 }
 
-// ─── « Annuler ce mois-ci » : mensualité d'enveloppe ou DCA non versé CE mois ───
-// Le Reste à vivre cesse de déduire la cible ; rien d'autre ne bouge, tout revient le mois suivant.
-// C'est une exception ponctuelle, pas une modification : le mois suivant repart de la
-// règle habituelle sans qu'on ait rien à réactiver.
+// ─── « Annuler ce mois-ci » : cette dépense n'aura pas lieu ce mois ───
+// Trois cibles possibles : une mensualité d'enveloppe, un DCA, ou une LIGNE du budget.
+// Le Reste à vivre cesse de la déduire ; rien d'autre ne bouge, tout revient le mois
+// suivant. C'est une exception ponctuelle, pas une modification : le mois suivant repart
+// de la règle habituelle sans qu'on ait rien à réactiver.
+//
+// L'alternative — supprimer la ligne du mois — efface la trace du geste et se rejoue à la
+// main si on change d'avis. Annuler garde la ligne, la met de côté, et se défait d'un clic.
+
+const SKIP_KINDS = ["envelope", "asset", "line"];
 
 // Les exceptions posées sur ce mois
 export function listSkips(monthId) {
@@ -52,10 +58,25 @@ export function listSkips(monthId) {
   return all("SELECT kind, target_id AS targetId FROM month_skips WHERE month_id = ?", monthId);
 }
 
-// INSERT OR IGNORE : reposer deux fois la même exception ne doit pas échouer
+/**
+ * Écarte une cible du Reste à vivre, pour ce mois seulement.
+ *
+ * Une ligne est vérifiée comme appartenant à CE mois : sans ce contrôle, on pourrait
+ * annuler la ligne d'un autre mois — ou une ligne du template — en passant son
+ * identifiant, et le chiffre affiché deviendrait faux sans rien pour l'expliquer.
+ *
+ * INSERT OR IGNORE : reposer deux fois la même exception ne doit pas échouer.
+ *
+ * @param {number} monthId Le mois, qui doit être ouvert.
+ * @param {object} params `{ kind: 'envelope'|'asset'|'line', targetId }`.
+ * @returns {Array<object>} Toutes les exceptions du mois.
+ */
 export function addSkip(monthId, { kind, targetId }) {
   assertOpen(monthId);
-  if (!["envelope", "asset"].includes(kind) || !Number(targetId)) throw httpError(400, "Cible invalide");
+  if (!SKIP_KINDS.includes(kind) || !Number(targetId)) throw httpError(400, "Cible invalide");
+  if (kind === "line" && !get("SELECT id FROM budget_lines WHERE id = ? AND month_id = ?", Number(targetId), monthId)) {
+    throw httpError(404, "Cette ligne n'appartient pas à ce mois");
+  }
   run("INSERT OR IGNORE INTO month_skips (month_id, kind, target_id) VALUES (?, ?, ?)", monthId, kind, Number(targetId));
   return listSkips(monthId);
 }
@@ -117,6 +138,10 @@ export function assertOpen(monthId) {
  * @returns {Array<object>} Les lignes, dans leur ordre d'affichage.
  */
 export function getLines(monthId) {
+  // Les lignes écartées ce mois-ci : l'écran les relègue dans sa section « annulées »
+  const annulees = new Set(
+    all("SELECT target_id FROM month_skips WHERE month_id = ? AND kind = 'line'", monthId).map((s) => s.target_id)
+  );
   const rows = all(
     `SELECT bl.*, COALESCE((SELECT SUM(e.amount_cents) FROM entries e WHERE e.line_id = bl.id), 0) AS actual_cents,
        (SELECT COUNT(*) FROM entries e WHERE e.line_id = bl.id) AS entry_count
@@ -136,6 +161,7 @@ export function getLines(monthId) {
       line.pot = pot;
       line.plannedAmount = pot.toSend;
     }
+    line.isSkipped = annulees.has(r.id);
     return line;
   });
 }

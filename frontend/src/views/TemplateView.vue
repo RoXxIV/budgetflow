@@ -11,6 +11,7 @@ import AppModal from '@/components/AppModal.vue'
 import HelpTip from '@/components/HelpTip.vue'
 import { confirmDialog, apiError, toast } from '@/composables/useDialog.js'
 import { eur } from '@/lib/format.js'
+import { potCalc as potCalcCents } from '@/lib/potCalc.js'
 
 // ─── Data ────────────────────────────────────────────────
 const lines = ref([])
@@ -146,35 +147,10 @@ const sharingOn = computed(() => pots.value.length > 0)
 // ─── Cagnotte : prévu théorique, même formule que le mois (pot.service) ───
 // payé par moi = Σ prévus des lignes ½ ; total = + part du partenaire ; à envoyer = ma part − payé par moi.
 // Compté dans les totaux pour que le template et le mois affichent le même chiffre.
-/**
- * Calcule où en est une cagnotte : ce que chacun a payé, et ce qu'il reste à envoyer.
- *
- * Même formule que le backend (pot.service), pour que le Template et le mois
- * affichent le même chiffre. Le raisonnement : on somme ce que J'AI déjà payé sur mes
- * lignes ½, on y ajoute ce que le partenaire a payé pour obtenir le total commun, on
- * en prend ma part (50 % par défaut), et l'écart avec ce que j'ai déjà sorti est ce
- * que je dois encore envoyer — négatif si j'ai trop payé.
- *
- * @param {object} pot La ligne de cagnotte.
- * @returns {{sharedByMe: number, partnerPaid: number, total: number, myShare: number,
- *   myPart: number, partnerName: string, toSend: number}}
- */
-const potCalc = (pot) => {
-  const defaultPotId = pots.value[0]?.id ?? null
-  const sharedByMe = lines.value.reduce((s, l) => {
-    if (!l.isShared || l.isPot) return s
-    return (l.potLineId || defaultPotId) === pot.id ? s + (l.plannedAmount || 0) : s
-  }, 0)
-  const partnerPaid = pot.potPartnerPaid || 0
-  const total = sharedByMe + partnerPaid
-  const myShare = pot.potMyShare ?? 50
-  const myPart = (total * myShare) / 100
-  return {
-    sharedByMe, partnerPaid, total, myShare, myPart,
-    partnerName: pot.potPartnerName || 'partenaire',
-    toSend: Math.round((myPart - sharedByMe) * 100) / 100,
-  }
-}
+// Le calcul vit dans lib/potCalc.js, en centimes et dans le même ordre d'arrondi que
+// le serveur : la version qui vivait ici travaillait en euros et divergeait d'un
+// centime un total impair sur deux (revue du 08/09).
+const potCalc = (pot) => potCalcCents(pot, lines.value, pots.value[0]?.id ?? null)
 // Les totaux raisonnent en mois-type : une ligne non mensuelle compte pour sa part
 // mensuelle (monthlyAmount, calculé par le backend), pas pour son montant prélevé.
 /**

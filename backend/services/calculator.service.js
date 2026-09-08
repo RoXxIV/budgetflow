@@ -268,6 +268,16 @@ export function saveReadings(monthId, calcId, readings) {
 /**
  * Régularisation : pose l'écart (estimé − prévu) en entrée sur la ligne rattachée.
  *
+ * CE QU'ELLE SUPPOSE — la mensualité du mois est DÉJÀ pointée. L'entrée posée ici est
+ * un ÉCART (estimation − prévu), pas un total : elle n'a de sens qu'ajoutée à la
+ * mensualité. Posée seule sur une ligne sans entrée, elle serait lue comme le coût du
+ * mois entier — la règle « le réel remplace le prévu » ne regarde pas la source — et le
+ * projeté sauterait du montant de la mensualité.
+ *
+ * Laissé tel quel sciemment (décision d'Evan, 08/09) : dans son usage le calculateur est
+ * un indicateur qu'il lit sans régulariser, et contraindre l'ordre rendrait l'outil moins
+ * général. Le point est documenté plutôt que verrouillé.
+ *
  * La précédente régularisation est supprimée d'abord : l'écart est un état, pas un
  * cumul. Rejouer l'opération après avoir corrigé un relevé doit donner le bon montant,
  * pas la somme des deux tentatives. La source `'regularisation'` est ce qui permet de

@@ -10,7 +10,8 @@
 // Le lien avec les vraies données est volontairement manuel : on n'importe une
 // moyenne que si on la demande, ligne par ligne.
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { computePlan, getAverages } from '@/api/plan.js'
+import { computePlan, getAverages, getTemplateBreakdown } from '@/api/plan.js'
+import AppModal from '@/components/AppModal.vue'
 import HelpTip from '@/components/HelpTip.vue'
 import { apiError } from '@/composables/useDialog.js'
 import { eur } from '@/lib/format.js'
@@ -67,6 +68,7 @@ onMounted(async () => {
   } catch { planVierge() }
 
   try { moyennes.value = (await getAverages()).data } catch { /* l'import restera indisponible */ }
+  try { budgetType.value = (await getTemplateBreakdown()).data } catch { /* idem */ }
   recalculer()
 })
 
@@ -92,23 +94,77 @@ const capaciteSurchargee = computed(() => String(capaciteSaisie.value).trim() !=
 
 const ajouterLigne = () => lignes.value.push({ id: nextId(), label: '', type: 'depense', amount: '' })
 
+// Les libellés déjà présents : aucun import ne crée de doublon, et les boutons restent
+// rejouables sans conséquence.
+const dejaImporte = () => new Set(lignes.value.map((l) => (l.importe || l.label).trim().toLowerCase()))
+
+// ─── Importer depuis le Template ─────────────────────────
+// Le Template dit ce qui est PRÉVU, là où les moyennes disent ce qui a été constaté :
+// c'est la matière la plus fiable pour bâtir un plan.
+const budgetType = ref(null)
+
 /**
- * Crée une ligne par thème, avec sa moyenne réelle.
+ * Reprend le budget type : une ligne par catégorie, une par charge mensualisée.
  *
- * Plus rapide que d'importer poste par poste quand on part d'une page blanche : on
- * ramène tout, puis on retire ce qui ne sert pas. Les thèmes déjà présents dans le
- * plan sont sautés, pour que le bouton reste rejouable sans créer de doublons.
+ * Les mensualisées sortent de leur catégorie côté serveur — les compter des deux côtés
+ * les ferait entrer deux fois dans le plan.
+ *
+ * Les enveloppes SANS ligne du Template ne viennent pas : ce sont des projets
+ * d'épargne, donc des objectifs, et ils ont leur propre bloc plus bas.
  */
-function importerTousLesThemes() {
-  if (!moyennes.value) return
-  const dejaLa = new Set(lignes.value.map((l) => (l.importe || l.label).trim().toLowerCase()))
+function importerDepuisTemplate() {
+  if (!budgetType.value) return
+  const dejaLa = dejaImporte()
   let n = 0
-  for (const t of moyennes.value.themes) {
-    if (dejaLa.has(t.name.trim().toLowerCase())) continue
-    lignes.value.push({ id: nextId(), label: t.name, type: 'depense', amount: t.average, importe: t.name })
+  const ajouter = (label, type, amount) => {
+    if (dejaLa.has(label.trim().toLowerCase())) return
+    lignes.value.push({ id: nextId(), label, type, amount, importe: label })
+    dejaLa.add(label.trim().toLowerCase())
     n++
   }
+  for (const c of budgetType.value.categories) ajouter(c.name, c.type === 'revenu' ? 'revenu' : 'depense', c.monthly)
+  for (const m of budgetType.value.monthlyized) ajouter(m.label, 'depense', m.monthly)
   if (n) recalculer()
+}
+
+// ─── Choisir ses thèmes ──────────────────────────────────
+// Tout importer d'un coup obligeait à faire le tri après coup ; on choisit avant.
+const themesOuvert = ref(false)
+const themesCoches = ref(new Set())
+
+// Un thème déjà repris ne se propose plus : il ferait doublon
+const themesProposes = computed(() => {
+  if (!moyennes.value) return []
+  const dejaLa = dejaImporte()
+  return moyennes.value.themes.filter((t) => !dejaLa.has(t.name.trim().toLowerCase()))
+})
+
+// Rien n'est coché à l'ouverture : le choix se refait à chaque fois
+function ouvrirThemes() {
+  if (!moyennes.value) return
+  themesCoches.value = new Set()
+  themesOuvert.value = true
+}
+const themeCoche = (id) => themesCoches.value.has(id)
+
+// Un nouveau Set à chaque bascule : Vue ne suit pas les mutations internes d'un Set,
+// l'écran ne se redessinerait pas
+function basculerTheme(id) {
+  const s = new Set(themesCoches.value)
+  if (s.has(id)) s.delete(id); else s.add(id)
+  themesCoches.value = s
+}
+const toutCocher = () => { themesCoches.value = new Set(themesProposes.value.map((t) => t.id)) }
+const toutDecocher = () => { themesCoches.value = new Set() }
+
+/** Crée une ligne pour chaque thème coché, avec sa moyenne réelle. */
+function importerThemesCoches() {
+  const choisis = themesProposes.value.filter((t) => themesCoches.value.has(t.id))
+  for (const t of choisis) {
+    lignes.value.push({ id: nextId(), label: t.name, type: 'depense', amount: t.average, importe: t.name })
+  }
+  themesOuvert.value = false
+  if (choisis.length) recalculer()
 }
 const retirerLigne = (id) => { lignes.value = lignes.value.filter((l) => l.id !== id) }
 
@@ -325,11 +381,18 @@ function reinitialiser() {
     <section class="panel">
       <div class="sec-head">
         <h2 class="sec-title">Chaque mois</h2>
-        <span class="sec-hint" v-if="moyennes">
-          moyennes sur {{ moyennes.months }} mois révolus
-          <button class="link-btn" title="Créer une ligne par thème, avec sa moyenne — à vous de retirer ce qui ne sert pas" @click="importerTousLesThemes">
-            importer tous mes thèmes
-          </button>
+        <span class="sec-hint">
+          <button
+            v-if="budgetType"
+            class="link-btn"
+            title="Une ligne par catégorie du budget type, plus une par charge mensualisée — ce qui est prévu, pas ce qui a été constaté"
+            @click="importerDepuisTemplate"
+          >importer depuis le Template</button>
+          <template v-if="moyennes">
+            <span class="sec-sep">·</span>
+            <button class="link-btn" title="Choisir les thèmes à reprendre, avec leur moyenne réelle" @click="ouvrirThemes">choisir des thèmes…</button>
+            <span class="sec-note-inline">moyennes sur {{ moyennes.months }} mois révolus</span>
+          </template>
         </span>
       </div>
 
@@ -382,7 +445,7 @@ function reinitialiser() {
             @change="recalculer"
           />
           <button v-if="capaciteSurchargee" class="link-btn" title="Revenir au reste calculé" @click="capaciteSaisie = ''; recalculer()">
-            reprendre {{ fmt(resteCalcule) }}
+            reprendre <span class="num">{{ fmt(resteCalcule) }}</span>
           </button>
           <HelpTip text="Ce que vous consacrez réellement à vos objectifs. Vide, c'est le reste calculé au-dessus ; vous pouvez saisir moins pour garder du volant." />
         </span>
@@ -493,7 +556,7 @@ function reinitialiser() {
           <span class="num recap-val">{{ fmt(g.paid) }}<template v-if="g.target"> / {{ fmt(g.target) }}</template></span>
           <span v-if="g.target === null" class="recap-when">sans fin</span>
           <span v-else-if="g.reached" class="recap-when is-credit">atteint {{ moisLong(g.reached) }}</span>
-          <span v-else class="recap-when is-over">il manque {{ fmt(g.shortfall) }}</span>
+          <span v-else class="recap-when is-over">il manque <span class="num">{{ fmt(g.shortfall) }}</span></span>
         </div>
       </div>
 
@@ -543,10 +606,57 @@ function reinitialiser() {
     <p v-else class="panel empty">
       Renseignez vos revenus, vos charges et au moins un objectif avec sa part mensuelle : la répartition s'affichera ici.
     </p>
+
+    <!-- ─── Choisir des thèmes ─────────────────────────
+         Cocher avant d'importer, plutôt que tout prendre et trier ensuite. -->
+    <AppModal :open="themesOuvert" title="Reprendre des thèmes" @close="themesOuvert = false">
+      <p class="thm-lead">
+        Leur moyenne mensuelle réelle, sur {{ moyennes?.months }} mois révolus.
+        Cochez ce qui entre dans le plan.
+      </p>
+      <div v-if="themesProposes.length" class="thm-tools">
+        <button class="link-btn" @click="toutCocher">tout cocher</button>
+        <button class="link-btn" @click="toutDecocher">tout décocher</button>
+      </div>
+      <div class="thm-list">
+        <label v-for="t in themesProposes" :key="t.id" class="thm-row">
+          <input type="checkbox" :checked="themeCoche(t.id)" @change="basculerTheme(t.id)" />
+          <span class="thm-name">{{ t.name }}</span>
+          <span class="thm-avg num">{{ fmt(t.average) }}</span>
+        </label>
+        <p v-if="!themesProposes.length" class="thm-empty">Tous vos thèmes sont déjà repris dans le plan.</p>
+      </div>
+      <template #footer>
+        <button class="btn-primary" :disabled="!themesCoches.size" @click="importerThemesCoches">
+          Importer{{ themesCoches.size ? ' (' + themesCoches.size + ')' : '' }}
+        </button>
+        <button class="btn-secondary" @click="themesOuvert = false">Annuler</button>
+      </template>
+    </AppModal>
   </div>
 </template>
 
 <style scoped>
+/* ─── Choisir des thèmes ─── */
+.thm-lead { font-size: 13px; color: var(--c-ink-2); margin-bottom: var(--s-3); }
+.thm-tools { display: flex; gap: var(--s-4); margin-bottom: var(--s-2); }
+.thm-list { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; }
+.thm-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--c-line);
+  cursor: pointer;
+}
+.thm-row:first-child { border-top: 0; }
+.thm-name { font-size: 14px; color: var(--c-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thm-avg { text-align: right; color: var(--c-ink-2); font-size: 13px; }
+.thm-empty { font-size: 13px; color: var(--c-ink-3); padding: var(--s-4) 0; }
+.sec-sep { color: var(--c-ink-3); margin: 0 var(--s-2); }
+.sec-note-inline { color: var(--c-ink-3); margin-left: var(--s-3); }
+
 .plan-head { display: flex; align-items: flex-start; gap: var(--s-5); }
 .plan-title { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); }
 .plan-sub { font-size: var(--t-small); color: var(--c-ink-3); margin-top: var(--s-1); max-width: 70ch; line-height: 1.5; }
