@@ -2,21 +2,22 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { eur } from '@/lib/format.js'
 import {
-  getMonths, setMonthClosed, setMonthNotes, addMonthSkip, removeMonthSkip,
+  getMonths, setMonthClosed, addMonthSkip, removeMonthSkip,
   getMonthLines, payLine,
   getMonthSnapshots,
   getMonthEntries, createEntry, updateEntry, deleteEntry,
   getMonthSummary, getMonthEnvelopeContributions,
   createMonthLine, updateMonthLine, deleteMonthLine, applyLineToTemplate,
 } from '@/api/months.js'
-import { getEnvelopes, addContribution, removeContribution, liquidateEnvelope } from '@/api/envelopes.js'
+import { getEnvelopes, liquidateEnvelope } from '@/api/envelopes.js'
 import { getMonthCalculators, saveMonthReadings, regularizeCalculator } from '@/api/calculators.js'
 import AppModal from '@/components/AppModal.vue'
 import MonthCreateForm from '@/components/MonthCreateForm.vue'
+import MonthSidebar from '@/components/MonthSidebar.vue'
 import MonthSummaryBar from '@/components/MonthSummaryBar.vue'
 import HelpTip from '@/components/HelpTip.vue'
 import { confirmDialog, apiError } from '@/composables/useDialog.js'
-import { getAssets, addAssetMovement, removeAssetMovement, getMonthAssetMovements, dcaAsset, undcaAsset } from '@/api/assets.js'
+import { getAssets, getMonthAssetMovements } from '@/api/assets.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
 import { getAccounts } from '@/api/accounts.js'
@@ -101,91 +102,11 @@ async function reload() {
   await loadMonthData(current.value.id)
 }
 
-// ─── Note du mois : texte libre, une par mois, enregistrée au blur ───
-const monthNotes = ref('')
-const notesSaved = ref(false)
-let notesSavedTimer = null
-onUnmounted(() => clearTimeout(notesSavedTimer))
-watch(() => current.value?.id, () => { monthNotes.value = current.value?.notes || '' })
-/**
- * Enregistre la note du mois, à la sortie du champ.
- *
- * Rien n'est envoyé si le texte n'a pas changé — la comparaison ignore les espaces de
- * bord, pour ne pas déclencher une écriture sur un simple passage dans le champ.
- */
-async function saveNotes() {
-  if (!current.value || monthNotes.value.trim() === (current.value.notes || '').trim()) return
-  try {
-    const { data } = await setMonthNotes(current.value.id, monthNotes.value)
-    current.value.notes = data.notes
-    notesSaved.value = true
-    clearTimeout(notesSavedTimer)
-    notesSavedTimer = setTimeout(() => { notesSaved.value = false }, 2000)
-  } catch (e) { apiError(e) }
-}
-
-// ─── Investissements : ☐ versé (DCA), mouvements du mois ─
-const openAssetId = ref(null)
-const assetMovementForm = ref({})
-const movementsForAsset = (asset) => monthAssetMovements.value.filter((m) => m.assetId === asset.id)
-const monthInvestedTotal = computed(() => monthAssetMovements.value.filter((m) => m.kind === 'versement').reduce((s, m) => s + m.amount, 0))
-
-/**
- * Coche le versement récurrent (DCA) d'un actif pour ce mois.
- *
- * Case à sens unique, comme partout dans le registre : dès qu'un mouvement réel
- * existe, il fait foi et la case ne rejoue plus. Pour revenir en arrière, on supprime
- * le mouvement.
- *
- * @param {object} asset L'actif concerné.
- */
-async function toggleDca(asset) {
-  if (movementsForAsset(asset).length) return
-  try {
-    await dcaAsset(current.value.id, asset.id)
-    await reload()
-  } catch (e) { apiError(e) }
-}
-
-/**
- * Déplie le détail d'un actif et prépare le formulaire de mouvement.
- *
- * La date proposée reste TOUJOURS dans le mois de la fiche : aujourd'hui si on y est,
- * le 1er sinon. Saisir dans un mois passé ne doit pas y poser une entrée datée
- * d'aujourd'hui, qui tomberait dans le mauvais mois.
- *
- * @param {object} asset L'actif à déplier.
- */
-function toggleAsset(asset) {
-  if (openAssetId.value === asset.id) { openAssetId.value = null; return }
-  openAssetId.value = asset.id
-  const today = new Date().toISOString().substring(0, 10)
-  assetMovementForm.value = {
-    kind: 'versement',
-    amount: '',
-    date: today.startsWith(current.value.period) ? today : `${current.value.period}-01`,
-    counterpartAccountId: accounts.value.find((a) => a.isMain)?.id || '',
-  }
-}
-
-/**
- * Enregistre un versement ou un retrait sur un actif, depuis le mois.
- *
- * @param {object} asset L'actif concerné.
- */
-async function submitAssetMovement(asset) {
-  const f = assetMovementForm.value
-  if (!f.amount) return
-  try {
-    await addAssetMovement(asset.id, { kind: f.kind, amount: parseFloat(f.amount), date: f.date, counterpartAccountId: f.counterpartAccountId || null })
-    assetMovementForm.value = { ...f, amount: '' }
-    await reload()
-  } catch (e) { apiError(e) }
-}
-
-async function deleteAssetMovement(m) {
-  try { await removeAssetMovement(m.assetId, m.id); await reload() } catch (e) { apiError(e) }
-}
+// ─── La colonne latérale ─────────────────────────────────
+// Enveloppes, investissements et note du mois vivent dans MonthSidebar, qui possède
+// leurs formulaires et leurs écritures. La vue relit le mois dès qu'il a écrit : une
+// contribution ou un versement déplacent des soldes, et seul le serveur sait ce que ça
+// donne.
 
 // ─── Calculateurs : saisie des relevés, régularisation ───
 /**
@@ -243,9 +164,6 @@ function potStatus(line) {
   return 'équilibré'
 }
 
-// ─── Enveloppes (contribution rapide depuis le mois) ─────
-const openEnvelopeId = ref(null)
-const contribForm = ref({})
 // ─── Repères d'affichage du registre ─────────────────────
 // La navigation de mois, l'ombre de la barre collante et les deux panneaux de soldes
 // vivent désormais dans MonthSummaryBar.
@@ -295,11 +213,6 @@ function rowAlert(line) {
   }
   return false
 }
-const contribsForEnvelope = (env) => monthContribs.value.filter((c) => c.envelopeId === env.id)
-const monthContribTotal = computed(() => monthContribs.value.filter((c) => c.kind === 'normale').reduce((s, c) => s + c.amount, 0))
-const envelopePct = (env) => (env.effectiveTarget ? Math.min(100, Math.round((env.total / env.effectiveTarget) * 100)) : null)
-// Enveloppe mensualisée au-delà de sa cible (abonnement repoussé, jamais liquidé) : affichée en rouge
-const isOverfull = (env) => !!env.effectiveTarget && env.total > env.effectiveTarget
 
 // ─── « Annuler ce mois-ci » : cette dépense n'aura pas lieu ce mois ───
 // Trois cibles : une mensualité d'enveloppe, un DCA, ou une LIGNE du budget.
@@ -346,73 +259,6 @@ async function confirmLiquidation() {
   try {
     await liquidateEnvelope(l.env.id, l.toAccountId)
     liquidation.value = null
-    await reload()
-  } catch (e) { apiError(e) }
-}
-
-/**
- * Déplie une enveloppe et prépare le versement.
- *
- * Le montant est pré-rempli à la mensualité suggérée, et la date reste dans le mois de
- * la fiche : le geste courant est « je verse ce qui est prévu », il doit tenir en un clic.
- *
- * @param {object} env L'enveloppe à déplier.
- */
-function toggleEnvelope(env) {
-  if (openEnvelopeId.value === env.id) { openEnvelopeId.value = null; return }
-  openEnvelopeId.value = env.id
-  contribForm.value = {
-    amount: env.monthlySuggestion || '',
-    date: current.value.period === new Date().toISOString().substring(0, 7)
-      ? new Date().toISOString().substring(0, 10)
-      : `${current.value.period}-01`,
-    fromAccountId: accounts.value.find((a) => a.isMain)?.id || '',
-    notes: '',
-  }
-}
-
-/**
- * Verse un montant dans une enveloppe depuis le mois.
- *
- * @param {object} env L'enveloppe alimentée.
- */
-async function submitContribution(env) {
-  const f = contribForm.value
-  if (!f.amount) return
-  try {
-    await addContribution(env.id, {
-      amount: parseFloat(f.amount),
-      date: f.date,
-      fromAccountId: f.fromAccountId || null,
-      notes: f.notes || null,
-    })
-    contribForm.value = { ...f, amount: '', notes: '' }
-    await reload()
-  } catch (e) { apiError(e) }
-}
-
-async function deleteContribution(c) {
-  try { await removeContribution(c.envelopeId, c.id); await reload() } catch (e) { apiError(e) }
-}
-
-/**
- * Case « versé » : verse la mensualité suggérée en un clic.
- *
- * Ne fait rien si un versement normal existe déjà ce mois-ci — la case est à sens
- * unique, comme le pointage des lignes.
- *
- * @param {object} env L'enveloppe à alimenter.
- */
-async function contributeSuggested(env) {
-  if (contribsForEnvelope(env).some((c) => c.kind === 'normale')) return
-  const today = new Date().toISOString().substring(0, 10)
-  try {
-    await addContribution(env.id, {
-      amount: env.monthlySuggestion,
-      date: today.startsWith(current.value.period) ? today : `${current.value.period}-01`,
-      fromAccountId: accounts.value.find((a) => a.isMain)?.id || null,
-      notes: 'Mensualité',
-    })
     await reload()
   } catch (e) { apiError(e) }
 }
@@ -1649,136 +1495,19 @@ async function onSnapshotsSaved(liste) {
           </div>
         </div>
 
-        <!-- ─── Colonne latérale : Enveloppes & Investissements — §5.11 ── -->
-        <aside class="month-aside">
-          <div v-if="envelopes.length" class="panel side-panel">
-            <div class="side-head"><span class="side-title has-tip" title="Total des versements du mois (mis de côté) — le même chiffre que la tuile Épargne. Les tags des lignes montrent, eux, le mouvement net de chaque enveloppe : les deux peuvent différer.">Enveloppes</span><span class="num side-total">{{ fmt(monthContribTotal) }}</span></div>
-            <div v-for="env in envelopes" :key="env.id" class="side-item" @click="toggleEnvelope(env)">
-              <div class="side-row1">
-                <button
-                  v-if="env.monthlySuggestion > 0 && !current.isClosed && !contribsForEnvelope(env).some((c) => c.kind === 'normale') && !isSkipped('envelope', env.id)"
-                  class="pointbox pointbox-sm"
-                  :aria-label="'Verser la mensualité de ' + env.name"
-                  :title="'Verser la mensualité suggérée : ' + fmt(env.monthlySuggestion)"
-                  @click.stop="contributeSuggested(env)"
-                ></button>
-                <span v-else-if="contribsForEnvelope(env).some((c) => c.kind === 'normale')" class="pointbox pointbox-sm is-checked"><PhCheck :size="10" weight="bold" /></span>
-                <span class="side-name">{{ env.name }}</span>
-                <span v-if="isSkipped('envelope', env.id)" class="tag tag-neutral" title="Pas de versement ce mois-ci : le Reste à vivre ne le déduit plus. Tout revient le mois prochain.">annulé ce mois</span>
-                <span class="num side-amounts" :title="isOverfull(env) ? 'Au-delà de la cible : à liquider quand le paiement passera' : ''"><span :class="isOverfull(env) ? 'is-over' : 'ink'">{{ fmt(env.total) }}</span><span v-if="env.targetAmount" :class="isOverfull(env) ? 'is-over' : 'meta'"> / {{ fmt(env.effectiveTarget) }}</span></span>
-              </div>
-              <div v-if="env.targetAmount" class="goal-bar"><div class="goal-fill" :class="{ 'is-overfill': isOverfull(env) }" :style="{ width: Math.min(100, envelopePct(env) || 0) + '%' }" /></div>
-              <div class="side-meta">
-                <span v-if="env.accountName">{{ env.accountName }}</span><span v-if="env.monthlySuggestion" class="num"> · {{ fmt(env.monthlySuggestion) }}/mois</span>
-                <span v-if="contribsForEnvelope(env).length" class="tag num" :class="contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? 'tag-credit' : 'tag-alert'" title="Mouvement net de l'enveloppe ce mois : versements, dépenses sorties, réaffectations et ajustements compris — pas seulement le mis de côté">{{ contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0) >= 0 ? '+' : '' }}{{ fmt(contribsForEnvelope(env).reduce((s, c) => s + c.amount, 0)) }} ce mois</span>
-                <span v-if="env.targetAmount" class="side-rest num">reste {{ fmt(Math.max(0, Math.round((env.effectiveTarget - env.total) * 100) / 100)) }}</span>
-              </div>
-              <div v-if="openEnvelopeId === env.id" class="side-expand" @click.stop>
-                <div v-for="c in contribsForEnvelope(env)" :key="c.id" class="entry-row">
-                  <span class="entry-date num">{{ shortDate(c.date) }}</span>
-                  <span class="entry-label">{{ c.kind !== 'normale' ? c.kind : (c.notes || '') }}</span>
-                  <span class="entry-amount num" :class="c.amount >= 0 ? 'is-credit' : 'is-over'">{{ fmt(c.amount) }}</span>
-                  <span class="entry-account">{{ c.fromAccountName || '' }}</span>
-                  <span class="entry-actions"><button v-if="!current.isClosed" class="btn-icon is-danger" title="Supprimer la contribution" @click.stop="deleteContribution(c)">×</button></span>
-                </div>
-                <p v-if="!contribsForEnvelope(env).length" class="entries-empty">Aucune contribution ce mois.</p>
-                <div v-if="!current.isClosed" class="side-form">
-                  <input v-model="contribForm.amount" type="number" step="0.01" class="input w-20" :placeholder="env.monthlySuggestion ? String(env.monthlySuggestion) : 'Montant'" @keyup.enter="submitContribution(env)" />
-                  <input v-model="contribForm.date" type="date" class="input w-32" />
-                  <select v-model="contribForm.fromAccountId" class="input flex-1" title="Compte source">
-                    <option value="">— depuis</option>
-                    <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                  </select>
-                  <button class="btn-secondary" @click="submitContribution(env)">Ajouter</button>
-                </div>
-                <!-- Mensualisée : le geste qui ferme la boucle — le virement réel est passé,
-                     on vide l'enveloppe vers le compte remboursé et le cycle repart -->
-                <div v-if="!current.isClosed && (env.linkedTemplateLineId || env.monthlySuggestion > 0 || isSkipped('envelope', env.id))" class="side-liquidate">
-                  <button v-if="env.linkedTemplateLineId && env.total > 0" class="link-accent" @click.stop="openLiquidation(env)">Liquider et renouveler</button>
-                  <!-- Toutes les enveloppes à mensualité (liées OU libres comme le Matelas) : le skip
-                       fait taire la case et la suggestion ce mois-ci — et retire la mensualité du
-                       Reste à vivre quand elle y était déduite (enveloppes liées). « Rétablir » reste
-                       accessible même après un versement (état contradictoire sinon). -->
-                  <button
-                    v-if="isSkipped('envelope', env.id) || (env.monthlySuggestion > 0 && !contribsForEnvelope(env).some((c) => c.kind === 'normale'))"
-                    class="link-accent"
-                    :title="isSkipped('envelope', env.id) ? 'Reprendre la mensualité ce mois-ci' : 'Ce mois-ci, pas de versement pour ce projet'"
-                    @click.stop="toggleSkip('envelope', env.id)"
-                  >{{ isSkipped('envelope', env.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="assets.length" class="panel side-panel">
-            <div class="side-head"><span class="side-title">Investissements</span><span class="num side-total">{{ fmt(monthInvestedTotal) }}</span></div>
-            <div v-for="asset in assets" :key="asset.id" class="side-item" @click="toggleAsset(asset)">
-              <div class="side-row1">
-                <button
-                  v-if="asset.monthlyDca > 0 && !movementsForAsset(asset).length && !current.isClosed && !isSkipped('asset', asset.id)"
-                  class="pointbox pointbox-sm"
-                  :aria-label="'Verser le DCA de ' + asset.name"
-                  title="Marquer le versement mensuel comme fait (annulation : supprimer le mouvement)"
-                  @click.stop="toggleDca(asset)"
-                ></button>
-                <span v-else-if="movementsForAsset(asset).length" class="pointbox pointbox-sm is-checked"><PhCheck :size="10" weight="bold" /></span>
-                <span class="side-name">{{ asset.name }}</span>
-                <span v-if="isSkipped('asset', asset.id)" class="tag tag-neutral" title="Pas de versement ce mois-ci : le Reste à vivre ne le déduit plus. Tout revient le mois prochain.">annulé ce mois</span>
-                <span v-if="asset.type" class="tag tag-neutral">{{ asset.type }}</span>
-                <span class="num side-amounts">
-                  <span class="ink">{{ fmt(movementsForAsset(asset).length ? movementsForAsset(asset).reduce((s, m) => s + (m.kind === 'versement' ? m.amount : -m.amount), 0) : asset.monthlyDca) }}</span>
-                  <span v-if="!movementsForAsset(asset).length && asset.monthlyDca" class="meta"> prévu</span>
-                </span>
-              </div>
-              <div class="side-meta"><span v-if="asset.accountName">{{ asset.accountName }}</span></div>
-              <div v-if="openAssetId === asset.id" class="side-expand" @click.stop>
-                <div v-for="m in movementsForAsset(asset)" :key="m.id" class="entry-row">
-                  <span class="entry-date num">{{ shortDate(m.date) }}</span>
-                  <span class="entry-label"><span v-if="m.source === 'dca'" class="tag tag-info">DCA</span></span>
-                  <span class="entry-amount num" :class="m.kind === 'versement' ? 'is-credit' : 'is-over'">{{ m.kind === 'retrait' ? '−' : '+' }}{{ fmt(m.amount) }}</span>
-                  <span class="entry-account">{{ m.kind === 'versement' ? (m.counterpartAccountName || '?') + ' → ' + (asset.accountName || asset.name) : (asset.accountName || asset.name) + ' → ' + (m.counterpartAccountName || '?') }}</span>
-                  <span class="entry-actions"><button v-if="!current.isClosed" class="btn-icon is-danger" title="Supprimer le mouvement" @click.stop="deleteAssetMovement(m)">×</button></span>
-                </div>
-                <p v-if="!movementsForAsset(asset).length" class="entries-empty">Aucun mouvement ce mois.</p>
-                <!-- « Rétablir » reste accessible même après un versement (état contradictoire sinon) -->
-                <div v-if="asset.monthlyDca > 0 && !current.isClosed && (isSkipped('asset', asset.id) || !movementsForAsset(asset).length)" class="side-liquidate">
-                  <button class="link-accent" :title="isSkipped('asset', asset.id) ? 'Re-déduire le DCA du Reste à vivre' : 'Ce mois-ci, pas de versement : le Reste à vivre ne le déduira plus'" @click.stop="toggleSkip('asset', asset.id)">{{ isSkipped('asset', asset.id) ? 'Rétablir ce mois-ci' : 'Annuler ce mois-ci' }}</button>
-                </div>
-                <div v-if="!current.isClosed" class="side-form">
-                  <select v-model="assetMovementForm.kind" class="input w-24">
-                    <option value="versement">Versement</option>
-                    <option value="retrait">Retrait</option>
-                  </select>
-                  <input v-model="assetMovementForm.amount" type="number" step="0.01" class="input w-20" placeholder="Montant" @keyup.enter="submitAssetMovement(asset)" />
-                  <input v-model="assetMovementForm.date" type="date" class="input w-32" />
-                  <select v-model="assetMovementForm.counterpartAccountId" class="input flex-1" :title="assetMovementForm.kind === 'versement' ? 'Compte source' : 'Compte destination'">
-                    <option value="">— compte</option>
-                    <option v-for="a in activeAccounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-                  </select>
-                  <button class="btn-secondary" @click="submitAssetMovement(asset)">Ajouter</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Note du mois : texte libre, enregistrée au blur (aussi sur un mois clôturé) -->
-          <div class="panel side-panel notes-panel">
-            <div class="side-head">
-              <span class="side-title">Notes</span>
-              <span v-if="notesSaved" class="notes-saved">Enregistré</span>
-            </div>
-            <textarea
-              v-model="monthNotes"
-              class="notes-area"
-              rows="4"
-              :placeholder="'Une note pour ' + (current.name || 'ce mois') + '…'"
-              @blur="saveNotes"
-            ></textarea>
-          </div>
-
-          <router-link to="/abonnements" class="link-accent aside-link" title="Bac à sable : coût total des abonnements et simulations, sans rien toucher ailleurs">Tracker d'abonnements →</router-link>
-          <router-link to="/plan" class="link-accent aside-link" title="Bac à sable : répartir une capacité mensuelle entre plusieurs projets, et voir quand chacun tombe">Plan de financement →</router-link>
-        </aside>
+        <!-- ─── Colonne latérale : enveloppes, investissements, note ── -->
+        <MonthSidebar
+          :current="current"
+          :envelopes="envelopes"
+          :assets="assets"
+          :contribs="monthContribs"
+          :movements="monthAssetMovements"
+          :accounts="activeAccounts"
+          :skips="summaryData?.skips || []"
+          @changed="reload"
+          @toggle-skip="toggleSkip"
+          @liquidate="openLiquidation"
+        />
       </div>
 
       <!-- ─── Annulées ce mois-ci ────────────────────────
@@ -1839,7 +1568,6 @@ async function onSnapshotsSaved(liste) {
 /* ─── Grille de page ─── */
 .month-layout { display: grid; grid-template-columns: minmax(0, 1fr) var(--w-aside); gap: var(--s-7); align-items: start; }
 .reg-col { min-width: 0; display: flex; flex-direction: column; gap: var(--s-5); }
-.month-aside { display: flex; flex-direction: column; gap: var(--s-5); position: sticky; top: calc(var(--h-summary) + var(--s-5) + 16px); }
 @media (max-width: 1119px) {
   .month-layout { grid-template-columns: 1fr; }
   .month-aside { position: static; }
@@ -1905,23 +1633,6 @@ async function onSnapshotsSaved(liste) {
 .reg-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
 
 /* Case de pointage — §5.10 */
-.pointbox {
-  width: 18px; height: 18px;
-  border: 1.5px solid var(--c-line-strong);
-  border-radius: 4px;
-  background: var(--c-surface);
-  cursor: pointer;
-  position: relative;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: transparent;
-  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
-}
-.pointbox::after { content: ''; position: absolute; inset: -11px -5px; }
-.pointbox:hover:not(:disabled) { border-color: var(--c-accent); }
-.pointbox:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--c-accent-ring); }
-.pointbox:disabled { opacity: 0.4; cursor: default; }
-.pointbox.is-checked { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); cursor: default; }
-.pointbox-sm { width: 15px; height: 15px; }
 
 /* Entrées (niveau 3) */
 .entries-block {
@@ -1960,7 +1671,6 @@ async function onSnapshotsSaved(liste) {
 
 /* Tags — §5.9 */
 .tag-info { background: var(--c-accent-soft); color: var(--c-accent); }
-.tag-credit { background: var(--c-credit-soft); color: var(--c-credit); }
 .tag-dot { width: 6px; height: 6px; border-radius: var(--r-pill); }
 
 /* Repli animé */
@@ -1985,41 +1695,8 @@ async function onSnapshotsSaved(liste) {
 .calc-ok { font-size: var(--t-meta); color: var(--c-credit); }
 
 /* ─── Colonne latérale ─── */
-.side-panel { overflow: hidden; }
-.side-head { display: flex; align-items: baseline; justify-content: space-between; padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--c-line); }
-.side-title { font-size: 13px; font-weight: 600; color: var(--c-ink); }
-.side-total { font-size: 13px; color: var(--c-ink-2); }
-.side-item { padding: var(--s-3) var(--s-5); cursor: pointer; }
-.side-item + .side-item { border-top: 1px solid var(--c-line); }
 
 /* Note du mois : se lit comme du texte, devient un champ au focus */
-.notes-panel { padding: 0 var(--s-3) var(--s-3); }
-.notes-panel .side-head { margin: 0 calc(-1 * var(--s-3)) var(--s-2); }
-.notes-saved { font-size: var(--t-meta); color: var(--c-ink-3); }
-.notes-area {
-  width: 100%; resize: vertical; min-height: 72px;
-  font-family: var(--font-ui); font-size: 13px; line-height: var(--lh-body); color: var(--c-ink);
-  background: transparent; border: 1px solid transparent; border-radius: var(--r-control);
-  padding: var(--s-2) var(--s-3); outline: none;
-  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
-}
-.notes-area:hover { border-color: var(--c-line-strong); }
-.notes-area:focus { border-color: var(--c-accent); background: var(--c-surface); box-shadow: 0 0 0 3px var(--c-accent-ring); }
-.notes-area::placeholder { color: var(--c-ink-3); }
-.aside-link { align-self: flex-start; padding-left: var(--s-2); margin-top: calc(-1 * var(--s-3)); }
-.side-item:hover { background: var(--c-surface-hover); }
-.side-row1 { display: flex; align-items: center; gap: var(--s-2); }
-.side-name { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.side-amounts { margin-left: auto; font-size: 13px; white-space: nowrap; }
-.goal-bar { height: 4px; border-radius: var(--r-pill); background: var(--c-track); overflow: hidden; margin-top: var(--s-2); }
-.goal-fill { height: 100%; background: var(--c-fill-goal); transition: width var(--dur-base) var(--ease); }
-.goal-fill.is-overfill { background: var(--c-fill-over); }
-.side-liquidate { margin-top: var(--s-2); border-top: 1px solid var(--c-line); padding-top: var(--s-2); }
-.side-meta { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-meta); color: var(--c-ink-3); margin-top: var(--s-1); flex-wrap: wrap; }
-.side-rest { margin-left: auto; }
-.side-expand { margin-top: var(--s-3); background: var(--c-surface-sunken); border-radius: var(--r-control); padding: var(--s-2) var(--s-3); cursor: default; animation: reg-in var(--dur-base) var(--ease); }
-.side-expand .entry-row { grid-template-columns: 48px minmax(0, 1fr) 76px minmax(0, 90px) 26px; }
-.side-form { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2); flex-wrap: wrap; }
 
 /* ─── Boutons & champs — §5.12 ─── */
 .btn-icon:disabled { opacity: 0.4; cursor: default; }

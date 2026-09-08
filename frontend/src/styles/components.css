@@ -105,6 +105,33 @@
 /* Un bouton qui peut porter une roue d'attente : le texte et la roue s'alignent */
 .btn-wait { display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); }
 
+/* ─── Case de pointage ────────────────────────────────────
+   Le geste le plus fréquent de l'application : cocher pour dire « c'est passé ». Elle
+   est volontairement plus petite qu'une case native et sans coche au repos — une liste
+   de trente lignes ne doit pas ressembler à un formulaire.
+
+   La zone cliquable déborde de onze pixels en haut et en bas (::after) : la cible
+   visible reste discrète, la cible réelle se vise sans effort. */
+
+.pointbox {
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--c-line-strong);
+  border-radius: 4px;
+  background: var(--c-surface);
+  cursor: pointer;
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: transparent;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.pointbox::after { content: ''; position: absolute; inset: -11px -5px; }
+.pointbox:hover:not(:disabled) { border-color: var(--c-accent); }
+.pointbox:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--c-accent-ring); }
+.pointbox:disabled { opacity: 0.4; cursor: default; }
+/* Cochée, elle ne se décoche pas : le réel fait foi, on supprime l'entrée pour revenir */
+.pointbox.is-checked { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); cursor: default; }
+.pointbox-sm { width: 15px; height: 15px; }
+
 /* ─── Champs ──────────────────────────────────────────────
    La bordure et l'anneau de focus sont les mêmes partout : c'est ce qui fait
    reconnaître un champ modifiable d'un écran à l'autre. */
@@ -200,6 +227,7 @@
   flex-shrink: 0;
 }
 .tag-neutral { background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); }
+.tag-credit { background: var(--c-credit-soft); color: var(--c-credit); }
 .tag-alert { background: var(--c-over-soft); color: var(--c-over); }
 
 /* ─── Menus contextuels ───────────────────────────────────
