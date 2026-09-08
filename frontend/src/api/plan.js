@@ -7,3 +7,5 @@ export const computePlan = (input) => api.post('/plan/compute', input)
 export const shareFor = (target, months, already = 0) => api.post('/plan/share', { target, months, already })
 // Les moyennes réelles par thème et par catégorie, pour pré-remplir une ligne
 export const getAverages = () => api.get('/plan/averages')
+// Le budget type décomposé : une entrée par catégorie, une par ligne mensualisée
+export const getTemplateBreakdown = () => api.get('/plan/template')

@@ -11,6 +11,85 @@ import { all, get, fromCents } from "../db/index.js";
 //    négatif qui ne veut rien dire.
 
 const round2 = (n) => Math.round(n * 100) / 100;
+
+/**
+ * Ce que le Template pèse chaque mois, catégorie par catégorie.
+ *
+ * Sert au bouton « importer depuis le Template » : plutôt que de repartir d'une page
+ * blanche, on reprend son budget type tel qu'il est. C'est la matière la plus fiable
+ * du plan — le Template dit ce qui est PRÉVU, là où les moyennes disent ce qui a été
+ * constaté.
+ *
+ * DEUX FAMILLES, et elles ne se mélangent pas. Les lignes ordinaires sont regroupées
+ * par catégorie ; les lignes MENSUALISÉES — celles adossées à une enveloppe — sortent
+ * du lot et gardent leur propre ligne. Les compter dans leur catégorie ET séparément
+ * les ferait entrer deux fois dans le plan.
+ *
+ * LA PART MENSUELLE est arrondie au centime LIGNE PAR LIGNE, comme le fait l'écran
+ * Template : une charge annuelle de 79,99 € pèse 6,67 €/mois, pas 6,6658…, et les deux
+ * écrans doivent annoncer le même chiffre.
+ *
+ * Les enveloppes SANS ligne du Template ne sont pas ici : ce sont des projets
+ * d'épargne, donc des objectifs, et ils relèvent de l'autre bloc du plan.
+ *
+ * @returns {{categories: Array<{id: number|null, name: string, type: string, lines: number, monthly: number}>,
+ *   monthlyized: Array<{id: number, label: string, envelopeName: string, monthly: number,
+ *   planned: number, intervalMonths: number}>}}
+ */
+export function templateBreakdown() {
+  const lignes = all(
+    `SELECT b.id, b.label, b.category_id, b.planned_amount_cents AS prevu,
+            COALESCE(NULLIF(b.interval_months, 0), 1) AS cycle, b.envelope_id,
+            c.name AS cat_name, c.type AS cat_type, c.sort_order AS cat_ordre,
+            e.name AS env_name
+     FROM budget_lines b
+     LEFT JOIN categories c ON c.id = b.category_id
+     LEFT JOIN envelopes e ON e.id = b.envelope_id
+     WHERE b.month_id IS NULL`
+  );
+
+  const parMois = (l) => Math.round((l.prevu || 0) / l.cycle);
+
+  const monthlyized = lignes
+    .filter((l) => l.envelope_id)
+    .map((l) => ({
+      id: l.id,
+      label: l.label,
+      envelopeName: l.env_name,
+      monthly: round2(fromCents(parMois(l))),
+      planned: round2(fromCents(l.prevu)),
+      intervalMonths: l.cycle,
+    }))
+    .filter((l) => l.monthly > 0)
+    .sort((a, b) => b.monthly - a.monthly);
+
+  const parCategorie = new Map();
+  for (const l of lignes) {
+    if (l.envelope_id) continue; // déjà sortie du lot, ne pas la compter deux fois
+    const cle = l.category_id ?? 0;
+    if (!parCategorie.has(cle)) {
+      parCategorie.set(cle, {
+        id: l.category_id ?? null,
+        name: l.cat_name || "Sans catégorie",
+        type: l.cat_type || "depense",
+        ordre: l.cat_ordre ?? 999,
+        lines: 0,
+        cents: 0,
+      });
+    }
+    const g = parCategorie.get(cle);
+    g.lines += 1;
+    g.cents += parMois(l);
+  }
+
+  const categories = [...parCategorie.values()]
+    .map((g) => ({ id: g.id, name: g.name, type: g.type, lines: g.lines, monthly: round2(fromCents(g.cents)), ordre: g.ordre }))
+    .filter((g) => g.monthly !== 0)
+    .sort((a, b) => a.ordre - b.ordre)
+    .map(({ ordre, ...g }) => g);
+
+  return { categories, monthlyized };
+}
 const currentPeriod = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`; };
 
 /**

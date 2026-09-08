@@ -6,7 +6,7 @@
 
 import { Router } from "express";
 import { computePlan, shareFor } from "../services/plan.service.js";
-import { averages } from "../services/planAverages.service.js";
+import { averages, templateBreakdown } from "../services/planAverages.service.js";
 
 const router = Router();
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
@@ -23,5 +23,8 @@ router.post("/share", wrap((req, res) => {
 
 // Les moyennes réelles, pour pré-remplir une ligne d'un clic
 router.get("/averages", wrap((req, res) => res.json(averages())));
+
+// Le budget type décomposé : une entrée par catégorie, une par ligne mensualisée
+router.get("/template", wrap((req, res) => res.json(templateBreakdown())));
 
 export default router;
