@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getTemplateLines, createTemplateLine, updateTemplateLine, reorderTemplateLines, deleteTemplateLine, applyTemplateLineToMonth, monthlyizeTemplateLine } from '@/api/template.js'
+import { getTemplateLines, createTemplateLine, updateTemplateLine, reorderTemplateLines, deleteTemplateLine, applyTemplateLineToMonth, monthlyizeTemplateLine, previewTemplateToMonth, applyTemplateToMonth } from '@/api/template.js'
 import { getCurrentMonth } from '@/api/months.js'
 import { getCategories } from '@/api/categories.js'
 import { getThemes } from '@/api/themes.js'
@@ -61,6 +61,58 @@ async function applyToCurrentMonth(line, { ask = true } = {}) {
     toast(`« ${line.label} » appliquée à ${currentMonth.value.name}`, 'success')
   } catch (e) { apiError(e) }
 }
+
+// ─── Appliquer tout le Template au mois en cours ─────────
+// Un mois ne se remplit du Template qu'à sa naissance : ce geste comble le décalage
+// pour les lignes ajoutées ou corrigées depuis. On montre d'abord ce que ça donnerait.
+const bulk = ref(null)      // { plan, onlyUnpaid } tant que la fenêtre est ouverte
+const bulkBusy = ref(false)
+
+/**
+ * Ouvre le récapitulatif : ce que l'application ferait, sans rien écrire.
+ *
+ * @param {boolean} [onlyUnpaid] Épargner les lignes déjà pointées.
+ */
+async function openBulkApply(onlyUnpaid = true) {
+  if (!currentMonth.value || bulkBusy.value) return
+  bulkBusy.value = true
+  try {
+    const { data } = await previewTemplateToMonth(currentMonth.value.id, onlyUnpaid)
+    bulk.value = { plan: data, onlyUnpaid }
+  } catch (e) { apiError(e) } finally { bulkBusy.value = false }
+}
+
+/** Recalcule le récapitulatif quand on change l'option, sans refermer la fenêtre. */
+async function refreshBulk(onlyUnpaid) {
+  if (bulkBusy.value) return
+  bulkBusy.value = true
+  try {
+    const { data } = await previewTemplateToMonth(currentMonth.value.id, onlyUnpaid)
+    bulk.value = { plan: data, onlyUnpaid }
+  } catch (e) { apiError(e) } finally { bulkBusy.value = false }
+}
+
+/** Applique pour de bon, puis annonce ce qui a changé. */
+async function confirmBulkApply() {
+  const b = bulk.value
+  if (!b || bulkBusy.value) return
+  bulkBusy.value = true
+  try {
+    const { data } = await applyTemplateToMonth(currentMonth.value.id, b.onlyUnpaid)
+    const created = data.toCreate.length
+    const updated = data.toUpdate.length
+    const parts = []
+    if (created) parts.push(`${created} ligne${created > 1 ? 's' : ''} ajoutée${created > 1 ? 's' : ''}`)
+    if (updated) parts.push(`${updated} mise${updated > 1 ? 's' : ''} à jour`)
+    toast(parts.length ? `${currentMonth.value.name} : ${parts.join(', ')}.` : `${currentMonth.value.name} était déjà à jour.`, 'success')
+    bulk.value = null
+  } catch (e) { apiError(e) } finally { bulkBusy.value = false }
+}
+
+// Rien à faire : le mois est déjà le reflet du Template
+const bulkNothingToDo = computed(() =>
+  !!bulk.value && !bulk.value.plan.toCreate.length && !bulk.value.plan.toUpdate.length
+)
 
 // ─── Helpers ─────────────────────────────────────────────
 const fmt = eur
@@ -573,7 +625,24 @@ async function submit() {
     const [lRes, eRes] = await Promise.all([getTemplateLines(), getEnvelopes()])
     lines.value = lRes.data
     envelopes.value = eRes.data
-  } catch (e) { apiError(e) }
+    return saved
+  } catch (e) { apiError(e); return null }
+}
+
+/**
+ * Enregistre la ligne, puis la reporte aussitôt dans le mois en cours.
+ *
+ * Les deux gestes étaient séparés, et c'était un piège : « Appliquer » poussait la
+ * ligne TELLE QU'ELLE EST EN BASE — donc sans les modifications en cours — et
+ * « Sauver » les enregistrait sans les reporter. Qui modifiait puis appliquait
+ * n'obtenait rien, et l'infobulle « sauvez d'abord » ne rattrapait pas grand-chose.
+ *
+ * L'ordre compte : on enregistre, puis on applique la version enregistrée. La
+ * confirmation est portée par le libellé du bouton, on ne la repose pas.
+ */
+async function submitAndApply() {
+  const saved = await submit()
+  if (saved && currentMonth.value) await applyToCurrentMonth(saved, { ask: false })
 }
 
 /**
@@ -789,9 +858,53 @@ const formCategoryType = computed(() => {
         <button class="btn-primary" @click="submit">{{ modalAdding ? 'Ajouter' : 'Sauver' }}</button>
         <button class="btn-secondary" @click="closePanel">Annuler</button>
         <template v-if="!modalAdding && modalLine">
-          <button v-if="currentMonth" class="link-accent" title="Copie ou met à jour cette ligne dans le mois en cours (sauvez d'abord vos modifications)" @click="applyToCurrentMonth(modalLine)">Appliquer à {{ currentMonth.name }}</button>
+          <button
+            v-if="currentMonth"
+            class="link-accent"
+            :title="'Enregistre la ligne, puis la copie ou la met à jour dans ' + currentMonth.name + ' — le réel du mois n\'est pas touché'"
+            @click="submitAndApply"
+          >
+            Appliquer à {{ currentMonth.name }} et sauvegarder
+          </button>
           <button class="btn-danger ml-auto" @click="removeLineConfirm(modalLine)">Supprimer</button>
         </template>
+      </template>
+    </AppModal>
+
+    <!-- ─── Appliquer tout le Template au mois en cours ─── -->
+    <AppModal :open="!!bulk" :title="'Appliquer le Template à ' + (currentMonth?.name || '')" @close="bulk = null">
+      <div v-if="bulk" class="flex flex-col gap-4 text-[13px]">
+        <label class="checkbox">
+          <input type="checkbox" :checked="bulk.onlyUnpaid" :disabled="bulkBusy" @change="refreshBulk($event.target.checked)" />
+          <span>Ne pas toucher aux lignes déjà pointées</span>
+          <HelpTip text="Une ligne pointée porte déjà une entrée : son montant prévu serait remplacé par celui du Template. Décochez seulement si c'est ce que vous voulez." />
+        </label>
+
+        <div v-if="bulkNothingToDo" class="bulk-empty">
+          {{ currentMonth?.name }} est déjà le reflet du Template : rien à reporter.
+        </div>
+
+        <div v-else class="bulk-groups">
+          <div v-if="bulk.plan.toCreate.length" class="bulk-group">
+            <p class="bulk-title">{{ bulk.plan.toCreate.length }} ligne{{ bulk.plan.toCreate.length > 1 ? 's' : '' }} à ajouter</p>
+            <p class="bulk-list">{{ bulk.plan.toCreate.map((l) => l.label).join(' · ') }}</p>
+          </div>
+          <div v-if="bulk.plan.toUpdate.length" class="bulk-group">
+            <p class="bulk-title">{{ bulk.plan.toUpdate.length }} ligne{{ bulk.plan.toUpdate.length > 1 ? 's' : '' }} à mettre à jour</p>
+            <p class="bulk-list">{{ bulk.plan.toUpdate.map((l) => l.label).join(' · ') }}</p>
+          </div>
+        </div>
+
+        <div v-if="bulk.plan.skipped.length" class="bulk-group is-skipped">
+          <p class="bulk-title">{{ bulk.plan.skipped.length }} ligne{{ bulk.plan.skipped.length > 1 ? 's' : '' }} laissée{{ bulk.plan.skipped.length > 1 ? 's' : '' }} de côté — déjà pointée{{ bulk.plan.skipped.length > 1 ? 's' : '' }}</p>
+          <p class="bulk-list">{{ bulk.plan.skipped.map((l) => l.label).join(' · ') }}</p>
+        </div>
+
+        <p class="bulk-note">Aucune entrée n'est touchée : le réel déjà saisi et les soldes restent tels quels.</p>
+      </div>
+      <template #footer>
+        <button class="btn-primary" :disabled="bulkBusy || bulkNothingToDo" @click="confirmBulkApply">Appliquer</button>
+        <button class="btn-secondary" @click="bulk = null">Annuler</button>
       </template>
     </AppModal>
 
@@ -807,6 +920,15 @@ const formCategoryType = computed(() => {
       <div class="tpl-toolbar">
         <button class="view-tab" :class="{ 'is-active': viewMode === 'categorie' }" @click="viewMode = 'categorie'">Par catégorie</button>
         <button class="view-tab" :class="{ 'is-active': viewMode === 'echeance' }" @click="viewMode = 'echeance'">Par échéance</button>
+        <button
+          v-if="currentMonth"
+          class="btn-bulk"
+          :disabled="bulkBusy"
+          :title="'Reporter les lignes du Template dans ' + currentMonth.name + ', sans toucher au réel déjà saisi'"
+          @click="openBulkApply(true)"
+        >
+          Appliquer à {{ currentMonth.name }}
+        </button>
       </div>
       <div class="tpl-grid tpl-head">
         <span></span>
@@ -919,6 +1041,33 @@ const formCategoryType = computed(() => {
 }
 .tpl-panel.no-share .tpl-grid { grid-template-columns: minmax(0, 1fr) 148px 120px 84px 120px 64px; }
 .tpl-toolbar { display: flex; gap: var(--s-5); padding: var(--s-3) var(--s-5) 0; }
+.btn-bulk {
+  margin-left: auto;
+  align-self: center;
+  margin-bottom: var(--s-2);
+  height: 28px;
+  padding: 0 var(--s-4);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  background: var(--c-surface);
+  font-size: var(--t-small);
+  font-weight: 500;
+  color: var(--c-ink-2);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.btn-bulk:hover { background: var(--c-surface-hover); color: var(--c-ink); }
+.btn-bulk:disabled { opacity: 0.5; cursor: default; }
+
+/* Récapitulatif de la propagation groupée */
+.bulk-groups { display: flex; flex-direction: column; gap: var(--s-4); }
+.bulk-group { display: flex; flex-direction: column; gap: var(--s-1); }
+.bulk-title { font-weight: 600; color: var(--c-ink); }
+.bulk-list { color: var(--c-ink-2); line-height: 1.5; }
+.bulk-group.is-skipped .bulk-title { color: var(--c-ink-3); font-weight: 500; }
+.bulk-group.is-skipped .bulk-list { color: var(--c-ink-3); }
+.bulk-empty { color: var(--c-ink-2); }
+.bulk-note { font-size: var(--t-meta); color: var(--c-ink-3); }
 .view-tab { font-size: 13px; font-weight: 500; color: var(--c-ink-3); padding: var(--s-2) 0 var(--s-3); cursor: pointer; border-bottom: 2px solid transparent; }
 .view-tab:hover { color: var(--c-ink); }
 .view-tab.is-active { color: var(--c-ink); border-bottom-color: var(--c-accent); }

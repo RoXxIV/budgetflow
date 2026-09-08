@@ -15,4 +15,11 @@ router.put("/lines/:id/monthlyize", wrap((req, res) => res.json(lines.setMonthly
 // Propagation : copie / met à jour la ligne dans un mois existant
 router.post("/lines/:id/apply-to-month/:monthId", wrap((req, res) => res.json(lines.applyToMonth(Number(req.params.id), Number(req.params.monthId)))));
 
+// Propagation groupée : ce que ça donnerait (aucune écriture), puis l'application
+const onlyUnpaid = (v) => v !== "0" && v !== false && v !== "false";
+router.get("/apply-to-month/:monthId/preview", wrap((req, res) =>
+  res.json(lines.planApplyAll(Number(req.params.monthId), { onlyUnpaid: onlyUnpaid(req.query.onlyUnpaid) }))));
+router.post("/apply-to-month/:monthId", wrap((req, res) =>
+  res.json(lines.applyAllToMonth(Number(req.params.monthId), { onlyUnpaid: onlyUnpaid(req.body?.onlyUnpaid) }))));
+
 export default router;

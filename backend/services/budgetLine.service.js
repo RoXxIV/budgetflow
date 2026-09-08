@@ -259,6 +259,68 @@ export function assertInMonth(lineId, monthId) {
   if (line.month_id !== monthId) throw httpError(404, "Cette ligne n'appartient pas à ce mois");
 }
 
+/**
+ * Ce que donnerait l'application de tout le Template sur un mois, sans rien écrire.
+ *
+ * Trois issues par ligne :
+ *  - aucune copie dans le mois  → à créer ;
+ *  - une copie sans entrée      → à mettre à jour ;
+ *  - une copie déjà pointée     → ignorée si `onlyUnpaid`, sinon mise à jour.
+ *
+ * Les lignes non mensuelles dont le cycle ne tombe pas sur ce mois sont écartées
+ * d'emblée : une charge trimestrielle n'a rien à faire dans les deux mois creux.
+ *
+ * @param {number} monthId Le mois visé.
+ * @param {object} [options]
+ * @param {boolean} [options.onlyUnpaid] Ne pas toucher aux lignes déjà pointées.
+ * @returns {{month: object, toCreate: Array, toUpdate: Array, skipped: Array}}
+ */
+export function planApplyAll(monthId, { onlyUnpaid = true } = {}) {
+  const month = get("SELECT * FROM months WHERE id = ?", monthId);
+  if (!month) throw httpError(404, "Mois introuvable");
+  if (month.closed_at) throw httpError(409, "Ce mois est clôturé");
+
+  const templateLines = all("SELECT * FROM budget_lines WHERE month_id IS NULL ORDER BY sort_order, id")
+    .filter((line) => cycleMatches(line, month.period));
+
+  const toCreate = [], toUpdate = [], skipped = [];
+  for (const line of templateLines) {
+    const copy = get("SELECT id FROM budget_lines WHERE month_id = ? AND template_line_id = ?", monthId, line.id);
+    if (!copy) { toCreate.push({ id: line.id, label: line.label }); continue; }
+    const entries = get("SELECT COUNT(*) AS n FROM entries WHERE line_id = ?", copy.id).n;
+    if (entries > 0 && onlyUnpaid) skipped.push({ id: line.id, label: line.label, entries });
+    else toUpdate.push({ id: line.id, label: line.label });
+  }
+  return { month: { id: month.id, period: month.period }, toCreate, toUpdate, skipped };
+}
+
+/**
+ * Applique tout le Template au mois, en une fois.
+ *
+ * Les cagnottes passent EN PREMIER : une ligne « ½ » pointe sur la copie de sa
+ * cagnotte dans ce mois, qui doit donc déjà exister au moment où on la traite —
+ * sinon son rattachement retomberait à null.
+ *
+ * Le tout dans une transaction : soit le mois reçoit tout le Template, soit rien.
+ * Aucune entrée n'est touchée, aucun solde ne bouge.
+ *
+ * @param {number} monthId Le mois visé.
+ * @param {object} [options]
+ * @param {boolean} [options.onlyUnpaid] Ne pas toucher aux lignes déjà pointées.
+ * @returns {{month: object, toCreate: Array, toUpdate: Array, skipped: Array, applied: number}}
+ */
+export function applyAllToMonth(monthId, { onlyUnpaid = true } = {}) {
+  const plan = planApplyAll(monthId, { onlyUnpaid });
+  const targets = [...plan.toCreate, ...plan.toUpdate];
+  const potIds = new Set(all("SELECT id FROM budget_lines WHERE month_id IS NULL AND is_pot = 1").map((r) => r.id));
+  const ordered = [
+    ...targets.filter((t) => potIds.has(t.id)),
+    ...targets.filter((t) => !potIds.has(t.id)),
+  ];
+  tx(() => { for (const t of ordered) applyToMonth(t.id, monthId); });
+  return { ...plan, applied: ordered.length };
+}
+
 export function remove(id, { force = false } = {}) {
   return tx(() => removeInner(id, { force }));
 }

@@ -10,6 +10,11 @@ export const reorderTemplateLines = (orders) => api.put('/template/lines/reorder
 export const deleteTemplateLine = (id) => api.delete(`/template/lines/${id}`)
 // Pousse une ligne du Template dans un mois déjà créé (il ne se recopie qu'à la naissance)
 export const applyTemplateLineToMonth = (id, monthId) => api.post(`/template/lines/${id}/apply-to-month/${monthId}`)
+// Tout le Template d'un coup : d'abord ce que ça donnerait, puis l'application
+export const previewTemplateToMonth = (monthId, onlyUnpaid = true) =>
+  api.get(`/template/apply-to-month/${monthId}/preview?onlyUnpaid=${onlyUnpaid ? 1 : 0}`)
+export const applyTemplateToMonth = (monthId, onlyUnpaid = true) =>
+  api.post(`/template/apply-to-month/${monthId}`, { onlyUnpaid })
 // Mensualiser une ligne annuelle : une enveloppe liée met de côté chaque mois,
 // et l'échéance se paie en la liquidant
 export const monthlyizeTemplateLine = (id, enabled, accountId = null) => api.put(`/template/lines/${id}/monthlyize`, { enabled, accountId })

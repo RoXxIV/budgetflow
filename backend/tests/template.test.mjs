@@ -2,9 +2,9 @@
 // cagnottes, réordonnancement, propagation vers le mois et retour.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { boot, refuse, eq, currentPeriod } from "./_setup.mjs";
+import { boot, refuse, eq, currentPeriod, nextPeriodOf } from "./_setup.mjs";
 
-const { accounts, categories, themes, budgetLines: lines, envelopes, months } = await boot();
+const { accounts, categories, themes, budgetLines: lines, envelopes, months, entries } = await boot();
 
 let main, catDep, catRev, catTr, th, loyer, annuel, month;
 
@@ -136,4 +136,96 @@ test("revue 04/09 : mensualiser propage l'enveloppe aux copies des mois ouverts"
 test("revue 04/09 : « le 31 » est borné au dernier jour du mois cible (jamais de date invalide)", () => {
   const l = lines.create(null, { label: "Prime fevrier", categoryId: catDep.id, plannedAmount: 60, intervalMonths: 12, anchorMonth: 2, recurringDay: 31, fromAccountId: main.id });
   assert.match(l.nextDue, /-02-2[89]$/, `échéance bornée à fin février (${l.nextDue})`);
+});
+
+// ─── Appliquer tout le Template à un mois, en une fois ───
+// Un mois ne se remplit du Template qu'à sa naissance : ce geste comble le décalage
+// pour les lignes ajoutées ou corrigées ensuite, sans jamais toucher au réel saisi.
+// Décor autonome : les lignes du haut de fichier ont été supprimées en chemin.
+
+let mBulk, dejaLa, nouvelle;
+
+test("propagation groupée : le plan distingue à créer, à mettre à jour, et ignoré", () => {
+  // Une ligne présente à la naissance du mois, qu'on pointe ensuite
+  dejaLa = lines.create(null, { label: "Loyer groupé", categoryId: catDep.id, plannedAmount: 800, fromAccountId: main.id, recurringDay: 5 });
+  mBulk = months.create({ period: nextPeriodOf(nextPeriodOf(currentPeriod())), snapshots: [{ accountId: main.id, balance: 500 }] });
+
+  const copie = months.getLines(mBulk.id).find((l) => l.templateLineId === dejaLa.id);
+  assert.ok(copie, "décor : la ligne du Template est bien dans le mois");
+  entries.create(mBulk.id, { lineId: copie.id, amount: 800, date: `${mBulk.period}-05`, accountId: main.id });
+
+  // Une ligne ajoutée au Template APRÈS la naissance du mois : absente de ce mois
+  nouvelle = lines.create(null, { label: "Assurance moto", categoryId: catDep.id, plannedAmount: 42, fromAccountId: main.id });
+
+  const plan = lines.planApplyAll(mBulk.id);
+  assert.ok(plan.toCreate.some((l) => l.id === nouvelle.id), "la nouvelle ligne est à créer");
+  assert.ok(plan.skipped.some((l) => l.id === dejaLa.id), "la ligne pointée est ignorée");
+  assert.ok(!plan.toUpdate.some((l) => l.id === dejaLa.id), "et surtout pas mise à jour");
+
+  assert.equal(months.getLines(mBulk.id).some((l) => l.templateLineId === nouvelle.id), false,
+    "prévisualiser n'écrit rien");
+});
+
+test("propagation groupée : onlyUnpaid = false reprend aussi les lignes pointées", () => {
+  const plan = lines.planApplyAll(mBulk.id, { onlyUnpaid: false });
+  assert.ok(plan.toUpdate.some((l) => l.id === dejaLa.id), "la ligne pointée passe en mise à jour");
+  assert.equal(plan.skipped.length, 0, "plus rien n'est ignoré");
+});
+
+test("propagation groupée : applique tout, sans toucher au réel", () => {
+  const avant = months.getLines(mBulk.id).find((l) => l.templateLineId === dejaLa.id);
+
+  const res = lines.applyAllToMonth(mBulk.id);
+  assert.equal(res.applied, res.toCreate.length + res.toUpdate.length);
+
+  const apres = months.getLines(mBulk.id);
+  assert.ok(apres.some((l) => l.templateLineId === nouvelle.id), "la ligne manquante est arrivée");
+  const pointeeApres = apres.find((l) => l.templateLineId === dejaLa.id);
+  assert.ok(eq(pointeeApres.actualAmount, avant.actualAmount), "le réel de la ligne pointée est intact");
+  assert.equal(pointeeApres.entryCount, 1, "son entrée est toujours là");
+});
+
+test("propagation groupée : une ligne non mensuelle hors cycle n'est pas copiée", () => {
+  const period = nextPeriodOf(nextPeriodOf(nextPeriodOf(currentPeriod())));
+  const [, mois] = period.split("-").map(Number);
+  // Ancrage sur le mois suivant : le cycle annuel ne tombe pas sur celui-ci
+  const ancrage = (mois % 12) + 1;
+  const annuelle = lines.create(null, { label: "Taxe hors cycle", categoryId: catDep.id, plannedAmount: 300, intervalMonths: 12, anchorMonth: ancrage, fromAccountId: main.id });
+
+  const m = months.create({ period });
+  const plan = lines.planApplyAll(m.id);
+  assert.ok(!plan.toCreate.some((l) => l.id === annuelle.id), "hors cycle : écartée du plan");
+  lines.applyAllToMonth(m.id);
+  assert.ok(!months.getLines(m.id).some((l) => l.templateLineId === annuelle.id), "et jamais copiée");
+});
+
+// Une ligne « ½ » pointe sur la COPIE de sa cagnotte dans le mois. Si la cagnotte est
+// traitée après elle, ce rattachement retombe à null — d'où l'ordre imposé par
+// applyAllToMonth, que ce test verrouille.
+test("propagation groupée : les cagnottes passent avant les lignes qui les référencent", () => {
+  const cagnotte = lines.create(null, { label: "Cagnotte commune", categoryId: catDep.id, isPot: true, potPartnerName: "Léa", potMyShare: 50 });
+  const demi = lines.create(null, { label: "Courses partagées", categoryId: catDep.id, plannedAmount: 200, isShared: true, potLineId: cagnotte.id, fromAccountId: main.id });
+
+  const m = months.create({ period: nextPeriodOf(nextPeriodOf(nextPeriodOf(nextPeriodOf(currentPeriod())))) });
+  // Le mois naît avec les deux : on les retire pour forcer une création groupée
+  for (const l of months.getLines(m.id).filter((x) => [cagnotte.id, demi.id].includes(x.templateLineId))) {
+    lines.remove(l.id, { force: true });
+  }
+  assert.equal(months.getLines(m.id).some((l) => l.templateLineId === demi.id), false, "décor : la ½ n'est plus dans le mois");
+
+  lines.applyAllToMonth(m.id);
+
+  const copies = months.getLines(m.id);
+  const potCopy = copies.find((l) => l.templateLineId === cagnotte.id);
+  const demiCopy = copies.find((l) => l.templateLineId === demi.id);
+  assert.ok(potCopy, "la cagnotte est copiée");
+  assert.ok(demiCopy, "la ligne ½ aussi");
+  assert.equal(demiCopy.potLineId, potCopy.id, "la ½ pointe sur la cagnotte DU MOIS, pas sur celle du Template");
+});
+
+test("propagation groupée : refusée sur un mois clôturé", () => {
+  const m = months.create({ period: nextPeriodOf(nextPeriodOf(nextPeriodOf(nextPeriodOf(nextPeriodOf(currentPeriod()))))) });
+  months.setClosed(m.id, true);
+  refuse(() => lines.planApplyAll(m.id), 409);
+  refuse(() => lines.applyAllToMonth(m.id), 409);
 });
