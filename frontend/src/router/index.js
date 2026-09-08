@@ -7,6 +7,7 @@ import InvestmentsView from '@/views/InvestmentsView.vue'
 import StatsView from '@/views/StatsView.vue'
 import SubscriptionsView from '@/views/SubscriptionsView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
+import PlanView from '@/views/PlanView.vue'
 import { refreshOnboarding } from '@/lib/onboarding.js'
 import { TOUR_STEPS, TOUR_END } from '@/lib/tour.js'
 
@@ -22,8 +23,9 @@ const router = createRouter({
     { path: '/stats', name: 'stats', component: StatsView },
     { path: '/template', name: 'template', component: TemplateView },
     { path: '/parametres', name: 'settings', component: SettingsView },
-    // Tracker d'abonnements (bac à sable) — accessible depuis la page Mois, pas dans la nav
+    // Bacs à sable — accessibles depuis la page Mois, pas dans la nav
     { path: '/abonnements', name: 'subscriptions', component: SubscriptionsView },
+    { path: '/plan', name: 'plan', component: PlanView },
   ],
 })
 
