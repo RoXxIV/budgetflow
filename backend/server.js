@@ -14,6 +14,7 @@ import assetRoutes from "./routes/asset.routes.js";
 import statsRoutes from "./routes/stats.routes.js";
 import subscriptionRoutes from "./routes/subscription.routes.js";
 import planRoutes from "./routes/plan.routes.js";
+import backupRoutes from "./routes/backup.routes.js";
 
 const PORT = process.env.PORT || 3003;
 
@@ -35,6 +36,7 @@ app.use("/api/assets", assetRoutes);
 app.use("/api/stats", statsRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/plan", planRoutes);
+app.use("/api/data", backupRoutes);
 
 // Gestion d'erreur centralisée : les services lèvent des Error avec .status
 app.use((err, req, res, next) => {
