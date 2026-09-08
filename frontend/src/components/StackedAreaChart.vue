@@ -195,17 +195,4 @@ const xEvery = computed(() => (props.labels.length > 14 ? 2 : 1))
 </template>
 
 <style scoped>
-.tip {
-  position: absolute; top: 8px; z-index: 10; pointer-events: none;
-  background: var(--c-surface); border: 1px solid var(--c-line);
-  border-radius: var(--r-control); box-shadow: var(--shadow-overlay);
-  padding: var(--s-2) var(--s-3); font-size: 12px; white-space: nowrap;
-}
-.tip-title { font-weight: 600; color: var(--c-ink); margin-bottom: 2px; }
-.tip-row { display: flex; align-items: center; gap: var(--s-2); padding-block: 1px; }
-.tip-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex-shrink: 0; }
-.tip-val { color: var(--c-ink); font-weight: 500; }
-.tip-name { color: var(--c-ink-2); }
-.tip-total { border-top: 1px solid var(--c-line); margin-top: 2px; padding-top: 3px; }
-.chart-empty { font-size: 12px; color: var(--c-ink-3); text-align: center; padding: var(--s-8) 0; }
 </style>

@@ -172,7 +172,7 @@ const xEvery = computed(() => (props.labels.length > 14 ? 2 : 1))
       </g>
     </svg>
 
-    <div v-if="hover !== null && series.length" class="tip absolute top-2 pointer-events-none px-3 py-2 text-[12px] z-10 whitespace-nowrap" :style="tipStyle">
+    <div v-if="hover !== null && series.length" class="tip" :style="tipStyle">
       <p class="tip-title mb-1">{{ labels[hover] }}</p>
       <p v-for="s in series" :key="s.key" class="flex items-center gap-2 py-px">
         <span class="inline-block w-3 h-0.5 rounded shrink-0" :style="{ background: s.color }" />
@@ -180,14 +180,9 @@ const xEvery = computed(() => (props.labels.length > 14 ? 2 : 1))
         <span class="tip-name">{{ s.name }}</span>
       </p>
     </div>
-    <p v-if="!series.length" class="chart-empty text-center py-10">Aucune série sélectionnée.</p>
+    <p v-if="!series.length" class="chart-empty">Aucune série sélectionnée.</p>
   </div>
 </template>
 
 <style scoped>
-.tip { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-control); box-shadow: var(--shadow-overlay); }
-.tip-title { font-weight: 600; color: var(--c-ink); }
-.tip-val { font-weight: 600; color: var(--c-ink); font-variant-numeric: tabular-nums; }
-.tip-name { color: var(--c-ink-3); }
-.chart-empty { font-size: 12px; color: var(--c-ink-3); }
 </style>

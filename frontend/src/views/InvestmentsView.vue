@@ -618,12 +618,6 @@ async function deleteMovement(asset, m) {
 
 <style scoped>
 /* ─── Page ─── */
-.page-sub { font-size: 13px; color: var(--c-ink-2); margin-top: 2px; }
-.panel { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-container); }
-.meta { color: var(--c-ink-3); font-weight: 400; }
-.ink { color: var(--c-ink); }
-.is-over { color: var(--c-over); }
-.is-credit { color: var(--c-credit); }
 .is-warn { color: var(--c-warn); }
 
 /* ─── Bandeau ─── */
@@ -632,7 +626,6 @@ async function deleteMovement(asset, m) {
 .synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
 .synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
 .synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; display: flex; align-items: center; gap: var(--s-2); }
-.has-tip { text-decoration: underline dotted var(--c-ink-3); text-underline-offset: 3px; cursor: help; }
 .synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
 .synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
 .synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
@@ -693,27 +686,7 @@ async function deleteMovement(asset, m) {
 .inv-row.is-closed:hover { background: none; }
 
 /* Menu ⋯ */
-.menu-wrap { position: relative; }
-.menu {
-  position: absolute; right: 0; top: calc(100% + 4px); z-index: 40;
-  min-width: 230px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-line);
-  border-radius: var(--r-container);
-  box-shadow: var(--shadow-overlay);
-  padding: var(--s-2);
-}
-.menu-item {
-  display: block; width: 100%; text-align: left;
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-control);
-  font-size: 13px; color: var(--c-ink);
-  cursor: pointer;
-}
-.menu-item:hover { background: var(--c-surface-hover); }
-.menu-item.is-danger { color: var(--c-over); }
-.menu-item.is-danger:hover { background: var(--c-over-soft); }
-.menu-sep { height: 1px; background: var(--c-line); margin: var(--s-2) 0; }
+.menu { min-width: 230px; }
 
 /* ─── Panneau déplié ─── */
 .inv-expand {
@@ -743,8 +716,6 @@ async function deleteMovement(asset, m) {
 .evo-line.is-dashed { border-top-style: dashed; border-top-color: var(--c-ink-3); }
 .evo-empty { font-size: 13px; color: var(--c-ink-3); padding: var(--s-4) 0; }
 
-/* ─── États vides ─── */
-.empty-panel { text-align: center; padding: var(--s-8); font-size: 13px; color: var(--c-ink-2); display: flex; flex-direction: column; align-items: center; gap: var(--s-4); }
 
 /* ─── Modale valorisation groupée ─── */
 .bulk-row { display: flex; align-items: center; gap: var(--s-4); }
@@ -753,31 +724,9 @@ async function deleteMovement(asset, m) {
 .field-title { font-size: var(--t-small); font-weight: 600; color: var(--c-ink-2); margin-bottom: var(--s-2); display: flex; align-items: center; gap: var(--s-2); }
 
 /* ─── Tags ─── */
-.tag {
-  display: inline-flex; align-items: center; gap: var(--s-1);
-  height: 20px; padding: 0 var(--s-3);
-  border-radius: var(--r-control);
-  font-size: var(--t-tag); font-weight: 500;
-  white-space: nowrap; flex-shrink: 0;
-}
-.tag-neutral { background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); }
-.tag-alert { background: var(--c-over-soft); color: var(--c-over); }
 .tag-warn { background: var(--c-warn-soft); color: var(--c-warn); }
 
 /* ─── Boutons, liens, champs (partagés avec les modales) ─── */
-.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: var(--c-on-accent); border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
-.btn-primary:hover { background: var(--c-accent-hover); }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-secondary { height: 30px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); color: var(--c-ink); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
-.btn-secondary:hover { background: var(--c-surface-hover); }
-.btn-icon { width: 26px; height: 26px; border-radius: var(--r-control); display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-3); font-size: 13px; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
-.btn-icon:hover { background: var(--c-surface-hover); color: var(--c-ink); }
-.btn-icon.is-danger:hover { background: var(--c-over-soft); color: var(--c-over); }
-.link-accent { color: var(--c-accent); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
-.link-accent:hover { color: var(--c-accent-hover); text-decoration: underline; }
-.field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
-.input { padding: 6px var(--s-3); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); font-size: 13px; color: var(--c-ink); background: var(--c-surface); outline: none; font-family: var(--font-ui); }
-.input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
 
 @keyframes reg-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 

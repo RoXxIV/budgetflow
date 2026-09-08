@@ -1,5 +1,5 @@
 // Thème clair / sombre / système — data-theme="dark" sur <html> déclenche le bloc
-// sombre de tokens.css. La préférence vit dans localStorage (un pré-script dans
+// sombre de variables.css. La préférence vit dans localStorage (un pré-script dans
 // index.html l'applique avant la première peinture pour éviter le flash blanc).
 const KEY = 'budgetflow.theme'
 const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -28,7 +28,7 @@ export function getThemePref() {
  *
  * Le mode « système » est résolu ici, à partir de la requête média : l'attribut posé
  * sur <html> ne vaut jamais « system », toujours « dark » ou « light », puisque
- * tokens.css n'attend que ces deux-là.
+ * variables.css n'attend que ces deux-là.
  *
  * @param {'system'|'light'|'dark'} pref La préférence à traduire en thème effectif.
  */

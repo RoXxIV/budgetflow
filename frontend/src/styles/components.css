@@ -1,0 +1,275 @@
+/* Briques d'interface communes à plusieurs vues.
+ *
+ * POURQUOI CE FICHIER — ces classes vivaient recopiées dans les <style scoped> de
+ * chaque vue : 351 définitions dans 11 fichiers, dont 33 avaient déjà dérivé. Le même
+ * bouton n'avait plus tout à fait la même tête selon la page. Ici, une seule
+ * définition fait foi.
+ *
+ * CE QUI RESTE DANS LES VUES — tout ce qui est propre à un écran : les grilles de
+ * registre, les animations, et les *écarts assumés* (une largeur de menu dictée par
+ * son contenu, un panneau qui a besoin de son propre rembourrage). Une vue peut donc
+ * toujours ajuster une brique : sa règle `scoped` porte un attribut de plus, donc une
+ * spécificité plus forte, et l'emporte sans avoir à crier `!important`.
+ *
+ * PAS DE MIXINS — il n'y a pas de Sass dans le projet, et les templates portent déjà
+ * ces noms de classes. Des classes globales suffisent : aucun <template> n'a changé.
+ */
+
+/* ─── Boutons ─────────────────────────────────────────────
+   Le primaire et le secondaire font la même hauteur : posés côte à côte dans un pied
+   de modale, ils partagent enfin leur ligne de base. */
+
+.btn-primary {
+  height: 34px;
+  padding: 0 var(--s-5);
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  border-radius: var(--r-control);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.btn-primary:hover { background: var(--c-accent-hover); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-secondary {
+  height: 34px;
+  padding: 0 var(--s-4);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  color: var(--c-ink);
+  font-size: var(--t-small);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.btn-secondary:hover { background: var(--c-surface-hover); }
+.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Petit bouton carré : une croix, des points de suspension */
+.btn-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-control);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-ink-3);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.btn-icon:hover { background: var(--c-surface-hover); color: var(--c-ink); }
+.btn-icon.is-danger:hover { background: var(--c-over-soft); color: var(--c-over); }
+
+/* Action secondaire écrite comme un lien : « + ajouter une ligne » */
+.btn-discret {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  color: var(--c-accent);
+  font-size: var(--t-small);
+  font-weight: 500;
+  padding: var(--s-2) 0;
+  cursor: pointer;
+}
+.btn-discret:hover { color: var(--c-accent-hover); }
+
+/* Action destructrice. Deux intensités, et l'écart est voulu : le contour pour ce qui
+   se répare (retirer une ligne, supprimer un thème), le plein pour ce qui ne se
+   répare pas — aujourd'hui, le seul effacement complet des données. */
+.btn-danger {
+  height: 30px;
+  padding: 0 var(--s-4);
+  background: var(--c-surface);
+  border: 1px solid var(--c-over);
+  border-radius: var(--r-control);
+  color: var(--c-over);
+  font-size: var(--t-small);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.btn-danger:hover { background: var(--c-over-soft); }
+.btn-danger.is-solid {
+  background: var(--c-over);
+  border-color: transparent;
+  color: var(--c-on-accent);
+  transition: filter var(--dur-fast) var(--ease);
+}
+.btn-danger.is-solid:hover { background: var(--c-over); filter: brightness(0.92); }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
+
+/* Un bouton qui peut porter une roue d'attente : le texte et la roue s'alignent */
+.btn-wait { display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); }
+
+/* ─── Champs ──────────────────────────────────────────────
+   La bordure et l'anneau de focus sont les mêmes partout : c'est ce qui fait
+   reconnaître un champ modifiable d'un écran à l'autre. */
+
+.input {
+  padding: 6px var(--s-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  font-size: 13px;
+  color: var(--c-ink);
+  background: var(--c-surface);
+  outline: none;
+  font-family: var(--font-ui);
+}
+.input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
+
+/* Étiquette au-dessus de son champ */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  font-size: var(--t-meta);
+  font-weight: 500;
+  color: var(--c-ink-3);
+}
+
+/* Case à cocher et son libellé, cliquables ensemble */
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-small);
+  color: var(--c-ink-2);
+  cursor: pointer;
+}
+
+/* ─── Surfaces ────────────────────────────────────────────
+   Volontairement sans rembourrage : chaque écran cadre son contenu comme il l'entend,
+   et plusieurs panneaux portent une en-tête qui doit toucher les bords. */
+
+.panel {
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-container);
+}
+
+/* Panneau vide : le message est centré, et ce qui le suit — souvent un bouton —
+   se pose dessous, dans l'axe. */
+.empty-panel {
+  text-align: center;
+  padding: var(--s-8);
+  font-size: 13px;
+  color: var(--c-ink-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+/* ─── Texte ───────────────────────────────────────────────
+   Trois nuances d'encre, et deux couleurs de sens : le rouge de ce qui coûte, le vert
+   de ce qui rentre. Ces deux-là se posent sur un montant, jamais sur un bloc. */
+
+.ink { color: var(--c-ink); }
+.meta { color: var(--c-ink-3); font-weight: 400; }
+.page-sub { font-size: 13px; color: var(--c-ink-2); margin-top: 2px; }
+.is-over { color: var(--c-over); }
+.is-credit { color: var(--c-credit); }
+
+.link-accent { color: var(--c-accent); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
+.link-accent:hover { color: var(--c-accent-hover); text-decoration: underline; }
+
+/* Un mot qui porte une explication au survol : le pointillé le dit sans l'écrire */
+.has-tip {
+  text-decoration: underline dotted var(--c-ink-3);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+/* ─── Étiquettes ──────────────────────────────────────────
+   La forme est commune, la couleur dit le sens. */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: 20px;
+  padding: 0 var(--s-3);
+  border-radius: var(--r-control);
+  font-size: var(--t-tag);
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tag-neutral { background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); }
+.tag-alert { background: var(--c-over-soft); color: var(--c-over); }
+
+/* ─── Menus contextuels ───────────────────────────────────
+   `.menu-wrap` porte le positionnement relatif, le menu s'y accroche. La largeur
+   minimale reste à la charge de chaque vue : elle dépend des libellés. */
+
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-container);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--s-2);
+}
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-control);
+  font-size: 13px;
+  color: var(--c-ink);
+  cursor: pointer;
+}
+.menu-item:hover { background: var(--c-surface-hover); }
+.menu-item.is-danger { color: var(--c-over); }
+.menu-item.is-danger:hover { background: var(--c-over-soft); }
+.menu-sep { height: 1px; background: var(--c-line); margin: var(--s-2) 0; }
+
+/* ─── Onglets de vue ──────────────────────────────────────
+   Le trait sous l'onglet actif, pas de fond : la page reste calme. */
+
+.view-tab {
+  font-size: var(--t-small);
+  font-weight: 500;
+  color: var(--c-ink-3);
+  padding: var(--s-1) 0;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.view-tab:hover { color: var(--c-ink); }
+.view-tab.is-active { color: var(--c-ink); border-bottom-color: var(--c-accent); }
+
+/* ─── Infobulles des graphiques ───────────────────────────
+   Les trois graphiques montrent la même carte au survol. Elle se place en haut de la
+   zone traçée, décalée horizontalement par un style en ligne que calcule le
+   composant : c'est la seule part qui lui appartient. */
+
+.tip {
+  position: absolute;
+  top: 8px;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-control);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--s-2) var(--s-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tip-title { font-weight: 600; color: var(--c-ink); margin-bottom: 2px; }
+.tip-row { display: flex; align-items: center; gap: var(--s-2); padding-block: 1px; }
+.tip-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex-shrink: 0; }
+.tip-val { color: var(--c-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.tip-name { color: var(--c-ink-2); }
+.tip-total { border-top: 1px solid var(--c-line); margin-top: 2px; padding-top: 3px; }
+
+.chart-empty { font-size: 12px; color: var(--c-ink-3); text-align: center; padding: var(--s-8) 0; }

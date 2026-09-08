@@ -552,7 +552,7 @@ function reinitialiser() {
 .plan-sub { font-size: var(--t-small); color: var(--c-ink-3); margin-top: var(--s-1); max-width: 70ch; line-height: 1.5; }
 .plan-head .btn-secondary { margin-left: auto; flex-shrink: 0; }
 
-.panel { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-container); padding: var(--s-5); }
+.panel { padding: var(--s-5); }
 .sec-head { display: flex; align-items: baseline; gap: var(--s-4); margin-bottom: var(--s-4); }
 .sec-title { font-size: var(--t-section); font-weight: 600; color: var(--c-ink); }
 .sec-hint { font-size: var(--t-meta); color: var(--c-ink-3); margin-left: auto; display: flex; align-items: center; gap: var(--s-2); }
@@ -655,15 +655,9 @@ function reinitialiser() {
 .table-note { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: var(--s-3); }
 
 .empty { font-size: var(--t-small); color: var(--c-ink-3); text-align: center; padding: var(--s-8); }
-.is-credit { color: var(--c-credit); }
-.is-over { color: var(--c-over); }
 
 /* ─── Classes communes (mêmes définitions que les autres vues) ─── */
-.input { padding: 6px var(--s-3); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); font-size: 13px; color: var(--c-ink); background: var(--c-surface); outline: none; font-family: var(--font-ui); }
-.input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
-.btn-secondary { height: 34px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); color: var(--c-ink); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
-.btn-secondary:hover { background: var(--c-surface-hover); }
-.btn-discret { font-size: var(--t-small); color: var(--c-accent); cursor: pointer; margin-top: var(--s-3); }
+.btn-discret { margin-top: var(--s-3); }
 .btn-discret:hover { text-decoration: underline; }
 .link-btn { font-size: var(--t-meta); color: var(--c-accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .link-btn:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
