@@ -15,13 +15,41 @@ centime, historique irremplaçable) :
 
 | Base | Chemin | Statut |
 |---|---|---|
-| Base de dev | `backend/data/budget.db` (+ `-wal`, `-shm`) | **SACRÉE — lecture seule** |
+| **Bac à sable** | `backend/data/dev/budget.db` | **c'est ici qu'on travaille** |
+| Référence / seed | `backend/data/budget.db` (+ `-wal`, `-shm`) | **SACRÉE — lecture seule** |
 | App installée | `%APPDATA%\fr.revaw.budgetflow2\budget.db` | **SACRÉE — ne pas y toucher** |
 | Sauvegardes | `backend/data/backup-*/` | **SACRÉES — ne jamais écraser ni supprimer** |
 
-### Au début de CHAQUE tâche : copier la base, puis bosser sur la copie
+`backend/data/budget.db` n'est pas qu'une fixture : `build-app.cmd` l'embarque comme
+**seed de l'installeur**, et elle devient la base de l'app au premier lancement. Une
+écriture dedans se retrouverait chez l'utilisateur final.
 
-Premier réflexe, **avant** de lancer un serveur, un script ou la moindre requête :
+Elle et celle de l'app installée sont deux fichiers **distincts**, qui divergent depuis
+la dernière installation — vérifié le 09/09 : 401 écritures d'un côté, 403 de l'autre.
+
+### Le bac à sable : `backend/data/dev/` (décision d'Evan, 09/09)
+
+Un dossier fixe, toujours branché à l'app de dev. **Evan le remplit et le vide
+lui-même** : il y colle sa vraie base pour tester avec de vraies données, il en supprime
+les trois fichiers pour retrouver une première utilisation — le backend en recrée une
+vide au démarrage et le guide de bienvenue se relance. C'est son territoire : ne rien y
+écraser sans le lui demander.
+
+`dev.cmd` pointe dessus et n'est donc **plus interdit** — il ne peut plus toucher la
+référence. C'est la voie normale pour lancer les serveurs.
+
+```powershell
+# à la main si besoin
+cd backend ; $env:DB_PATH = "<racine>ackenddatadevudget.db" ; npm run dev
+```
+
+### La copie datée : pour ce qui touche au SCHÉMA
+
+Une migration, un correctif de données, un script qui écrit en masse : là, un retour
+arrière peut sauver la mise. Pour tout le reste — une fonctionnalité, un correctif
+d'écran, une revue — le bac à sable suffit.
+
+Dans ce cas seulement, **avant** de lancer quoi que ce soit :
 
 ```powershell
 $src  = "C:\Users\RoXx\Desktop\Dev_perso\new_budgetflow\budgetflow\backend\data"
@@ -47,11 +75,13 @@ $env:DB_PATH = "$work\budget.db" ; node scripts/<script>.mjs
 
 ### Les pièges à connaître
 
-- **`dev.cmd` est interdit pendant une tâche** : il démarre le backend sans `DB_PATH`,
-  donc sur la vraie base. Il est réservé à Evan, ou à la fin, quand il veut revoir ses
-  vraies données.
 - **Démarrer le backend = écrire dans la base** : les migrations SQL numérotées
-  s'appliquent automatiquement au boot. Aucun démarrage sans `DB_PATH`.
+  s'appliquent automatiquement au boot. Aucun démarrage sans `DB_PATH`, et jamais sur
+  `backend/data/budget.db`.
+- **Copier une base, c'est copier TROIS fichiers.** Le mode WAL fait vivre les écritures
+  récentes dans `budget.db-wal`, souvent plus gros que le `.db` — celui de l'app
+  installée fait 1,6 Mo pour une base de 216 Ko. N'en copier qu'un donne des données
+  périmées, sans le moindre message d'erreur.
 - `scripts/review.mjs` prend une base **neuve et jetable** en argument, jamais la base de dev.
 - `build-app.cmd` embarque la base de dev **actuelle** comme seed de l'installeur :
   avant un build, vérifier que `backend/data/budget.db` est bien la vraie base intacte.
@@ -63,15 +93,15 @@ Et dans ce cas seulement : ① sauvegarde datée d'abord
 le faire, ③ vérifier les invariants après et les lui montrer
 (méthode dans [CONTEXTE.md](CONTEXTE.md#invariants)).
 
-`backend/data/` est gitignoré : les copies de travail ne partent jamais dans git.
-En fin de tâche, proposer de supprimer le dossier `work/` du jour — ne jamais supprimer
-soi-même une base ou une sauvegarde.
+`backend/data/` est gitignoré : ni le bac à sable ni les copies de travail ne partent
+dans git. En fin de tâche, proposer de supprimer le dossier `work/` du jour — **ne
+jamais supprimer soi-même une base ou une sauvegarde.**
 
 ### Checklist de démarrage (à annoncer en une ligne dans la réponse)
 
-1. copie faite (3 fichiers) → chemin de la copie
-2. tout tourne avec `DB_PATH` sur cette copie
-3. la vraie base n'a été ni ouverte en écriture, ni migrée, ni servie
+1. sur quoi ça tourne : le bac à sable, ou une copie datée si la tâche touche au schéma
+2. `DB_PATH` posé — aucun démarrage sans lui
+3. `backend/data/budget.db` n'a été ni ouverte en écriture, ni migrée, ni servie
 
 ---
 

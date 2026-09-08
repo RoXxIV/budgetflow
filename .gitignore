@@ -11,7 +11,7 @@ coverage/
 src-tauri/target/
 src-tauri/gen/
 
-# Généré par build-app.cmd : runtime backend copié et base seed (données réelles !)
+# Généré par build-app.cmd : runtime backend copié et base seed (vierge depuis le 09/09)
 src-tauri/backend/
 src-tauri/seed/
 
