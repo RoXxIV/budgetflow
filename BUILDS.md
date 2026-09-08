@@ -29,7 +29,7 @@ sur une machine neuve démarre sur le guide de bienvenue.
 
 ### 09/09/2026 — découpage, revue, sauvegarde des données
 
-Commit : `<à compléter>` · migrations : **23** · seed : **vierge**
+Commit : `652b845` · migrations : **23** · seed : **vierge**
 
 Le premier build depuis la revue complète du code. Beaucoup de choses, dont trois qui
 touchent la base.
