@@ -198,10 +198,16 @@ export function getSummary(monthId) {
   // Le réel remplace le prévu : seules les lignes SANS entrée comptent pour leur prévu
   // Une cagnotte compte pour son « à envoyer » calculé (négatif = rentrée d'argent)
   const potById = Object.fromEntries(pots.computeAll(monthId).map((p) => [p.id, p]));
+  // « Annuler ce mois-ci » : ce qui a été volontairement écarté ne compte plus.
+  // Lu AVANT la boucle des lignes, qui s'en sert autant que les DCA plus bas.
+  const skips = all("SELECT kind, target_id FROM month_skips WHERE month_id = ?", monthId);
+  const skipSet = new Set(skips.map((s) => `${s.kind}:${s.target_id}`));
   let prevusRestants = 0;   // sorties prévues non encore réalisées
   let revenusRestants = 0;  // revenus prévus non encore encaissés
   for (const l of lines) {
     if (l.entry_count > 0) continue;
+    // Une ligne annulée n'aura pas lieu ce mois : ni sortie, ni revenu à venir
+    if (skipSet.has(`line:${l.id}`)) continue;
     const plannedCents = l.is_pot ? (potById[l.id]?.toSendCents || 0) : l.planned_amount_cents;
     if (l.category_type === "revenu") {
       if (isMainOrNull(l.to_account_id)) revenusRestants += plannedCents;
@@ -209,10 +215,6 @@ export function getSummary(monthId) {
       prevusRestants += plannedCents;
     }
   }
-  // « Annuler ce mois-ci » : les mensualités/DCA volontairement sautés ce mois ne comptent plus
-  const skips = all("SELECT kind, target_id FROM month_skips WHERE month_id = ?", monthId);
-  const skipSet = new Set(skips.map((s) => `${s.kind}:${s.target_id}`));
-
   // DCA prévu non encore versé ce mois : présumé versé depuis le compte principal.
   // N'IMPORTE QUEL versement du mois vaut « fait » — pas seulement le ☐ DCA : Evan
   // arrondit souvent à la main (155 au lieu de 150), et un versement saisi ne doit

@@ -445,6 +445,9 @@ function removeInner(id, { force = false } = {}) {
       suffix = " — son enveloppe vide a été supprimée avec";
     }
   }
+  // target_id est polymorphe, donc sans clé étrangère : le ménage se fait ici, sinon
+  // l'annulation survivrait à la ligne qu'elle visait.
+  run("DELETE FROM month_skips WHERE kind = 'line' AND target_id = ?", id);
   run("DELETE FROM budget_lines WHERE id = ?", id); // les entrées suivent (CASCADE)
   return { message: "Ligne supprimée" + suffix };
 }
