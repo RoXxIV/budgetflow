@@ -319,3 +319,47 @@ test("un mois sans solde de départ ne peut afficher ni disponible ni projeté",
   assert.equal(s.tiles.disponible, null, "aucun point de départ : rien à calculer");
   assert.equal(s.tiles.projete, null);
 });
+
+// ─── Le formulaire de création : ce qu'il propose ─────────
+// prefill n'était exercé par aucune suite (couverture du 08/09). C'est pourtant lui
+// qui remplit l'écran de création d'un mois, et donc les soldes de départ que
+// l'utilisateur confirme ou corrige.
+
+test("prefill propose le mois suivant le dernier existant", async () => {
+  const dernier = months.list()[0]; // la liste est triée du plus récent au plus ancien
+  const p = await months.prefill();
+  assert.equal(p.period, nextPeriodOf(dernier.period));
+  assert.equal(p.previousPeriod, dernier.period);
+});
+
+test("prefill propose les soldes de FIN du mois précédent, à corriger", async () => {
+  const dernier = months.list()[0];
+  const attendus = summary.getSummary(dernier.id).accounts.filter((a) => a.current !== null);
+  const p = await months.prefill();
+  assert.equal(p.snapshots.length, attendus.length, "un solde par compte au solde connu");
+  for (const s of p.snapshots) {
+    const ref = attendus.find((a) => a.accountId === s.accountId);
+    assert.ok(eq(s.balance, ref.current), `${ref.name} : le solde live du mois précédent`);
+  }
+  // Rien n'est écrit : ce sont des propositions
+  assert.equal(months.list()[0].id, dernier.id, "aucun mois n'a été créé");
+});
+
+test("prefill rend aussi les enveloppes ouvertes, pour les recaler en même temps", async () => {
+  const p = await months.prefill();
+  const ouvertes = envelopes.list().filter((e) => !e.isClosed);
+  assert.equal(p.envelopes.length, ouvertes.length);
+  assert.ok(p.envelopes.every((e) => typeof e.total === "number"), "avec leur cumul actuel");
+});
+
+test("« mois en cours » : le mois ouvert du calendrier, sinon le plus récent ouvert", () => {
+  const courant = months.current();
+  assert.ok(courant, "il y a bien un mois ouvert");
+  assert.equal(courant.isClosed, false);
+});
+
+test("le nom du mois s'écrit en toutes lettres, pour les messages", () => {
+  assert.equal(months.monthName("2026-09"), "Septembre 2026");
+  assert.equal(months.monthName("2027-01"), "Janvier 2027");
+  assert.equal(months.monthName("2026-12"), "Décembre 2026");
+});

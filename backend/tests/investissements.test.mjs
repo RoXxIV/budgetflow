@@ -88,3 +88,52 @@ test("revue 04/09 : les valorisations respectent la clôture du mois", () => {
   refuse(() => assets.removeValuation(etf.id, valId), 409);
   months.setClosed(m.id, false);
 });
+
+// ─── Lire les mouvements, et les retirer ──────────────────
+// Ces fonctions n'étaient exercées par aucune suite (couverture du 08/09) : c'est
+// pourtant ce que la page Mois et la page Investissements affichent.
+
+test("l'historique d'un actif se lit du plus récent au plus ancien", () => {
+  const mouvements = assets.listMovements(etf.id);
+  assert.ok(mouvements.length >= 2, "les mouvements du décor sont là");
+  for (let i = 1; i < mouvements.length; i++) {
+    assert.ok(mouvements[i - 1].date >= mouvements[i].date, "l'ordre est décroissant");
+  }
+  const versement = mouvements.find((x) => x.kind === "versement");
+  assert.equal(versement.assetName, "ETF Monde", "le nom de l'actif accompagne le mouvement");
+  assert.ok(versement.counterpartAccountName, "et celui du compte de contrepartie");
+});
+
+test("les mouvements d'un mois se lisent par période, tous actifs confondus", () => {
+  const duMois = assets.listMovementsByPeriod(period);
+  assert.ok(duMois.length >= 2);
+  assert.ok(duMois.every((x) => x.date.startsWith(period)), "rien d'un autre mois");
+  // Un mois sans mouvement rend une liste vide, pas une erreur
+  assert.deepEqual(assets.listMovementsByPeriod("2020-01"), []);
+});
+
+test("retirer un mouvement corrige l'investi et la valeur", () => {
+  const cible = assets.create({ name: "Fonds test", accountId: pea.id });
+  assets.addMovement(cible.id, { kind: "versement", amount: 300, date: `${period}-12`, counterpartAccountId: main.id });
+  assert.ok(eq(assets.getById(cible.id).invested, 300));
+  const mvt = assets.listMovements(cible.id)[0];
+  assets.removeMovement(cible.id, mvt.id);
+  assert.ok(eq(assets.getById(cible.id).invested, 0), "l'investi est revenu à zéro");
+  assert.equal(assets.listMovements(cible.id).length, 0);
+});
+
+test("retirer un mouvement qui n'existe pas, ou d'un autre actif, est refusé", () => {
+  refuse(() => assets.removeMovement(etf.id, 999999), 404);
+});
+
+test("un actif qui a vécu ne se supprime pas : la clôture garde l'historique", () => {
+  const e = refuse(() => assets.remove(etf.id), 409);
+  assert.match(e.message, /Clôturez-le/, "le message oriente vers le bon geste");
+});
+
+test("un actif créé par erreur, lui, s'efface", () => {
+  const erreur = assets.create({ name: "Créé par erreur", accountId: pea.id });
+  assets.remove(erreur.id);
+  assert.equal(assets.list().some((a) => a.name === "Créé par erreur"), false);
+  refuse(() => assets.remove(999999), 404);
+});

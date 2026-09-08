@@ -108,3 +108,53 @@ test("les mensualisées sont rendues de la plus lourde à la plus légère", () 
     assert.ok(m[i - 1].monthly >= m[i].monthly, "l'ordre décroissant guide l'œil vers ce qui pèse");
   }
 });
+
+// ─── L'autre source du plan : les moyennes réelles ────────
+// averages() n'était exercée par aucune suite. C'est pourtant ce que propose le bouton
+// « choisir des thèmes… » : si elle se trompe, le plan part sur de mauvais chiffres.
+
+const { averages } = await import("../services/planAverages.service.js");
+
+test("sans mois révolu, les moyennes ne racontent rien plutôt que zéro", () => {
+  // Le seul mois créé plus haut est le mois EN COURS : il est exclu par construction
+  const a = averages();
+  assert.equal(a.months, 0);
+  assert.equal(a.from, null);
+  assert.deepEqual(a.themes, []);
+  assert.deepEqual(a.categories, []);
+});
+
+test("le mois en cours est exclu : incomplet, il tirerait les moyennes vers le bas", () => {
+  const theme = S.themes.create({ name: "Courses" });
+  const p = currentPeriod();
+  // Deux mois révolus, construits à rebours du mois courant
+  const precedents = [reculer(p, 2), reculer(p, 1)];
+  for (const periode of precedents) {
+    const m = months.create({ period: periode, snapshots: [{ accountId: compte.id, balance: 1000 }] });
+    const l = budgetLines.create(m.id, { label: "Supermarché", plannedAmount: 200, categoryId: logement.id, fromAccountId: compte.id });
+    S.entries.create(m.id, { lineId: l.id, amount: 100, date: `${periode}-10`, accountId: compte.id, themeId: theme.id });
+  }
+  // Et une dépense énorme dans le mois EN COURS, qui ne doit pas compter
+  const courant = months.list().find((x) => x.period === p);
+  const lc = budgetLines.create(courant.id, { label: "Exceptionnel", plannedAmount: 0, categoryId: logement.id, fromAccountId: compte.id });
+  S.entries.create(courant.id, { lineId: lc.id, amount: 9999, date: `${p}-02`, accountId: compte.id, themeId: theme.id });
+
+  const a = averages();
+  assert.equal(a.months, 2, "deux mois révolus");
+  assert.equal(a.from, precedents[0]);
+  assert.equal(a.to, precedents[1]);
+  const courses = a.themes.find((t) => t.name === "Courses");
+  assert.ok(eq(courses.average, 100), "200 € sur 2 mois — les 9 999 € du mois en cours sont hors du compte");
+});
+
+test("un thème sans dépense ne figure pas : on ne propose pas d'importer du vide", () => {
+  S.themes.create({ name: "Jamais dépensé" });
+  assert.equal(averages().themes.some((t) => t.name === "Jamais dépensé"), false);
+});
+
+// « 2026-09 » reculé de n mois
+function reculer(periode, n) {
+  const [y, m] = periode.split("-").map(Number);
+  const i = y * 12 + (m - 1) - n;
+  return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")}`;
+}
