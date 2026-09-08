@@ -599,14 +599,7 @@ const pct0 = (n) => Math.round(n) + ' %'
 
 /* ─── Bandeau ─── */
 .bandeau { display: flex; align-items: center; gap: var(--s-6); padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); }
-.synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
-.synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
-.synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; align-self: flex-start; }
-.synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
-.synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
-.synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
-.synth-v { font-size: var(--t-amount); color: var(--c-ink); }
-.synth-v2 { font-size: var(--t-small); }
+.synth-sub { align-self: flex-start; }
 
 /* ─── Panneaux de graphiques ─── */
 .chart-panel { padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); }

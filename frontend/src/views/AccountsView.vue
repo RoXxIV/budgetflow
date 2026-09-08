@@ -1076,13 +1076,6 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 
 /* ─── Patrimoine ─── */
 .patri { display: flex; align-items: center; gap: var(--s-6); padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); }
-.synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
-.synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
-.synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; }
-.synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
-.synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
-.synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
-.synth-v { font-size: var(--t-amount); color: var(--c-ink); }
 
 /* ─── Registre des comptes ─── */
 .acc-panel { overflow: visible; }
@@ -1095,11 +1088,8 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
   min-height: var(--h-row);
 }
 .acc-head { min-height: 30px; border-bottom: 1px solid var(--c-line); background: var(--c-surface-sunken); border-radius: var(--r-container) var(--r-container) 0 0; }
-.colh { font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); text-align: right; }
 .reg-section + .reg-section { border-top: 1px solid var(--c-line-strong); }
 .acc-sec-head { min-height: 44px; background: var(--c-surface-sunken); }
-.reg-sec-title { font-size: var(--t-section); font-weight: 600; color: var(--c-ink); }
-.reg-sec-count { font-size: var(--t-small); font-weight: 400; color: var(--c-ink-3); margin-left: var(--s-2); }
 .reg-sec-real { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); text-align: right; }
 
 .acc-row { border-bottom: 1px solid var(--c-line); transition: background-color var(--dur-fast) var(--ease); }
@@ -1110,12 +1100,9 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 .acc-row.is-inactive { border-bottom: none; }
 .cell-star { text-align: center; }
 .star { color: var(--c-ink-2); font-size: 14px; }
-.cell-label { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
-.row-label { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cell-envcount { font-size: 13px; color: var(--c-ink-2); text-align: right; }
 .cell-balance { font-size: var(--t-amount); color: var(--c-ink); text-align: right; }
 .cell-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
-.row-action { opacity: 0; }
 .acc-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
 .chev-slot { width: 20px; display: flex; justify-content: center; }
 .chev { color: var(--c-ink-3); transition: transform var(--dur-fast) var(--ease); transform: rotate(-90deg); cursor: pointer; }
@@ -1154,7 +1141,6 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
 .entries-empty { font-size: var(--t-small); color: var(--c-ink-3); padding: var(--s-2) 0; }
 .env-form { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-2); flex-wrap: wrap; }
 .env-actions { display: flex; gap: var(--s-4); margin-top: var(--s-3); }
-
 
 /* ─── Tags ─── */
 .tag-credit { background: var(--c-credit-soft); color: var(--c-credit); }

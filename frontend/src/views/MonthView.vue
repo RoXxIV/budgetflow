@@ -2,9 +2,9 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { eur } from '@/lib/format.js'
 import {
-  getMonths, getMonthPrefill, createMonth, setMonthClosed, setMonthNotes, addMonthSkip, removeMonthSkip,
+  getMonths, setMonthClosed, setMonthNotes, addMonthSkip, removeMonthSkip,
   getMonthLines, payLine,
-  getMonthSnapshots, upsertMonthSnapshots,
+  getMonthSnapshots,
   getMonthEntries, createEntry, updateEntry, deleteEntry,
   getMonthSummary, getMonthEnvelopeContributions,
   createMonthLine, updateMonthLine, deleteMonthLine, applyLineToTemplate,
@@ -12,6 +12,8 @@ import {
 import { getEnvelopes, addContribution, removeContribution, liquidateEnvelope } from '@/api/envelopes.js'
 import { getMonthCalculators, saveMonthReadings, regularizeCalculator } from '@/api/calculators.js'
 import AppModal from '@/components/AppModal.vue'
+import MonthCreateForm from '@/components/MonthCreateForm.vue'
+import MonthSummaryBar from '@/components/MonthSummaryBar.vue'
 import HelpTip from '@/components/HelpTip.vue'
 import { confirmDialog, apiError } from '@/composables/useDialog.js'
 import { getAssets, addAssetMovement, removeAssetMovement, getMonthAssetMovements, dcaAsset, undcaAsset } from '@/api/assets.js'
@@ -49,7 +51,6 @@ onMounted(async () => {
 })
 
 const summaryData = ref(null)
-const showAccounts = ref(false)
 const envelopes = ref([])          // enveloppes ouvertes
 const monthContribs = ref([])      // contributions datées dans le mois
 
@@ -245,63 +246,9 @@ function potStatus(line) {
 // ─── Enveloppes (contribution rapide depuis le mois) ─────
 const openEnvelopeId = ref(null)
 const contribForm = ref({})
-// ─── Synthèse & navigation de mois (refonte registre §5.3) ───
-const sortedMonths = computed(() => [...monthsList.value].sort((a, b) => a.period.localeCompare(b.period)))
-const curIdx = computed(() => sortedMonths.value.findIndex((m) => m.id === current.value?.id))
-const prevMonthTarget = computed(() => (curIdx.value > 0 ? sortedMonths.value[curIdx.value - 1] : null))
-const nextMonthTarget = computed(() => (curIdx.value >= 0 ? sortedMonths.value[curIdx.value + 1] || null : null))
-/**
- * Navigue au mois précédent ou suivant, sans sortir de la liste.
- *
- * @param {number} d -1 pour reculer, +1 pour avancer.
- */
-function stepMonth(d) {
-  const t = d < 0 ? prevMonthTarget.value : nextMonthTarget.value
-  if (t) openMonth(t)
-}
-const nextPeriodName = computed(() => {
-  const last = sortedMonths.value[sortedMonths.value.length - 1]
-  if (!last) return ''
-  const [y, m] = last.period.split('-').map(Number)
-  const d = new Date(Date.UTC(y, m, 1))
-  const s = d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-  return s.charAt(0).toUpperCase() + s.slice(1)
-})
-/**
- * Change de mois depuis le sélecteur, ou ouvre la création.
- *
- * L'option « nouveau mois » remet le sélecteur sur le mois courant avant d'ouvrir le
- * formulaire : si l'utilisateur renonce, la liste ne doit pas rester sur une option
- * qui ne correspond à aucun mois.
- *
- * @param {Event} e L'événement de changement du <select>.
- */
-function onMonthSelect(e) {
-  const v = e.target.value
-  if (v === '__new') {
-    e.target.value = String(current.value?.id ?? '')
-    openCreateForm()
-    return
-  }
-  const target = monthsList.value.find((m) => m.id === Number(v))
-  if (target) openMonth(target)
-}
-const objectifPct = computed(() => {
-  const t = summaryData.value?.tiles
-  return t?.objectifEpargne ? Math.round((t.misDeCote / t.objectifEpargne) * 100) : 0
-})
-
-// Ombre de la barre sticky uniquement après scroll (sentinelle + IntersectionObserver)
-const scrolled = ref(false)
-const stickySentinel = ref(null)
-let sentinelObs = null
-watch(stickySentinel, (el) => {
-  if (sentinelObs) { sentinelObs.disconnect(); sentinelObs = null }
-  if (el) {
-    sentinelObs = new IntersectionObserver(([e]) => { scrolled.value = !e.isIntersecting })
-    sentinelObs.observe(el)
-  }
-})
+// ─── Repères d'affichage du registre ─────────────────────
+// La navigation de mois, l'ombre de la barre collante et les deux panneaux de soldes
+// vivent désormais dans MonthSummaryBar.
 
 /**
  * Désature une couleur de catégorie vers son gris, à 65 %.
@@ -688,90 +635,22 @@ const plannedDepenses = computed(() => groups.value.filter((g) => g.category.typ
 const totalDepenses = computed(() => groups.value.filter((g) => g.category.type === 'depense').reduce((s, g) => s + g.actual, 0))
 
 // ─── Création de mois ────────────────────────────────────
-const createFormOpen = ref(false)
-const newMonth = ref({ period: '', snapshots: {} })
-const suggested = ref({})          // solde live de fin du mois précédent, par compte (suggestion)
-const previousPeriod = ref(null)
-const newEnvelopes = ref([])       // [{ id, name, accountId, accountName, total (cumul), value (saisie) }]
-// Écart entre le cumul connu d'une enveloppe et le montant saisi au recalage ;
-// null quand il n'y a rien à recaler
-const envelopeDelta = (e) => {
-  if (e.value === '' || e.value == null) return null
-  const d = Math.round((parseFloat(e.value) - e.total) * 100) / 100
-  return d === 0 ? null : d
-}
-// « = compte » : recopie le solde saisi pour le compte hôte (enveloppe seule sur son compte)
-const envelopesOnAccount = (accountId) => newEnvelopes.value.filter((e) => e.accountId === accountId).length
-/**
- * Recopie le solde saisi du compte dans son enveloppe.
- *
- * Raccourci pour le cas fréquent d'une enveloppe seule sur son compte : les deux
- * valeurs sont alors identiques, autant ne les saisir qu'une fois.
- *
- * @param {object} e L'enveloppe du formulaire de création.
- */
-function copyAccountBalance(e) {
-  const v = newMonth.value.snapshots[e.accountId]
-  if (v !== '' && v != null) e.value = v
-}
-// Écart entre le solde proposé (fin du mois précédent) et celui qui est saisi :
-// c'est l'ajustement bancaire du mois, intérêts et arrondis compris
-const suggestionDelta = (accountId) => {
-  const s = suggested.value[accountId]
-  const v = newMonth.value.snapshots[accountId]
-  if (s == null || v === '' || v == null) return null
-  const d = Math.round((parseFloat(v) - s) * 100) / 100
-  return d === 0 ? null : d
-}
+// Le formulaire vit dans MonthCreateForm, qui possède tout son état et ses appels.
+// La vue ne garde que la référence pour l'ouvrir, et l'accueil du mois créé.
 
-const newMonthTaken = computed(() => monthsList.value.some((m) => m.period === newMonth.value.period))
-const newMonthName = computed(() => {
-  if (!newMonth.value.period) return ''
-  const [y, m] = newMonth.value.period.split('-').map(Number)
-  const label = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-  return label.charAt(0).toUpperCase() + label.slice(1)
-})
+const createForm = ref(null)
+const openCreateForm = () => createForm.value?.ouvrir()
 
 /**
- * Ouvre la création de mois, pré-remplie par le serveur.
+ * Ouvre le mois qui vient d'être créé.
  *
- * Les soldes proposés sont ceux de fin du mois précédent : une suggestion à corriger,
- * pas une vérité — les arrondis et intérêts bancaires font toujours un petit écart.
- * Les enveloppes sont proposées à leur cumul actuel, à recaler de la même façon.
- */
-async function openCreateForm() {
-  const { data } = await getMonthPrefill()
-  const map = {}
-  const sug = {}
-  accounts.value.forEach((a) => {
-    const s = data.snapshots.find((x) => x.accountId === a.id)
-    map[a.id] = s?.balance ?? ''
-    if (s) sug[a.id] = s.balance
-  })
-  newMonth.value = { period: data.period, snapshots: map }
-  suggested.value = sug
-  previousPeriod.value = data.previousPeriod
-  newEnvelopes.value = (data.envelopes || []).map((e) => ({ ...e, value: e.total }))
-  createFormOpen.value = true
-}
-
-/**
- * Crée le mois : soldes de départ, recalage des enveloppes, et copie du Template.
+ * La liste des mois est relue avant : le nouveau mois doit y figurer, sans quoi le
+ * sélecteur de la barre de synthèse afficherait une option qui n'existe pas.
  *
- * Seules les enveloppes réellement modifiées sont envoyées (`envelopeDelta` non nul) :
- * renvoyer les autres poserait des ajustements à zéro dans leur historique.
+ * @param {object} created Le mois rendu par le serveur.
  */
-async function submitCreate() {
-  if (!newMonth.value.period || newMonthTaken.value) return
-  const snapshotList = Object.entries(newMonth.value.snapshots)
-    .filter(([, v]) => v !== '' && v !== null)
-    .map(([accountId, balance]) => ({ accountId: Number(accountId), balance: parseFloat(balance) }))
-  const envelopeList = newEnvelopes.value
-    .filter((e) => envelopeDelta(e) !== null)
-    .map((e) => ({ envelopeId: e.id, total: parseFloat(e.value) }))
+async function onMonthCreated(created) {
   try {
-    const { data: created } = await createMonth({ period: newMonth.value.period, snapshots: snapshotList, envelopes: envelopeList })
-    createFormOpen.value = false
     monthsList.value = (await getMonths()).data
     await openMonth(monthsList.value.find((m) => m.id === created.id))
   } catch (e) { apiError(e) }
@@ -1272,100 +1151,34 @@ function showCheckbox(line) {
   return line.plannedAmount > 0
 }
 
-// ─── Snapshots (édition) ─────────────────────────────────
-const snapshotsOpen = ref(false)
-const snapshotEdits = ref({})
-
-/** Ouvre l'édition des soldes de départ, pré-remplie avec ceux du mois. */
-function openSnapshots() {
-  const map = {}
-  accounts.value.forEach((a) => {
-    map[a.id] = snapshots.value.find((s) => s.accountId === a.id)?.balance ?? ''
-  })
-  snapshotEdits.value = map
-  snapshotsOpen.value = !snapshotsOpen.value
-}
+// ─── Soldes d'ouverture ──────────────────────────────────
+// La saisie vit dans MonthSummaryBar, qui en est le seul propriétaire ; on ne garde ici
+// que la mise à jour de l'état après enregistrement.
 
 /**
- * Enregistre les soldes de départ du mois.
+ * Reprend les soldes enregistrés par la barre de synthèse, et relit le bilan.
  *
- * Les champs laissés vides sont écartés plutôt qu'enregistrés à zéro : un solde
- * inconnu n'est pas un solde nul. La synthèse est relue dans la foulée — le disponible
- * et le reste à vivre se calculent tous les deux à partir de ces soldes.
+ * Le disponible et le reste à vivre se calculent tous les deux à partir de ces soldes :
+ * les afficher sans relire le bilan montrerait l'ancien chiffre à côté du nouveau.
+ *
+ * @param {Array<object>} liste Les soldes rendus par le serveur.
  */
-async function saveSnapshots() {
-  const list = Object.entries(snapshotEdits.value)
-    .filter(([, v]) => v !== '' && v !== null)
-    .map(([accountId, balance]) => ({ accountId: Number(accountId), balance: parseFloat(balance) }))
-  try {
-    snapshots.value = (await upsertMonthSnapshots(current.value.id, list)).data
-    summaryData.value = (await getMonthSummary(current.value.id)).data
-    snapshotsOpen.value = false
-  } catch (e) { apiError(e) }
+async function onSnapshotsSaved(liste) {
+  snapshots.value = liste
+  try { summaryData.value = (await getMonthSummary(current.value.id)).data } catch (e) { apiError(e) }
 }
-
-const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 </script>
 
 <template>
   <div>
 
     <!-- ─── Formulaire création ──────────────────────── -->
-    <AppModal :open="createFormOpen" title="Nouveau mois" @close="createFormOpen = false">
-      <!-- Un mois suit des soldes : sans compte actif, on guide vers la page Comptes -->
-      <div v-if="!activeAccounts.length" class="flex flex-col gap-3 text-[13px]">
-        <p>Un mois suit les soldes de vos comptes — il en faut au moins un.</p>
-        <p class="text-gray-400 text-[12px]">Créez d'abord votre compte principal (celui de vos dépenses courantes), vous reviendrez ici juste après.</p>
-        <router-link to="/comptes" class="btn-primary self-start inline-flex items-center" @click="createFormOpen = false">Créer mon premier compte</router-link>
-      </div>
-      <template v-else>
-      <div class="flex items-center gap-3 mb-3">
-        <input v-model="newMonth.period" type="month" class="input" />
-        <span v-if="newMonthName && !newMonthTaken" class="text-[13px] font-medium text-violet-600">→ {{ newMonthName }}</span>
-        <span v-if="newMonthTaken" class="text-[12.5px] font-medium text-red-500">Un mois existe déjà pour {{ newMonthName }}</span>
-      </div>
-      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Solde de début de mois (recalage par compte)</p>
-      <p v-if="previousPeriod" class="text-[11.5px] text-gray-400 mb-2">
-        Pré-rempli avec le solde de fin de {{ previousPeriod }} calculé par l'app — corrigez avec le vrai solde de la banque, l'écart s'affiche à titre d'info.
-      </p>
-      <div class="flex flex-col gap-1.5 mb-4">
-        <div v-for="a in activeAccounts" :key="a.id" class="flex items-center gap-2.5">
-          <span class="text-[13px] text-gray-600 w-36 shrink-0">{{ a.name }}</span>
-          <input v-model="newMonth.snapshots[a.id]" type="number" step="0.01" class="input w-28" placeholder="—" @keyup.enter="submitCreate" />
-          <span v-if="suggestionDelta(a.id) !== null" class="text-[11px] num" :class="suggestionDelta(a.id) > 0 ? 'text-emerald-600' : 'text-amber-600'" :title="'Suggéré : ' + fmt(suggested[a.id])">
-            {{ suggestionDelta(a.id) > 0 ? '+' : '' }}{{ fmt(suggestionDelta(a.id)) }} non expliqué
-          </span>
-        </div>
-      </div>
-
-      <!-- Recalage des enveloppes -->
-      <template v-if="newEnvelopes.length">
-        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Enveloppes (montant réel)</p>
-        <p class="text-[11.5px] text-gray-400 mb-2">
-          Pré-rempli avec le cumul des contributions. Si l'argent réellement mis de côté diffère, corrigez : l'écart devient une contribution d'ajustement datée du mois.
-        </p>
-        <div class="flex flex-col gap-1.5 mb-4">
-          <div v-for="e in newEnvelopes" :key="e.id" class="flex items-center gap-2.5">
-            <span class="text-[13px] text-gray-600 w-36 shrink-0 truncate" :title="e.accountName ? 'sur ' + e.accountName : 'virtuelle'">{{ e.name }}</span>
-            <input v-model="e.value" type="number" step="0.01" class="input w-28" @keyup.enter="submitCreate" />
-            <button
-              v-if="e.accountId && newMonth.snapshots[e.accountId] !== '' && envelopesOnAccount(e.accountId) === 1"
-              class="link text-[11px]"
-              :title="'Recopier le solde saisi pour ' + e.accountName"
-              @click="copyAccountBalance(e)"
-            >= {{ e.accountName }}</button>
-            <span v-if="envelopeDelta(e) !== null" class="text-[11px] num" :class="envelopeDelta(e) > 0 ? 'text-emerald-600' : 'text-amber-600'">
-              {{ envelopeDelta(e) > 0 ? '+' : '' }}{{ fmt(envelopeDelta(e)) }} d'ajustement
-            </span>
-          </div>
-        </div>
-      </template>
-      </template>
-      <template #footer>
-        <button v-if="activeAccounts.length" class="btn-primary" :disabled="!newMonth.period || newMonthTaken" @click="submitCreate">Créer depuis le template</button>
-        <button class="btn-secondary" @click="createFormOpen = false">Annuler</button>
-      </template>
-    </AppModal>
+    <MonthCreateForm
+      ref="createForm"
+      :accounts="activeAccounts"
+      :months="monthsList"
+      @created="onMonthCreated"
+    />
 
     <!-- ─── Liquider et renouveler une enveloppe mensualisée ── -->
     <AppModal :open="!!liquidation" title="Liquider et renouveler" @close="liquidation = null">
@@ -1581,79 +1394,28 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
     </AppModal>
 
     <!-- ─── Aucun mois ───────────────────────────────── -->
-    <div v-if="!current && !monthsList.length && !createFormOpen" class="text-center py-16 text-gray-400">
+    <div v-if="!current && !monthsList.length && !createForm?.open" class="text-center py-16 text-gray-400">
       <p class="mb-4">Aucun mois pour l'instant.</p>
       <button class="btn-primary" @click="openCreateForm">Créer le premier mois</button>
     </div>
 
     <!-- ─── Contenu du mois ──────────────────────────── -->
     <div v-if="current">
-      <!-- ─── Barre de synthèse (sticky, fond opaque) — §5.3, corrige A1 ── -->
-      <div ref="stickySentinel" style="height: 1px"></div>
-      <div class="synth" :class="{ 'is-scrolled': scrolled }">
-        <div class="synth-hero">
-          <span class="num synth-solde" :class="{ 'is-over': (summaryData?.tiles.disponible ?? 0) < 0 }">{{ fmtOrDash(summaryData?.tiles.disponible) }}</span>
-          <span class="synth-sub">Solde {{ summaryData?.mainAccount?.name || '—' }}</span>
-        </div>
-        <div class="synth-sep" />
-        <div class="synth-kv">
-          <span class="synth-k has-tip" title="Le réel des catégories dépense (le total du registre), le prévu du mois en repère.">Dépenses du mois</span>
-          <span class="num synth-v" :class="{ 'is-over': totalDepenses > plannedDepenses }">{{ fmt(totalDepenses) }} <span class="synth-meta">sur {{ fmt(plannedDepenses) }}</span></span>
-        </div>
-        <div class="synth-sep" />
-        <div class="synth-kv">
-          <span class="synth-k has-tip" title="Ce qu'il vous restera une fois le mois déroulé : solde du compte principal, moins l'argent réservé en enveloppes, moins tout le prévu pas encore payé (dépenses, cagnottes, DCA, mensualités), plus les revenus prévus pas encore encaissés.">Reste à vivre</span>
-          <span class="num synth-v" :class="{ 'is-over': (resteAVivre ?? 0) < 0 }">{{ resteAVivre === null ? '—' : fmt(resteAVivre) }}</span>
-        </div>
-        <div class="synth-sep" />
-        <div class="synth-kv">
-          <span class="synth-k has-tip" title="Épargne réalisée sur l'objectif du mois.">Épargne du mois</span>
-          <span class="num synth-v">{{ fmt(summaryData?.tiles.misDeCote || 0) }} <span class="synth-meta">sur {{ fmt(summaryData?.tiles.objectifEpargne || 0) }}</span></span>
-          <span v-if="summaryData?.tiles.objectifEpargne" class="mini-track"><span class="mini-fill" :style="{ width: Math.min(100, objectifPct) + '%' }" /></span>
-        </div>
-        <div class="synth-right">
-          <div class="synth-month">
-            <button class="btn-icon" title="Mois précédent" :disabled="!prevMonthTarget" @click="stepMonth(-1)">‹</button>
-            <select class="month-select" :value="current?.id" @change="onMonthSelect">
-              <option v-for="m in monthsList" :key="m.id" :value="m.id">{{ m.name }}</option>
-              <option value="__new">Créer {{ nextPeriodName }}…</option>
-            </select>
-            <button class="btn-icon" title="Mois suivant" :disabled="!nextMonthTarget" @click="stepMonth(1)">›</button>
-            <span class="synth-status"><span class="status-dot" :class="{ 'is-closed': current.isClosed }" />{{ current.isClosed ? 'Mois clôturé' : 'Mois ouvert' }}</span>
-          </div>
-          <div class="synth-actions">
-            <button class="link-accent" @click="showAccounts = !showAccounts">Comptes</button>
-            <button class="link-accent" @click="openSnapshots">Soldes d'ouverture</button>
-            <button class="btn-secondary" @click="toggleClosed">{{ current.isClosed ? 'Rouvrir le mois' : 'Clôturer le mois' }}</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Soldes des comptes (panneau sous la synthèse) -->
-      <div v-if="showAccounts" class="panel accounts-panel">
-        <div class="accounts-grid">
-          <div v-for="a in summaryData?.accounts || []" :key="a.accountId" class="account-tile">
-            <p class="account-name">{{ a.name }}<span v-if="a.isMain" class="account-star"> ★</span></p>
-            <p class="num account-balances"><span class="meta">{{ fmtOrDash(a.start) }}</span><span class="sep"> → </span><span class="ink" :class="{ 'is-over': (a.current ?? 0) < 0 }">{{ fmtOrDash(a.current) }}</span></p>
-            <p v-if="a.envelopesTotal" class="account-meta num">
-              enveloppes {{ fmt(a.envelopesTotal) }} · hors enveloppes
-              <span :class="{ 'is-warn-text': a.unallocated < 0 }" :title="a.unallocated < 0 ? 'Négatif : les enveloppes réservent plus que le solde (découvert autorisé)' : ''">{{ fmtOrDash(a.unallocated) }}</span>
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Soldes d'ouverture (édition) -->
-      <div v-if="snapshotsOpen" class="panel accounts-panel">
-        <p class="panel-title">Soldes d'ouverture</p>
-        <div class="snapshot-form">
-          <label v-for="a in activeAccounts" :key="a.id" class="field">
-            <span>{{ a.name }}</span>
-            <input v-model="snapshotEdits[a.id]" type="number" step="0.01" class="input w-28" :disabled="current.isClosed" placeholder="—" />
-          </label>
-        </div>
-        <button v-if="!current.isClosed" class="btn-primary" @click="saveSnapshots">Enregistrer les soldes</button>
-      </div>
+      <!-- ─── Barre de synthèse, soldes des comptes, soldes d'ouverture ── -->
+      <MonthSummaryBar
+        :current="current"
+        :months="monthsList"
+        :summary="summaryData"
+        :accounts="activeAccounts"
+        :snapshots="snapshots"
+        :total-depenses="totalDepenses"
+        :planned-depenses="plannedDepenses"
+        :reste-a-vivre="resteAVivre"
+        @open-month="openMonth"
+        @create-month="openCreateForm"
+        @toggle-closed="toggleClosed"
+        @snapshots-saved="onSnapshotsSaved"
+      />
 
       <!-- À faire ce mois (addendum §5) : absent quand il n'y a rien à faire -->
       <div v-if="todoLines.length" class="panel todo-panel">
@@ -2074,52 +1836,6 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 .is-warn-text { color: var(--c-warn); font-weight: 600; }
 .strong { font-weight: 600; color: var(--c-ink); }
 
-/* ─── Barre de synthèse (sticky opaque) ─── */
-.synth {
-  position: sticky; top: 0; z-index: 30;
-  background: var(--c-surface);
-  border: 1px solid var(--c-line);
-  border-radius: var(--r-container);
-  padding: var(--s-4) var(--s-5);
-  display: flex; align-items: center; gap: var(--s-5);
-  margin-bottom: var(--s-5);
-}
-.synth.is-scrolled { box-shadow: var(--shadow-sticky); border-radius: 0 0 var(--r-container) var(--r-container); }
-.synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
-.synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
-.synth-solde.is-over { color: var(--c-over); }
-.synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; }
-.synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
-.synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
-.synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
-.synth-v { font-size: var(--t-amount); color: var(--c-ink); }
-.synth-meta { font-size: var(--t-small); color: var(--c-ink-3); font-weight: 400; }
-.mini-track { width: 64px; height: 4px; border-radius: var(--r-pill); background: var(--c-track); overflow: hidden; }
-.mini-fill { display: block; height: 100%; background: var(--c-fill-goal); transition: width var(--dur-base) var(--ease); }
-.synth-right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-2); }
-.synth-month { display: flex; align-items: center; gap: var(--s-1); }
-.month-select {
-  font-size: 15px; font-weight: 600; color: var(--c-ink);
-  background: transparent; border: none; outline: none; cursor: pointer;
-  padding: 2px var(--s-1); border-radius: var(--r-control);
-}
-.month-select:hover { background: var(--c-surface-hover); }
-.synth-status { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); margin-left: var(--s-3); }
-.status-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--c-credit); }
-.status-dot.is-closed { background: var(--c-ink-disabled); }
-.synth-actions { display: flex; align-items: center; gap: var(--s-4); }
-
-/* ─── Soldes des comptes ─── */
-.accounts-panel { padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); }
-.accounts-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-3); }
-.account-tile { background: var(--c-surface-sunken); border-radius: var(--r-control); padding: var(--s-3) var(--s-4); }
-.account-name { font-size: var(--t-small); font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.account-star { color: var(--c-accent); }
-.account-balances { font-size: var(--t-small); }
-.account-balances .sep { color: var(--c-ink-disabled); }
-.account-meta { font-size: var(--t-meta); color: var(--c-ink-3); }
-.snapshot-form { display: flex; flex-wrap: wrap; gap: var(--s-4); margin-bottom: var(--s-4); }
-
 /* ─── Grille de page ─── */
 .month-layout { display: grid; grid-template-columns: minmax(0, 1fr) var(--w-aside); gap: var(--s-7); align-items: start; }
 .reg-col { min-width: 0; display: flex; flex-direction: column; gap: var(--s-5); }
@@ -2140,7 +1856,6 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
   min-height: var(--h-row);
 }
 .reg-head { min-height: 30px; border-bottom: 1px solid var(--c-line); background: var(--c-surface-sunken); border-radius: var(--r-container) var(--r-container) 0 0; }
-.colh { font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); text-align: right; }
 .reg-section + .reg-section { border-top: 1px solid var(--c-line-strong); }
 .reg-section { scroll-margin-top: calc(var(--h-summary) + 24px); }
 .reg-sec-main { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }
@@ -2167,8 +1882,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 .reg-sec-head:hover { background: var(--c-surface-hover); }
 .reg-sec-head .reg-grid { min-height: 48px; }
 .cat-dot { width: 8px; height: 8px; border-radius: var(--r-pill); justify-self: center; }
-.reg-sec-title { font-size: var(--t-section); font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.reg-sec-count { font-size: var(--t-small); font-weight: 400; color: var(--c-ink-3); margin-left: var(--s-2); }
+.reg-sec-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reg-sec-prev { font-size: var(--t-small); color: var(--c-ink-3); text-align: right; }
 .reg-sec-real { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); text-align: right; }
 .chev { color: var(--c-ink-3); justify-self: center; transition: transform var(--dur-fast) var(--ease); transform: rotate(-90deg); }
@@ -2181,8 +1895,6 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 .reg-row.is-internal:hover { background: none; }
 .reg-row.is-internal .row-label { font-weight: 400; color: var(--c-ink-2); }
 .cell-point { display: flex; justify-content: center; }
-.cell-label { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
-.row-label { font-size: var(--t-body); font-weight: 500; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-label.is-pointed { color: var(--c-ink-3); }
 .row-label.is-empty { color: var(--c-ink-3); font-style: italic; }
 .row-detail { color: var(--c-ink-3); font-weight: 400; }
@@ -2190,7 +1902,6 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
 .cell-real { font-size: var(--t-amount); color: var(--c-ink); text-align: right; }
 .cell-dash { color: var(--c-ink-disabled); }
 .cell-actions { display: flex; justify-content: center; }
-.row-action { opacity: 0; }
 .reg-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
 
 /* Case de pointage — §5.10 */
