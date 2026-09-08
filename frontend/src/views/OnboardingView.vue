@@ -16,7 +16,9 @@ import { CATEGORY_PRESETS, CATEGORY_TYPES } from '@/lib/categories.js'
 import { THEME_PRESETS } from '@/lib/themes.js'
 import { refreshOnboarding } from '@/lib/onboarding.js'
 import { eur } from '@/lib/format.js'
-import { apiError } from '@/composables/useDialog.js'
+import { importData } from '@/api/data.js'
+import AppSpinner from '@/components/AppSpinner.vue'
+import { confirmDialog, apiError } from '@/composables/useDialog.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -33,6 +35,14 @@ const stepIndex = ref(0)
 const ready = ref(false)
 const busy = ref(false)
 const error = ref('')
+
+// ─── Reprendre une sauvegarde ────────────────────────────
+// Pendant le guide, la navigation est masquée et le routeur ramène toujours ici : les
+// Paramètres — donc l'import — sont hors d'atteinte. Sans cette porte, quelqu'un qui
+// réinstalle avec sa sauvegarde sous le bras n'aurait aucun moyen de la charger, et
+// devrait tout ressaisir avant de pouvoir la restaurer.
+const fileInput = ref(null)
+const importing = ref(false)
 
 const accounts = ref([])
 const categories = ref([])
@@ -97,6 +107,37 @@ const ACCOUNT_TYPES = [
 ]
 const accountForm = ref({ name: '', type: 'courant' })
 const accountTypeLabel = (type) => ACCOUNT_TYPES.find((t) => t.value === type)?.label || type
+
+/**
+ * Restaure une sauvegarde au lieu de repartir de zéro.
+ *
+ * Le rechargement complet qui suit n'est pas une commodité : l'état du guide se
+ * déduit du contenu de la base et se relit au démarrage. C'est lui qui fait sortir
+ * d'ici vers l'application, une fois les données en place.
+ *
+ * @param {Event} event Le change du champ fichier.
+ */
+async function importerSauvegarde(event) {
+  const fichier = event.target.files?.[0]
+  event.target.value = '' // sans ça, resélectionner le même fichier ne déclencherait rien
+  if (!fichier) return
+
+  const ok = await confirmDialog({
+    title: 'Restaurer une sauvegarde ?',
+    message: `« ${fichier.name} » va remplacer le contenu actuel de l'application.\n\nL'état présent est archivé sur ton disque avant le remplacement.`,
+    confirmLabel: 'Restaurer',
+  })
+  if (!ok) return
+
+  importing.value = true
+  try {
+    await importData(fichier)
+    window.location.reload()
+  } catch (e) {
+    apiError(e)
+    importing.value = false
+  }
+}
 
 /**
  * Ajoute un compte à la liste de l'étape 1.
@@ -509,6 +550,20 @@ async function finish() {
           <p class="onb-note">On fait ensuite le tour de l'app en quelques écrans, puis tu créeras ton premier mois.</p>
         </section>
       </Transition>
+
+      <!-- Reprendre une sauvegarde. Seulement à la première étape : plus loin, importer
+           effacerait ce qui vient d'être configuré. -->
+      <div v-if="stepIndex === 0" class="onb-restore">
+        <input ref="fileInput" type="file" accept=".db,.sqlite,.sqlite3" class="onb-file" @change="importerSauvegarde" />
+        <button class="onb-link" :disabled="importing" @click="fileInput?.click()">
+          <AppSpinner v-if="importing" :size="12" />
+          <template v-if="importing">Restauration en cours…</template>
+          <template v-else>J'ai déjà une sauvegarde BudgetFlow — la restaurer</template>
+        </button>
+      </div>
+
+      <!-- La restauration remplace toute la base, puis recharge : on couvre l'écran -->
+      <AppSpinner v-if="importing" overlay :size="30" label="Restauration de ta sauvegarde…" />
     </div>
   </div>
 </template>
@@ -613,6 +668,13 @@ async function finish() {
 .onb-form .field.grow { flex: 1 1 190px; }
 .onb-hint { font-size: var(--t-small); color: var(--c-ink-3); font-weight: 400; }
 .onb-note { font-size: var(--t-meta); color: var(--c-ink-3); }
+
+/* Reprendre une sauvegarde : discret, sous l'étape, séparé par un filet */
+.onb-restore { margin-top: var(--s-6); padding-top: var(--s-4); border-top: 1px solid var(--c-line); text-align: center; }
+.onb-file { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.onb-link { display: inline-flex; align-items: center; gap: var(--s-2); font-size: var(--t-meta); color: var(--c-ink-3); cursor: pointer; transition: color var(--dur-fast) var(--ease); }
+.onb-link:hover { color: var(--c-accent); }
+.onb-link:disabled { opacity: 0.6; cursor: default; }
 .onb-error { font-size: var(--t-small); color: var(--c-over); margin-bottom: var(--s-4); }
 .onb-actions { display: flex; gap: var(--s-3); margin-top: var(--s-3); }
 .link-btn {

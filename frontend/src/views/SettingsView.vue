@@ -5,7 +5,9 @@ import { getCategories, createCategory, updateCategory, reorderCategories, delet
 import { getThemes, createTheme, updateTheme, deleteTheme, mergeTheme } from '@/api/themes.js'
 import { getTemplateLines } from '@/api/template.js'
 import { getCalculators, createCalculator, updateCalculator, deleteCalculator, checkFormula } from '@/api/calculators.js'
+import { getDataStats, exportData, importData, resetData } from '@/api/data.js'
 import AppModal from '@/components/AppModal.vue'
+import AppSpinner from '@/components/AppSpinner.vue'
 import { confirmDialog, apiError, toast } from '@/composables/useDialog.js'
 import { eur } from '@/lib/format.js'
 import { CATEGORY_PRESETS, CATEGORY_PALETTE, CATEGORY_TYPES } from '@/lib/categories.js'
@@ -28,21 +30,137 @@ const categories = ref([])
 const themes = ref([])
 const templateLines = ref([])
 const calculators = ref([])
+const dataStats = ref(null)
 
-/** Recharge les cinq collections de la page en un seul aller-retour groupé. */
+/** Recharge les collections de la page en un seul aller-retour groupé. */
 async function load() {
-  const [setRes, catRes, themeRes, tlRes, calcRes] = await Promise.all([
-    getSettings(), getCategories(), getThemes(), getTemplateLines(), getCalculators(),
+  const [setRes, catRes, themeRes, tlRes, calcRes, dataRes] = await Promise.all([
+    getSettings(), getCategories(), getThemes(), getTemplateLines(), getCalculators(), getDataStats(),
   ])
   settings.value = setRes.data
   categories.value = catRes.data
   themes.value = themeRes.data
   templateLines.value = tlRes.data
   calculators.value = calcRes.data
+  dataStats.value = dataRes.data
 }
 onMounted(async () => { try { await load() } catch (e) { apiError(e) } })
 
 const fmt = eur
+
+// ─── Vos données : sauvegarder, importer, tout effacer ───
+// Ces trois actions travaillent sur le FICHIER de base, jamais sur les tables : côté
+// serveur, aucune requête destructrice n'existe. L'écran, lui, a une seule charge —
+// que rien d'irréversible ne parte sur un clic distrait.
+
+const dataBusy = ref('')   // 'export' | 'import' | 'reset' : n'occupe qu'un bouton à la fois
+const dataLabel = ref('')  // ce que le voile annonce pendant l'attente, puis le résultat
+const resetStep = ref(0)   // 0 fermé · 1 « êtes-vous sûr » · 2 « c'est définitif »
+const fileInput = ref(null)
+
+// Ce qui est en jeu, en clair : « 401 écritures · 8 mois · 9 comptes »
+const dataResume = computed(() => (dataStats.value?.lignes || []).map((l) => `${l.count} ${l.label}`).join(' · '))
+// Poids du fichier, dans l'unité qui se lit le mieux
+const dataTaille = computed(() => {
+  const o = dataStats.value?.taille || 0
+  return o >= 1048576 ? `${(o / 1048576).toFixed(1)} Mo` : `${Math.round(o / 1024)} Ko`
+})
+
+/**
+ * Donne un blob à enregistrer sous un nom choisi.
+ *
+ * Passer par un lien créé puis cliqué est le seul moyen de nommer un fichier
+ * téléchargé depuis du JavaScript. L'URL objet est révoquée dans la foulée : sans
+ * ça, le blob resterait en mémoire jusqu'au rechargement de la page.
+ *
+ * @param {Blob} blob Le contenu à enregistrer.
+ * @param {string} nom Le nom de fichier proposé.
+ */
+function telecharger(blob, nom) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nom
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Recharge la page après une opération qui a changé la base sous les pieds de l'app.
+ *
+ * Un import ou une remise à zéro invalident tout ce que les autres écrans ont en
+ * mémoire, et l'état du guide de bienvenue se relit au démarrage : rien de moins
+ * qu'un rechargement complet ne remet l'application d'aplomb.
+ *
+ * Le résultat s'affiche sur le voile, pas en notification : le voile reste posé
+ * jusqu'au rechargement, un toast passerait dessous sans être lu.
+ *
+ * @param {string} message Ce qui vient de se passer.
+ */
+function rechargerApres(message) {
+  dataLabel.value = message
+  setTimeout(() => window.location.reload(), 1400)
+}
+
+/** Télécharge une copie complète de la base. */
+async function sauvegarder() {
+  dataBusy.value = 'export'
+  try {
+    const res = await exportData()
+    // Le serveur nomme le fichier dans l'en-tête ; le nom de repli ne sert qu'en cas d'absence
+    const nom = /filename="?([^";]+)"?/.exec(res.headers['content-disposition'] || '')?.[1]
+    telecharger(res.data, nom || 'budgetflow.db')
+    toast('Sauvegarde téléchargée')
+  } catch (e) {
+    apiError(e)
+  } finally { dataBusy.value = '' }
+}
+
+/**
+ * Remplace toutes les données par celles d'une sauvegarde.
+ *
+ * Le champ est vidé dès la sélection : sans ça, choisir le même fichier après une
+ * annulation ne déclencherait aucun événement, et le bouton semblerait cassé.
+ */
+async function importer(event) {
+  const fichier = event.target.files?.[0]
+  event.target.value = ''
+  if (!fichier) return
+
+  const ok = await confirmDialog({
+    title: 'Remplacer vos données ?',
+    message: `« ${fichier.name} » va prendre la place de vos données actuelles.\n\n${dataResume.value || 'La base est vide.'}\n\nL'état présent est archivé sur votre disque avant le remplacement.`,
+    confirmLabel: 'Remplacer', danger: true,
+  })
+  if (!ok) return
+
+  dataBusy.value = 'import'
+  dataLabel.value = 'Import en cours…'
+  try {
+    const { data } = await importData(fichier)
+    const quoi = data.importe.lignes.map((l) => `${l.count} ${l.label}`).join(' · ')
+    rechargerApres(`Données remplacées — ${quoi}`)
+  } catch (e) {
+    apiError(e)
+    dataBusy.value = ''
+  }
+}
+
+/** Efface tout, après les deux confirmations. Le serveur archive avant de vider. */
+async function effacerTout() {
+  dataBusy.value = 'reset'
+  dataLabel.value = 'Effacement en cours…'
+  try {
+    await resetData()
+    resetStep.value = 0
+    rechargerApres('Données effacées — une archive est conservée sur votre disque')
+  } catch (e) {
+    apiError(e)
+    dataBusy.value = ''
+  }
+}
 
 /**
  * Met une majuscule initiale à un nom saisi.
@@ -890,6 +1008,95 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
         </div>
       </div>
     </div>
+
+    <!-- ─── Vos données — §9, en dernier : on ne tombe pas dessus par hasard ─── -->
+    <div class="panel set-panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Vos données</h2>
+        <span v-if="dataStats" class="panel-count num">{{ dataTaille }}</span>
+      </div>
+      <p class="panel-sub">
+        Tout tient dans un seul fichier, sur cet ordinateur. Le sauvegarder, c'est pouvoir
+        le retrouver ailleurs — ou revenir en arrière.
+      </p>
+
+      <div class="data-rows">
+        <div class="data-row">
+          <div class="data-text">
+            <p class="data-title">Sauvegarder</p>
+            <p class="data-sub">Une copie complète, à ranger où vous voulez.</p>
+          </div>
+          <button class="btn-secondary btn-wait" :disabled="!!dataBusy" @click="sauvegarder">
+            <AppSpinner v-if="dataBusy === 'export'" />
+            {{ dataBusy === 'export' ? 'Préparation…' : 'Télécharger' }}
+          </button>
+        </div>
+
+        <div class="data-row">
+          <div class="data-text">
+            <p class="data-title">Importer une sauvegarde</p>
+            <p class="data-sub">Remplace tout par le contenu du fichier. L'état actuel est archivé avant.</p>
+          </div>
+          <input ref="fileInput" type="file" accept=".db,.sqlite,.sqlite3" class="sr-only" @change="importer" />
+          <button class="btn-secondary btn-wait" :disabled="!!dataBusy" @click="fileInput?.click()">
+            <AppSpinner v-if="dataBusy === 'import'" />
+            {{ dataBusy === 'import' ? 'Import…' : 'Choisir un fichier' }}
+          </button>
+        </div>
+
+        <div class="data-row is-danger-row">
+          <div class="data-text">
+            <p class="data-title">Effacer toutes les données</p>
+            <p class="data-sub">
+              <span v-if="dataResume" class="num">{{ dataResume }}. </span>
+              L'application repart à neuf, comme au premier lancement.
+            </p>
+          </div>
+          <button class="btn-danger" :disabled="!!dataBusy" @click="resetStep = 1">Effacer…</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Première confirmation : ce qui est en jeu, et la sauvegarde reproposée -->
+    <AppModal :open="resetStep === 1" title="Effacer toutes vos données ?" @close="resetStep = 0">
+      <p class="mb-3">Vont disparaître de l'application :</p>
+      <ul class="data-list">
+        <li v-for="l in dataStats?.lignes || []" :key="l.table"><b class="num">{{ l.count }}</b> {{ l.label }}</li>
+      </ul>
+      <p class="data-warn">
+        Une archive est posée sur votre disque avant l'effacement — mais elle est sur cette
+        machine. Si ces données comptent, téléchargez-en une copie maintenant.
+      </p>
+      <template #footer>
+        <button class="btn-secondary btn-wait" :disabled="!!dataBusy" @click="sauvegarder">
+          <AppSpinner v-if="dataBusy === 'export'" />
+          {{ dataBusy === 'export' ? 'Préparation…' : 'Télécharger une sauvegarde' }}
+        </button>
+        <span class="flex-1"></span>
+        <button class="btn-secondary" @click="resetStep = 0">Annuler</button>
+        <button class="btn-danger" @click="resetStep = 2">Continuer</button>
+      </template>
+    </AppModal>
+
+    <!-- Import et effacement remplacent toute la base : plus rien n'est cliquable
+         tant que la page n'a pas été rechargée. -->
+    <AppSpinner v-if="dataBusy === 'import' || dataBusy === 'reset'" overlay :size="30" :label="dataLabel" />
+
+    <!-- Seconde confirmation : plus rien à expliquer, juste le poids du geste -->
+    <AppModal :open="resetStep === 2" title="Cette action est définitive" @close="resetStep = 0">
+      <p>
+        Il n'y a pas de retour en arrière depuis l'application. Seule la sauvegarde que vous
+        avez téléchargée, ou l'archive posée sur le disque, permettrait de retrouver ces données.
+      </p>
+      <template #footer>
+        <span class="flex-1"></span>
+        <button class="btn-secondary" @click="resetStep = 0">Annuler</button>
+        <button class="btn-danger btn-wait" :disabled="dataBusy === 'reset'" @click="effacerTout">
+          <AppSpinner v-if="dataBusy === 'reset'" />
+          {{ dataBusy === 'reset' ? 'Effacement…' : 'Effacer définitivement' }}
+        </button>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -903,6 +1110,17 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
 .is-over { color: var(--c-over); }
 .is-credit { color: var(--c-credit); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ─── Vos données : une ligne par action, la dangereuse en dernier ─── */
+.data-rows { display: flex; flex-direction: column; }
+.data-row { display: flex; align-items: center; gap: var(--s-4); padding: var(--s-3) 0; border-top: 1px solid var(--c-line); }
+.data-row:first-child { border-top: 0; padding-top: 0; }
+.data-text { flex: 1; min-width: 0; }
+.data-title { font-size: 14px; font-weight: 500; color: var(--c-ink); }
+.data-sub { font-size: 13px; color: var(--c-ink-2); margin-top: 2px; }
+.is-danger-row .data-title { color: var(--c-over); }
+.data-list { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); font-size: 13px; color: var(--c-ink-2); }
+.data-warn { font-size: 13px; color: var(--c-ink-2); margin-top: var(--s-4); }
 
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); flex-wrap: wrap; }
 .panel-title { font-size: 15px; font-weight: 600; color: var(--c-ink); }
@@ -1041,6 +1259,11 @@ const templateLineLabel = (id) => templateLines.value.find((l) => l.id === id)?.
 .btn-icon { width: 26px; height: 26px; border-radius: var(--r-control); display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-3); font-size: 13px; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
 .btn-icon:hover { background: var(--c-surface-hover); color: var(--c-ink); }
 .btn-icon.is-danger:hover { background: var(--c-over-soft); color: var(--c-over); }
+/* Un bouton qui peut porter une roue : le texte et la roue s'alignent */
+.btn-wait { display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); }
+.btn-danger { height: 30px; padding: 0 var(--s-4); background: var(--c-over); color: var(--c-on-accent); border-radius: var(--r-control); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: filter var(--dur-fast) var(--ease); }
+.btn-danger:hover { filter: brightness(0.92); }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
 .btn-discret { display: inline-flex; align-items: center; gap: var(--s-1); color: var(--c-accent); font-size: var(--t-small); font-weight: 500; padding: var(--s-2) 0; cursor: pointer; }
 .btn-discret:hover { color: var(--c-accent-hover); }
 .field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
