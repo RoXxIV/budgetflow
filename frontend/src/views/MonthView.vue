@@ -1987,6 +1987,7 @@ const fmtOrDash = (n) => (n === null || n === undefined ? '—' : fmt(n))
           </div>
 
           <router-link to="/abonnements" class="link-accent aside-link" title="Bac à sable : coût total des abonnements et simulations, sans rien toucher ailleurs">Tracker d'abonnements →</router-link>
+          <router-link to="/plan" class="link-accent aside-link" title="Bac à sable : répartir une capacité mensuelle entre plusieurs projets, et voir quand chacun tombe">Plan de financement →</router-link>
         </aside>
       </div>
     </div>
