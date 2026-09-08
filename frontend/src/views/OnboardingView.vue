@@ -740,8 +740,6 @@ async function finish() {
 .tpl-total { background: var(--c-surface-sunken); font-weight: 600; }
 .tpl-sums { display: flex; flex-wrap: wrap; gap: var(--s-4); font-size: var(--t-meta); font-weight: 400; color: var(--c-ink-3); }
 .tpl-sums b { color: var(--c-ink-2); }
-.is-credit { color: var(--c-credit); }
-.is-over { color: var(--c-over); }
 /* Les comptes n'affichent pas de montant : trois colonnes au lieu de quatre */
 .acc-item { grid-template-columns: 1fr auto 16px; }
 .tag-main {
@@ -754,14 +752,4 @@ async function finish() {
   font-weight: 500;
 }
 
-/* ─── Classes communes (mêmes définitions que les autres vues) ─── */
-.field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
-.input { padding: 6px var(--s-3); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); font-size: 13px; color: var(--c-ink); background: var(--c-surface); outline: none; font-family: var(--font-ui); }
-.input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
-.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: var(--c-on-accent); border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
-.btn-primary:hover { background: var(--c-accent-hover); }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-secondary { height: 34px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); color: var(--c-ink); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
-.btn-secondary:hover { background: var(--c-surface-hover); }
-.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

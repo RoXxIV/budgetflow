@@ -1002,11 +1002,6 @@ const formCategoryType = computed(() => {
 </template>
 
 <style scoped>
-/* ─── Page ─── */
-.page-sub { font-size: 13px; color: var(--c-ink-2); margin-top: 2px; }
-.panel { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-container); }
-.meta { color: var(--c-ink-3); font-weight: 400; }
-.is-over { color: var(--c-over); }
 
 /* ─── Bandeau ─── */
 .bandeau { padding: var(--s-4) var(--s-5); margin-bottom: var(--s-5); }
@@ -1014,7 +1009,6 @@ const formCategoryType = computed(() => {
 .synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
 .synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
 .synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; align-self: flex-start; }
-.has-tip { text-decoration: underline dotted var(--c-ink-3); text-underline-offset: 3px; cursor: help; }
 .synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
 .synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
 .synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
@@ -1068,9 +1062,6 @@ const formCategoryType = computed(() => {
 .bulk-group.is-skipped .bulk-list { color: var(--c-ink-3); }
 .bulk-empty { color: var(--c-ink-2); }
 .bulk-note { font-size: var(--t-meta); color: var(--c-ink-3); }
-.view-tab { font-size: 13px; font-weight: 500; color: var(--c-ink-3); padding: var(--s-2) 0 var(--s-3); cursor: pointer; border-bottom: 2px solid transparent; }
-.view-tab:hover { color: var(--c-ink); }
-.view-tab.is-active { color: var(--c-ink); border-bottom-color: var(--c-accent); }
 .tpl-head { min-height: 30px; border-block: 1px solid var(--c-line); background: var(--c-surface-sunken); }
 .colh { font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); text-align: right; }
 .colh.is-left { text-align: left; }
@@ -1115,60 +1106,15 @@ const formCategoryType = computed(() => {
 .tpl-add { margin: var(--s-1) var(--s-5) var(--s-3); }
 
 /* Menu ⋯ */
-.menu-wrap { position: relative; }
-.menu {
-  position: absolute; right: 0; top: calc(100% + 4px); z-index: 40;
-  min-width: 210px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-line);
-  border-radius: var(--r-container);
-  box-shadow: var(--shadow-overlay);
-  padding: var(--s-2);
-}
-.menu-item {
-  display: block; width: 100%; text-align: left;
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-control);
-  font-size: 13px; color: var(--c-ink);
-  cursor: pointer;
-}
-.menu-item:hover { background: var(--c-surface-hover); }
+.menu { min-width: 210px; }
 .menu-item:disabled { color: var(--c-ink-disabled); cursor: default; }
 .menu-item:disabled:hover { background: none; }
-.menu-item.is-danger { color: var(--c-over); }
-.menu-item.is-danger:hover { background: var(--c-over-soft); }
-.menu-sep { height: 1px; background: var(--c-line); margin: var(--s-2) 0; }
 
-/* ─── États vides ─── */
-.empty-panel { text-align: center; padding: var(--s-8); font-size: 13px; color: var(--c-ink-2); display: flex; flex-direction: column; align-items: center; gap: var(--s-4); }
 
 /* ─── Tags ─── */
-.tag {
-  display: inline-flex; align-items: center; gap: var(--s-1);
-  height: 20px; padding: 0 var(--s-3);
-  border-radius: var(--r-control);
-  font-size: var(--t-tag); font-weight: 500;
-  white-space: nowrap; flex-shrink: 0;
-}
 .tag-info { background: var(--c-surface-sunken); color: var(--c-ink-2); border: 1px solid var(--c-line); cursor: help; }
 
 /* ─── Boutons, liens, champs (partagés avec la modale) ─── */
-.btn-primary { height: 34px; padding: 0 var(--s-5); background: var(--c-accent); color: var(--c-on-accent); border-radius: var(--r-control); font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
-.btn-primary:hover { background: var(--c-accent-hover); }
-.btn-secondary { height: 30px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); color: var(--c-ink); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
-.btn-secondary:hover { background: var(--c-surface-hover); }
-.btn-danger { height: 30px; padding: 0 var(--s-4); background: var(--c-surface); border: 1px solid var(--c-over); border-radius: var(--r-control); color: var(--c-over); font-size: var(--t-small); font-weight: 500; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
-.btn-danger:hover { background: var(--c-over-soft); }
-.btn-icon { width: 26px; height: 26px; border-radius: var(--r-control); display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-3); font-size: 13px; cursor: pointer; transition: background-color var(--dur-fast) var(--ease); }
-.btn-icon:hover { background: var(--c-surface-hover); color: var(--c-ink); }
-.btn-discret { display: inline-flex; align-items: center; gap: var(--s-1); color: var(--c-accent); font-size: var(--t-small); font-weight: 500; padding: var(--s-2) 0; cursor: pointer; }
-.btn-discret:hover { color: var(--c-accent-hover); }
-.link-accent { color: var(--c-accent); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
-.link-accent:hover { color: var(--c-accent-hover); text-decoration: underline; }
-.field { display: flex; flex-direction: column; gap: var(--s-1); font-size: var(--t-meta); font-weight: 500; color: var(--c-ink-3); }
-.input { padding: 6px var(--s-3); border: 1px solid var(--c-line-strong); border-radius: var(--r-control); font-size: 13px; color: var(--c-ink); background: var(--c-surface); outline: none; font-family: var(--font-ui); }
-.input:focus-visible { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-ring); }
-.checkbox { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); cursor: pointer; }
 .modal-hint { font-size: 11.5px; color: var(--c-ink-3); }
 
 button:focus-visible, select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--c-accent-ring); border-radius: var(--r-control); }

@@ -22,12 +22,14 @@ scripts/*.mjs                outils ponctuels (import, alignement, review)
 **Frontend** (`frontend/src/`, Vue 3 + Vite + Tailwind 4, port 5174)
 
 ```
-views/         (7)  MonthView, AccountsView, InvestmentsView, TemplateView,
-                    StatsView, SettingsView, SubscriptionsView
-components/         AppModal, DialogHost, HelpTip, BarChart, StackedAreaChart,
-                    LineChart, SeriesPicker
+views/         (9)  MonthView, AccountsView, InvestmentsView, TemplateView,
+                    StatsView, SettingsView, SubscriptionsView, OnboardingView,
+                    PlanView
+components/         AppModal, AppSpinner, DialogHost, HelpTip, TourGuide,
+                    BarChart, StackedAreaChart, LineChart, SeriesPicker
 lib/                format.js (eur()), privacy.js (mode discret), theme.js (clair/sombre)
-styles/tokens.css   tous les tokens de couleur et de typo
+styles/             variables.css (les valeurs), base.css (le socle),
+                    components.css (les briques : boutons, champs, panneaux, menus)
 api/                appels axios vers le backend
 ```
 
@@ -50,9 +52,15 @@ appliquée sur la base de dev et sur l'app installée) → toujours en créer un
 
 ### Design system : palette fermée
 
-Pas de couleur en dur, pas d'input color. Tout passe par les tokens de
-`frontend/src/styles/tokens.css` : `--cat-1..12` (catégories), `--chart-1..6` +
+Pas de couleur en dur, pas d'input color. Tout passe par les variables de
+`frontend/src/styles/variables.css` : `--cat-1..12` (catégories), `--chart-1..6` +
 `--chart-other` (graphiques), `--c-*` (interface), `--c-on-accent`.
+
+**Une brique commune ne se recopie pas.** `.btn-*`, `.input`, `.field`, `.panel`,
+`.tag`, `.menu-*`, `.view-tab`, `.tip` vivent dans `styles/components.css`, une seule
+fois. Un `<style scoped>` ne garde que le propre à sa vue — et peut toujours ajuster
+une brique, puisque sa spécificité l'emporte. Avant la mise en commun du 08/09, ces
+classes existaient en 351 copies dont 33 avaient dérivé.
 Typo IBM Plex Sans. Thème clair/sombre/système via `lib/theme.js`
 (localStorage `budgetflow.theme`, pré-script anti-flash dans `index.html`).
 Le mode discret (`lib/privacy.js`) doit flouter **tout** montant affiché : un nouveau

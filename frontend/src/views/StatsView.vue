@@ -582,12 +582,6 @@ const pct0 = (n) => Math.round(n) + ' %'
 </template>
 
 <style scoped>
-/* ─── Page ─── */
-.page-sub { font-size: 13px; color: var(--c-ink-2); margin-top: 2px; }
-.panel { background: var(--c-surface); border: 1px solid var(--c-line); border-radius: var(--r-container); }
-.meta { color: var(--c-ink-3); font-weight: 400; }
-.ink { color: var(--c-ink); }
-.is-over { color: var(--c-over); }
 
 /* Filtre de période — le seul violet de la page avec les liens */
 .range-btn {
@@ -608,7 +602,6 @@ const pct0 = (n) => Math.round(n) + ' %'
 .synth-hero { display: flex; flex-direction: column; line-height: var(--lh-tight); }
 .synth-solde { font-size: var(--t-hero); font-weight: 600; color: var(--c-ink); }
 .synth-sub { font-size: var(--t-meta); color: var(--c-ink-3); margin-top: 2px; align-self: flex-start; }
-.has-tip { text-decoration: underline dotted var(--c-ink-3); text-underline-offset: 3px; cursor: help; }
 .synth-sep { width: 1px; align-self: stretch; background: var(--c-line); }
 .synth-kv { display: flex; flex-direction: column; gap: 2px; line-height: var(--lh-tight); }
 .synth-k { font-size: var(--t-small); color: var(--c-ink-3); }
@@ -623,9 +616,6 @@ const pct0 = (n) => Math.round(n) + ' %'
 .panel-title { font-size: 15px; font-weight: 600; color: var(--c-ink); }
 .panel-tools { display: flex; align-items: center; gap: var(--s-4); }
 .view-tabs { display: inline-flex; gap: var(--s-4); }
-.view-tab { font-size: var(--t-small); font-weight: 500; color: var(--c-ink-3); padding: var(--s-1) 0; cursor: pointer; border-bottom: 2px solid transparent; }
-.view-tab:hover { color: var(--c-ink); }
-.view-tab.is-active { color: var(--c-ink); border-bottom-color: var(--c-accent); }
 
 /* Légende compacte : elle affiche ce qui est tracé, elle ne filtre plus */
 .legend { display: flex; flex-wrap: wrap; gap: var(--s-5); margin-top: var(--s-2); font-size: var(--t-small); color: var(--c-ink-2); }
@@ -646,8 +636,6 @@ const pct0 = (n) => Math.round(n) + ' %'
 /* ─── Répartition du mois ─── */
 .month-nav { display: flex; align-items: center; gap: var(--s-2); }
 .month-nav-name { font-size: 13px; font-weight: 500; color: var(--c-ink); min-width: 130px; text-align: center; }
-.btn-icon { width: 26px; height: 26px; border-radius: var(--r-control); display: inline-flex; align-items: center; justify-content: center; color: var(--c-ink-3); font-size: 14px; cursor: pointer; }
-.btn-icon:hover { background: var(--c-surface-hover); color: var(--c-ink); }
 .btn-icon:disabled { opacity: 0.35; cursor: default; }
 .btn-icon:disabled:hover { background: none; color: var(--c-ink-3); }
 .rep { display: flex; flex-direction: column; gap: var(--s-5); }
@@ -660,7 +648,6 @@ const pct0 = (n) => Math.round(n) + ' %'
 .rep-legend .legend-dot { margin-right: 2px; }
 
 /* ─── Divers ─── */
-.empty-panel { text-align: center; padding: var(--s-8); font-size: 13px; color: var(--c-ink-2); }
 .empty-line { font-size: var(--t-small); color: var(--c-ink-3); padding: var(--s-4) 0; text-align: center; }
 input[type='checkbox'] { cursor: pointer; }
 button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--c-accent-ring); border-radius: var(--r-control); }
