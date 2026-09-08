@@ -41,7 +41,7 @@ router.beforeEach(async (to) => {
   // 1. Le guide de configuration : rien d'autre à faire tant qu'il n'est pas terminé
   if (state.needsOnboarding) {
     if (to.path === '/bienvenue') return true
-    // Sauf le budget type : le guide y envoie pour profiter de toutes ses options
+    // Sauf le Template : le guide y envoie pour profiter de toutes ses options
     // (jour de prélèvement, périodicité, compte…). La page s'ouvre dès qu'elle a des
     // catégories à afficher — sans elles, elle ne montre aucun registre.
     if (to.path === '/template' && state.hasCategories) return true

@@ -39,13 +39,13 @@ const envelopeById = (id) => envelopes.value.find((e) => e.id === id) || null
 onMounted(async () => { try { await load() } catch (e) { apiError(e) } })
 
 /**
- * Copie une ligne du budget type dans le mois en cours.
+ * Copie une ligne du Template dans le mois en cours.
  *
- * Un mois ne se remplit du budget type qu'à sa naissance : une ligne ajoutée après
+ * Un mois ne se remplit du Template qu'à sa naissance : une ligne ajoutée après
  * coup n'apparaîtrait qu'au mois suivant. Cette propagation comble ce décalage, sans
  * jamais toucher au réel déjà saisi.
  *
- * @param {object} line La ligne du budget type à propager.
+ * @param {object} line La ligne du Template à propager.
  * @param {object} [options]
  * @param {boolean} [options.ask] false pour enchaîner sans reposer la question
  *   (l'appelant vient déjà de la poser).
@@ -97,7 +97,7 @@ const sharingOn = computed(() => pots.value.length > 0)
 /**
  * Calcule où en est une cagnotte : ce que chacun a payé, et ce qu'il reste à envoyer.
  *
- * Même formule que le backend (pot.service), pour que le budget type et le mois
+ * Même formule que le backend (pot.service), pour que le Template et le mois
  * affichent le même chiffre. Le raisonnement : on somme ce que J'AI déjà payé sur mes
  * lignes ½, on y ajoute ce que le partenaire a payé pour obtenir le total commun, on
  * en prend ma part (50 % par défaut), et l'écart avec ce que j'ai déjà sorti est ce
@@ -577,7 +577,7 @@ async function submit() {
 }
 
 /**
- * Retire une ligne du budget type, après confirmation.
+ * Retire une ligne du Template, après confirmation.
  *
  * Les copies déjà présentes dans les mois ne sont pas touchées : elles se détachent du
  * template et gardent leur réel. Le message le dit, parce que c'est contre-intuitif.
@@ -601,7 +601,7 @@ async function removeLineConfirm(line) {
 /**
  * Monte ou descend une ligne dans sa catégorie.
  *
- * L'ordre est global à tout le budget type, pas propre à chaque catégorie : on réécrit
+ * L'ordre est global à tout le Template, pas propre à chaque catégorie : on réécrit
  * donc le rang de TOUTES les lignes, groupe par groupe, en substituant la liste
  * réordonnée à celle du groupe concerné. Ne renuméroter que le groupe créerait des
  * rangs en double d'un groupe à l'autre.

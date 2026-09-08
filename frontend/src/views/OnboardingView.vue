@@ -26,7 +26,7 @@ const STEPS = [
   { key: 'compte', label: 'Compte' },
   { key: 'categories', label: 'Catégories' },
   { key: 'themes', label: 'Thèmes' },
-  { key: 'template', label: 'Budget type' },
+  { key: 'template', label: 'Template' },
 ]
 
 const stepIndex = ref(0)
@@ -65,7 +65,7 @@ onMounted(async () => {
   ready.value = true
 })
 
-/** Relit tout ce que le guide affiche : comptes, catégories, thèmes, budget type. */
+/** Relit tout ce que le guide affiche : comptes, catégories, thèmes, Template. */
 async function refresh() {
   const [acc, cat, th, tpl] = await Promise.all([getAccounts(), getCategories(), getThemes(), getTemplateLines()])
   accounts.value = acc.data
@@ -195,7 +195,7 @@ async function continueFromCategories() {
 /**
  * Retire une catégorie.
  *
- * Refusé par le serveur si elle sert déjà à une ligne du budget type — son message
+ * Refusé par le serveur si elle sert déjà à une ligne du Template — son message
  * explique alors ce qui l'utilise.
  *
  * @param {object} category La catégorie à retirer.
@@ -244,7 +244,7 @@ async function addTheme() {
   } catch (e) { apiError(e); return false } finally { busy.value = false }
 }
 
-/** Ajoute le thème en cours de saisie, puis passe au budget type (étape facultative). */
+/** Ajoute le thème en cours de saisie, puis passe au Template (étape facultative). */
 async function continueFromThemes() {
   if (themeName.value.trim() && !(await addTheme())) return
   await goTo(3)
@@ -264,12 +264,12 @@ async function removeTheme(theme) {
   } catch (e) { apiError(e) } finally { busy.value = false }
 }
 
-// ─── Étape 4 : le budget type ──────────────────────────────
+// ─── Étape 4 : le Template ──────────────────────────────
 // La saisie se fait dans la vraie page Template, avec toutes ses options (jour de
 // prélèvement, périodicité, compte, cagnotte…) : la dupliquer ici n'en donnerait
 // qu'une version appauvrie. Le guide y envoie, le bouton Terminer ramène.
 /**
- * Retire une ligne du budget type depuis le guide.
+ * Retire une ligne du Template depuis le guide.
  *
  * @param {object} line La ligne à retirer.
  */
@@ -425,10 +425,10 @@ async function finish() {
 
         <!-- Étape 3 : thèmes -->
         <section v-else-if="stepIndex === 2" key="themes" class="onb-step">
-          <h1 class="onb-title">Retrouver ce qui va ensemble</h1>
+          <h1 class="onb-title">Tes projets, en un coup d'œil</h1>
           <p class="onb-lead">
-            Les thèmes traversent les catégories : marque une dépense « Voiture », « Vacances » ou « Maison »,
-            et retrouve tout ce qui s'y rattache, où que ce soit rangé.
+            Transport, hébergement, restaurants… Avec un thème « Vacances », retrouve toutes les dépenses
+            de ton voyage, même si elles sont dans des catégories différentes.
           </p>
 
           <div v-if="themes.length" class="chips">
@@ -441,16 +441,16 @@ async function finish() {
           <div class="onb-form onb-form-inline">
             <label class="field grow">
               <span>Ajouter un thème</span>
-              <input v-model="themeName" type="text" class="input" placeholder="Ex. : Voiture, Vacances, Maison…" @keyup.enter="addTheme" />
+              <input v-model="themeName" type="text" class="input" placeholder="Ex. : Vacances, Maison, Voiture…" @keyup.enter="addTheme" />
             </label>
             <button class="btn-secondary" :disabled="!themeName.trim() || busy" @click="addTheme">Ajouter</button>
           </div>
           <p v-if="!themePresetsUsed" class="onb-hint">
-            Besoin d'un point de départ ?
+            Besoin d'inspiration ?
             <button class="link-btn" :disabled="busy" @click="applyThemePresets">Utiliser les thèmes proposés</button>
           </p>
           <p v-if="!themes.length" class="onb-note">
-            Rien d'obligatoire ici : tu pourras créer un thème le jour où tu en auras besoin.
+            Tu peux passer cette étape et ajouter des thèmes quand tu en auras besoin.
           </p>
 
           <div class="onb-actions">
@@ -461,7 +461,7 @@ async function finish() {
           </div>
         </section>
 
-        <!-- Étape 4 : budget type -->
+        <!-- Étape 4 : Template -->
         <section v-else key="template" class="onb-step">
           <h1 class="onb-title">Un peu de préparation, du temps gagné</h1>
           <p class="onb-lead">
@@ -494,12 +494,12 @@ async function finish() {
               :class="templateLines.length ? 'btn-secondary' : 'btn-primary'"
               @click="router.push('/template')"
             >
-              {{ templateLines.length ? 'Compléter mon budget type' : 'Construire mon budget type' }}
+              {{ templateLines.length ? 'Compléter mon Template' : 'Construire mon Template' }}
             </button>
           </div>
           <p class="onb-hint">
             <template v-if="templateLines.length">Le jour de prélèvement, la périodicité et le compte se règlent là-bas.</template>
-            <template v-else>Tu préfères commencer directement ? Tu pourras construire ton budget type plus tard.</template>
+            <template v-else>Tu préfères commencer directement ? Tu pourras construire ton Template plus tard.</template>
           </p>
 
           <div class="onb-actions">
@@ -659,7 +659,7 @@ async function finish() {
 .chip-remove:focus-visible { opacity: 1; }
 .chip-remove:hover { background: var(--c-over-soft); color: var(--c-over); }
 
-/* Listes en registre : comptes et lignes du budget type */
+/* Listes en registre : comptes et lignes du Template */
 .tpl-list { display: flex; flex-direction: column; border: 1px solid var(--c-line); border-radius: var(--r-control); overflow: hidden; }
 .tpl-item {
   display: grid;

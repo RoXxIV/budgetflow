@@ -54,10 +54,10 @@ async function finish() {
         <span class="tour-count">{{ index + 1 }} / {{ TOUR_STEPS.length }}</span>
       </div>
       <h2 class="tour-title">{{ step.title }}</h2>
-      <p class="tour-body">{{ step.body }}</p>
+      <p v-for="(para, i) in step.body" :key="i" class="tour-body">{{ para }}</p>
       <div class="tour-actions">
         <button class="tour-skip" @click="finish">Passer la visite</button>
-        <button class="tour-next" @click="next">{{ isLast ? 'Terminer' : 'Suivant' }}</button>
+        <button class="tour-next" @click="next">{{ isLast ? 'Terminer la visite' : 'Suivant' }}</button>
       </div>
     </div>
   </div>
@@ -96,6 +96,7 @@ async function finish() {
 
 .tour-title { font-size: var(--t-section-n); font-weight: 600; color: var(--c-ink); margin-bottom: var(--s-3); }
 .tour-body { font-size: var(--t-body); color: var(--c-ink-2); line-height: 1.55; }
+.tour-body + .tour-body { margin-top: var(--s-3); }
 .tour-actions { display: flex; align-items: center; gap: var(--s-3); margin-top: var(--s-5); }
 .tour-skip {
   font-size: var(--t-small);

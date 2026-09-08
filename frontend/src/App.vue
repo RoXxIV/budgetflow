@@ -16,7 +16,7 @@ const bare = computed(() => route.path === '/bienvenue')
 // La navigation habituelle n'aurait aucun sens — toutes ses destinations sont
 // fermées tant que la configuration n'est pas terminée.
 const configStep = computed(() => (bare.value || !onboarding.value?.needsOnboarding ? null : stepNumber(onboarding.value)))
-const configLabel = computed(() => (route.path === '/template' ? 'Budget type' : null))
+const configLabel = computed(() => (route.path === '/template' ? 'Template' : null))
 // Repartir sur l'étape dont vient l'utilisateur, pas sur celle que la base déduit :
 // une fois ses lignes saisies, l'état dirait « mois » et il ne les reverrait pas.
 const configBackTo = computed(() =>

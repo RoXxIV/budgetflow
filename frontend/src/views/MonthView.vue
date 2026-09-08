@@ -362,7 +362,7 @@ const isSkipped = (kind, id) => !!summaryData.value?.skips?.some((s) => s.kind =
  * Annule (ou rétablit) une mensualité ou un DCA pour ce mois seulement.
  *
  * Le reste à vivre cesse de le déduire ; rien d'autre ne bouge, et tout revient au
- * mois suivant. C'est une exception ponctuelle, pas une modification du budget type.
+ * mois suivant. C'est une exception ponctuelle, pas une modification du Template.
  *
  * @param {'envelope'|'asset'} kind La nature de l'objet sauté.
  * @param {number} id Son identifiant.
@@ -746,7 +746,7 @@ async function openCreateForm() {
 }
 
 /**
- * Crée le mois : soldes de départ, recalage des enveloppes, et copie du budget type.
+ * Crée le mois : soldes de départ, recalage des enveloppes, et copie du Template.
  *
  * Seules les enveloppes réellement modifiées sont envoyées (`envelopeDelta` non nul) :
  * renvoyer les autres poserait des ajustements à zéro dans leur historique.
@@ -1208,7 +1208,7 @@ async function removeLineConfirm(line) {
 }
 
 /**
- * Remonte une ligne du mois vers le budget type.
+ * Remonte une ligne du mois vers le Template.
  *
  * Ses valeurs — prévu, comptes, jour, thème — deviennent le standard des mois
  * suivants. Le chemin inverse de la propagation offerte par la page Template.

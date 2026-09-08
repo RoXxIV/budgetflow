@@ -1,6 +1,6 @@
 import api from './index.js'
 
-// Feuilles de mois : le cœur de l'app. Un mois naît en recopiant le budget type,
+// Feuilles de mois : le cœur de l'app. Un mois naît en recopiant le Template,
 // puis vit sa vie — lignes, entrées, soldes de départ, clôture.
 
 export const getMonths = () => api.get('/months')
@@ -21,7 +21,7 @@ export const getMonthLines = (id) => api.get(`/months/${id}/lines`)
 export const createMonthLine = (id, data) => api.post(`/months/${id}/lines`, data)
 export const updateMonthLine = (id, lineId, data) => api.put(`/months/${id}/lines/${lineId}`, data)
 export const deleteMonthLine = (id, lineId, force = false) => api.delete(`/months/${id}/lines/${lineId}${force ? '?force=1' : ''}`)
-// Remonte une ligne saisie dans le mois vers le budget type, pour les mois suivants
+// Remonte une ligne saisie dans le mois vers le Template, pour les mois suivants
 export const applyLineToTemplate = (id, lineId) => api.post(`/months/${id}/lines/${lineId}/apply-to-template`)
 
 // Pointage d'une ligne : crée l'entrée correspondante au montant prévu

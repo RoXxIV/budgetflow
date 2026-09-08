@@ -3,31 +3,50 @@
 // L'étape courante n'est pas stockée : c'est la route affichée qui la donne.
 // Un rafraîchissement au milieu de la visite reprend donc là où on en était,
 // sans état à tenir à jour ni à resynchroniser.
+// `body` est un tableau : un élément par paragraphe affiché.
 export const TOUR_STEPS = [
   {
     path: '/comptes',
-    title: 'Tes comptes, et ce que tu mets de côté',
-    body: `Chaque compte porte un solde que tu tiens à jour de mois en mois. À l'intérieur, tu réserves de l'argent dans des enveloppes : un voyage, un matelas de sécurité, une facture annuelle. L'argent ne bouge pas de la banque, il est simplement mis de côté dans tes comptes.`,
+    title: "Tes comptes et tes projets d'épargne",
+    body: [
+      `Retrouve ici tes comptes et mets leurs soldes à jour.`,
+      `Envie de réserver une somme pour un voyage ou les imprévus ? Crée une enveloppe dans le compte de ton choix pour savoir à quoi cet argent est destiné.`,
+      `L'argent reste sur ton compte bancaire : l'enveloppe t'aide simplement à l'organiser.`,
+    ],
   },
   {
     path: '/template',
-    title: 'Ton budget type',
-    body: `C'est le mois modèle : chaque nouveau mois en est recopié. Tu y règles ce qui revient — le jour du prélèvement, la périodicité, le compte débité. Une dépense annuelle peut même être lissée sur douze mois dans une enveloppe.`,
+    title: 'Ton Template, pour gagner du temps',
+    body: [
+      `Salaire, loyer, abonnements… Prépare ici ce qui revient régulièrement : le montant, la fréquence, la date et le compte concerné. Chaque nouveau mois reprendra cette base.`,
+      `Une facture annuelle à anticiper ? Prévois un peu chaque mois dans une enveloppe pour être prêt le moment venu.`,
+      `Tu peux modifier ton Template à tout moment, sans changer les mois déjà créés.`,
+    ],
   },
   {
     path: '/parametres',
     title: 'Tes réglages',
-    body: `Catégories, thèmes, moyens de paiement, taux d'épargne visé : tout ce qui structure l'app se règle ici. C'est aussi là que tu reviendras compléter ce que tu viens de créer.`,
+    body: [
+      `Catégories, thèmes, moyens de paiement, taux d'épargne visé : tout ce qui structure l'app se règle ici. C'est aussi là que tu reviendras compléter ce que tu viens de créer.`,
+    ],
   },
   {
     path: '/investissements',
-    title: 'Ton épargne qui travaille',
-    body: `PEA, crypto, assurance-vie : tu saisis ce que tu as investi et la valeur du moment. L'écart entre les deux, c'est ta plus ou moins-value, et le tout entre dans ton patrimoine.`,
+    title: 'Garde un œil sur tes placements',
+    body: [
+      `PEA, crypto, assurance-vie… Renseigne les montants investis et mets à jour la valeur de tes placements pour suivre tes gains ou tes pertes.`,
+      `Leur valeur actuelle s'ajoute à celle de tes comptes pour te donner une vue d'ensemble de ton patrimoine.`,
+      `Tu n'as pas de placement pour le moment ? Tu pourras revenir ici plus tard.`,
+    ],
   },
   {
     path: '/stats',
-    title: 'Le recul sur tes mois',
-    body: `Quand quelques mois seront remplis, tu retrouveras ici l'évolution de tes dépenses, de ton épargne et de ton patrimoine — par catégorie, par thème, mois après mois.`,
+    title: 'Prends du recul sur ton budget',
+    body: [
+      `Comment évoluent tes dépenses ? Combien mets-tu de côté ? Retrouve ici l'évolution de ton budget et de ton patrimoine au fil des mois.`,
+      `Explore tes dépenses par catégorie ou par thème pour mieux comprendre tes habitudes et ajuster ton budget à ton rythme.`,
+      `Les graphiques se rempliront au fur et à mesure de tes saisies.`,
+    ],
   },
 ]
 

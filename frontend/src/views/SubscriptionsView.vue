@@ -184,7 +184,7 @@ async function submit() {
  * Retire un abonnement du tracker, après confirmation.
  *
  * Suppression franche, sans précaution d'historique : cette page est un bac à sable,
- * rien de ce qu'elle contient n'alimente les mois, le budget type ou les enveloppes.
+ * rien de ce qu'elle contient n'alimente les mois, le Template ou les enveloppes.
  *
  * @param {object} s L'abonnement à retirer.
  */
