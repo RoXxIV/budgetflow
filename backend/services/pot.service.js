@@ -1,9 +1,13 @@
 // Les cagnottes : les dépenses partagées avec quelqu'un, et le solde qui en découle.
 //
-// Cette formule est **dupliquée côté front** dans `lib/potCalc.js`, pour que l'écran
-// recalcule en direct pendant qu'on saisit. Toute correction ici doit être reportée
-// là-bas — c'est le seul endroit du projet où un calcul existe en deux exemplaires,
-// et c'est un compromis assumé pour l'aperçu immédiat.
+// Cette formule est **dupliquée côté front**, dans la fonction `potCalc()` de
+// `views/TemplateView.vue` : le Template n'a pas de mois à interroger, il calcule donc
+// lui-même l'aperçu pendant la saisie. La page Mois, elle, consomme `line.pot` renvoyé
+// par l'API et ne duplique rien.
+//
+// C'est le seul endroit du projet où un calcul d'argent existe en deux exemplaires.
+// Toute correction ici doit être reportée là-bas — compromis assumé pour l'aperçu
+// immédiat, et point à vérifier à chaque revue.
 
 import { all, get, fromCents } from "../db/index.js";
 
