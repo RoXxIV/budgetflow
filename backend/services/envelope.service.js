@@ -1,3 +1,23 @@
+// Les enveloppes : de l'argent mis de côté à l'intérieur d'un compte, pour un projet.
+//
+// L'IDÉE — une enveloppe ne détient pas d'argent, elle en **réserve**. Les 3 000 € du
+// projet « voyage » dorment sur le Livret A comme le reste ; l'enveloppe dit seulement
+// qu'ils ne sont pas disponibles. D'où l'invariant qui gouverne tout ce fichier :
+//
+//     Σ des enveloppes ouvertes d'un compte  ≤  solde de ce compte
+//
+// Une enveloppe sans compte hôte est dite **virtuelle** : le projet existe, l'argent
+// n'est pas encore rangé quelque part.
+//
+// JAMAIS DE PERTE — une enveloppe qui a vécu ne se supprime pas, elle se **clôture**,
+// et son contenu part explicitement ailleurs (`closeInto`). `remove` est réservé à
+// celles créées par erreur : rien dedans, aucun historique réel.
+//
+// L'ARGENT SUIT — dès qu'une opération déplace une réserve d'un compte vers un autre
+// (changement d'hôte, réaffectation, liquidation), un **virement système** est écrit
+// dans le mois ouvert. Sans lui, les soldes affichés cesseraient de correspondre aux
+// relevés bancaires.
+
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 import { nextDueDate } from "./budgetLine.service.js";
 
@@ -12,6 +32,9 @@ function monthsUntil(deadline) {
 }
 
 // Mensualité suggérée = (cible − total) / mois restants ; null sans cible ou sans échéance
+// L'arrondi est au centime SUPÉRIEUR : arrondir au plus proche ferait manquer la cible
+// de quelques centimes au dernier versement, ce qui se voit et se comprend mal.
+// Une échéance dépassée retombe sur 1 mois — on demande le reste tout de suite.
 function monthlySuggestion(targetCents, totalCents, deadline) {
   if (!targetCents || !deadline) return null;
   const remaining = targetCents - (totalCents || 0);
@@ -20,6 +43,18 @@ function monthlySuggestion(targetCents, totalCents, deadline) {
   return fromCents(Math.ceil(remaining / months));
 }
 
+/**
+ * Met une ligne de base en forme d'API : centimes → euros, snake_case → camelCase.
+ *
+ * Une subtilité s'y joue, la **cible effective**. Quand une dépense du projet a déjà
+ * été payée depuis l'enveloppe et comptée dans l'objectif (`in_target`), elle ne
+ * disparaît pas de l'effort à fournir : la cible affichée est relevée d'autant. Un
+ * voyage à 3 000 € dont 500 € d'acompte sont déjà partis demande encore 3 000 € de
+ * mise de côté, pas 2 500 — sans quoi l'enveloppe se croirait remplie trop tôt.
+ *
+ * @param {object} row Ligne issue de LIST_SQL (avec ses totaux calculés).
+ * @returns {object} L'enveloppe telle que l'API l'expose.
+ */
 function serialize(row) {
   // Dépenses du projet (contributions « depense » comptées dans l'objectif) : la cible affichée en est corrigée
   const spentInTarget = -(row.spent_in_target_cents ?? 0);
@@ -49,6 +84,8 @@ function assertPeriodOpen(date) {
   if (month?.closed_at) throw httpError(409, `La date ${String(date).substring(0, 10)} tombe dans ${month.period}, un mois clôturé : changez la date, ou rouvrez ce mois pour y saisir`);
 }
 
+// Le total d'une enveloppe n'est jamais stocké : il est toujours la somme de ses
+// contributions. Rien à resynchroniser, donc rien qui puisse se désynchroniser.
 const LIST_SQL = `
   SELECT e.*, a.name AS account_name,
     COALESCE((SELECT SUM(c.amount_cents) FROM envelope_contributions c WHERE c.envelope_id = e.id), 0) AS total_cents,
@@ -58,13 +95,22 @@ const LIST_SQL = `
   LEFT JOIN accounts a ON a.id = e.account_id
 `;
 
+// Toutes les enveloppes, les ouvertes d'abord, chaque groupe par ordre alphabétique
 export function list() {
   return all(`${LIST_SQL} ORDER BY e.closed_at IS NOT NULL, e.name`).map(serialize);
 }
 
 // ─── Échéance saisie en nombre de mois ────────────────────
+// Le formulaire demande « dans combien de mois ? » plutôt qu'une date : on épargne
+// pour un mois, jamais pour un jour précis. La base, elle, stocke une date — le 1er du
+// mois visé, par convention.
 
-// N mois → échéance stockée au 1er du mois cible (0 = le mois en cours)
+/**
+ * Convertit un nombre de mois en date d'échéance.
+ *
+ * @param {number} months 0 pour le mois en cours, 1 pour le suivant, etc.
+ * @returns {string} Le 1er du mois visé, au format ISO.
+ */
 export function deadlineFromMonths(months) {
   const n = Number(months);
   if (!Number.isInteger(n) || n < 0) throw httpError(400, "Le nombre de mois doit être un entier positif ou nul");
@@ -80,9 +126,23 @@ export function monthsFromDeadline(deadline) {
   return Math.max(0, monthsUntil(deadline));
 }
 
-// Simulation « cible X en N mois » : échéance et mensualité, sans rien écrire en base.
-// Sert au formulaire, qui essaie plusieurs réglages avant de valider — la formule de la
-// mensualité reste ici, le front ne fait que l'afficher.
+/**
+ * Simulation « cible X en N mois » : échéance et mensualité, sans rien écrire en base.
+ *
+ * Sert au formulaire, qui essaie plusieurs réglages avant de valider — la formule de la
+ * mensualité reste ici, le front ne fait que l'afficher.
+ *
+ * Sur une enveloppe existante, le déjà-versé et les dépenses imputées sont **relus en
+ * base** plutôt que repris du client : une simulation partant de chiffres envoyés par
+ * le navigateur pourrait annoncer une mensualité qui ne correspond à rien.
+ *
+ * @param {object} [params]
+ * @param {number|null} [params.targetAmount] La cible visée, en euros.
+ * @param {number|null} [params.months] Le délai voulu.
+ * @param {number|null} [params.currentTotal] Mise de départ, pour une enveloppe à créer.
+ * @param {number|null} [params.envelopeId] Enveloppe existante : ses chiffres priment.
+ * @returns {object} Échéance, reste à réunir et mensualité suggérée.
+ */
 export function simulate({ targetAmount = null, months = null, currentTotal = null, envelopeId = null } = {}) {
   const deadline = months === null || months === "" ? null : deadlineFromMonths(months);
 
@@ -111,6 +171,7 @@ export function simulate({ targetAmount = null, months = null, currentTotal = nu
   };
 }
 
+// Une enveloppe et ses totaux, ou 404
 export function getById(id) {
   const row = get(`${LIST_SQL} WHERE e.id = ?`, id);
   if (!row) throw httpError(404, "Enveloppe introuvable");
@@ -118,7 +179,20 @@ export function getById(id) {
 }
 
 // ─── Invariant : Σ enveloppes ouvertes d'un compte ≤ solde du compte ───
-// Disponible « hors enveloppes » d'un compte sur le mois en cours (null si le solde est inconnu)
+
+/**
+ * Disponible « hors enveloppes » d'un compte sur le mois en cours (null si le solde est inconnu).
+ *
+ * C'est le chiffre qui autorise ou refuse une nouvelle mise de côté. Il vaut `null` —
+ * et non zéro — tant que le solde du compte n'est pas connu : on ne bloque pas une
+ * saisie sur une information qu'on n'a pas.
+ *
+ * Le mois de référence est le dernier **ouvert**, à défaut le dernier tout court : une
+ * fois l'année clôturée, on continue de raisonner sur le dernier état connu.
+ *
+ * @param {number} accountId Le compte examiné.
+ * @returns {{balance: number|null, envelopesTotal: number, available: number|null}} Et le contexte.
+ */
 export function availability(accountId) {
   const account = get("SELECT * FROM accounts WHERE id = ?", accountId);
   if (!account) throw httpError(404, "Compte introuvable");
@@ -170,6 +244,7 @@ function assertNameFree(name, accountId, excludeId = null) {
 }
 
 // Le formulaire raisonne en mois (« months ») ; les services internes posent une date (« deadline »)
+// Le `fallback` distingue « champ absent, on garde l'existant » de « champ vidé, on efface ».
 function resolveDeadline(data, fallback = null) {
   if (data.months !== undefined) {
     return data.months === null || data.months === "" ? null : deadlineFromMonths(data.months);
@@ -178,6 +253,17 @@ function resolveDeadline(data, fallback = null) {
   return fallback;
 }
 
+/**
+ * Crée une enveloppe, éventuellement déjà garnie.
+ *
+ * La mise de départ a deux provenances, et l'écart compte. **Prise dans une autre
+ * enveloppe** du même compte, c'est une réaffectation : deux contributions liées, le
+ * total du compte ne bouge pas. **Prise sur le disponible**, c'est une réservation
+ * nouvelle, donc soumise à l'invariant — d'où le contrôle.
+ *
+ * @param {object} [data] `{ name, accountId, targetAmount, initialAmount, fromEnvelopeId, months|deadline }`.
+ * @returns {object} L'enveloppe créée.
+ */
 export function create(data = {}) {
   const { accountId = null, targetAmount = null, initialAmount = null, fromEnvelopeId = null } = data;
   const deadline = resolveDeadline(data);
@@ -222,7 +308,20 @@ export function create(data = {}) {
   });
 }
 
-// Réaffectation entre deux enveloppes ouvertes d'un même compte (une saisie, deux contributions liées)
+/**
+ * Réaffectation entre deux enveloppes ouvertes d'un même compte.
+ *
+ * Une saisie, **deux contributions** : le retrait et le dépôt, chacun tracé avec le
+ * nom de l'autre enveloppe. On ne déplace pas un solde, on écrit un mouvement — c'est
+ * ce qui rend l'historique relisible six mois plus tard.
+ *
+ * Restreint à un même compte : d'un compte à l'autre, l'argent devrait physiquement
+ * bouger, et c'est le rôle de `closeInto` ou d'un changement d'hôte.
+ *
+ * @param {number} fromId L'enveloppe qui donne.
+ * @param {object} params `{ toEnvelopeId, amount, notes }`.
+ * @returns {{from: object, to: object}} Les deux enveloppes après coup.
+ */
 export function reallocate(fromId, { toEnvelopeId, amount, notes = null }) {
   const from = get("SELECT * FROM envelopes WHERE id = ? AND closed_at IS NULL", fromId);
   const to = get("SELECT * FROM envelopes WHERE id = ? AND closed_at IS NULL", toEnvelopeId);
@@ -243,6 +342,21 @@ export function reallocate(fromId, { toEnvelopeId, amount, notes = null }) {
   return { from: getById(from.id), to: getById(to.id) };
 }
 
+/**
+ * Modifie une enveloppe. Deux effets de bord y sont volontaires.
+ *
+ * **Changer de compte hôte** déplace de l'argent réel : un virement système part dans
+ * le mois ouvert, sans quoi les deux soldes cesseraient de correspondre à la banque.
+ * D'où le refus s'il n'y a aucun mois ouvert — mieux vaut bloquer que fausser.
+ *
+ * **Renommer** peut renommer le compte en retour, mais dans un seul cas : l'enveloppe
+ * est seule sur ce compte et il portait exactement son nom. C'est la situation « un
+ * compte = un projet », où voir les deux noms diverger n'aurait aucun sens.
+ *
+ * @param {number} id L'enveloppe.
+ * @param {object} data Les champs à changer ; ceux absents gardent leur valeur.
+ * @returns {object} L'enveloppe modifiée.
+ */
 export function update(id, data) {
   const existing = get("SELECT * FROM envelopes WHERE id = ?", id);
   if (!existing) throw httpError(404, "Enveloppe introuvable");
@@ -301,8 +415,20 @@ export function update(id, data) {
   });
 }
 
-// Suppression définitive : réservée à une enveloppe SANS historique (créée par erreur).
-// Avec un historique, la voie est la clôture — seule, ou en réaffectant le contenu (closeInto).
+/**
+ * Supprime définitivement une enveloppe — uniquement si elle n'a jamais servi.
+ *
+ * Deux verrous, pour deux raisons différentes. Un **solde non nul** ferait disparaître
+ * de l'argent réservé : la réponse porte alors un code que le front reconnaît, pour
+ * proposer la clôture avec réaffectation plutôt qu'une impasse. Un **historique réel**
+ * — versements ou dépenses — se conserve : la clôture existe pour ça.
+ *
+ * Les mouvements purement administratifs, eux, ne font pas une vie : une enveloppe
+ * créée par erreur, remise à zéro, s'efface sans laisser de trou.
+ *
+ * @param {number} id L'enveloppe.
+ * @returns {{message: string}}
+ */
 export function remove(id) {
   const existing = get("SELECT * FROM envelopes WHERE id = ?", id);
   if (!existing) throw httpError(404, "Enveloppe introuvable");
@@ -332,9 +458,21 @@ export function remove(id) {
   return { message: "Enveloppe supprimée" };
 }
 
-// Clôturer en réaffectant tout le contenu : vers n'importe quelle enveloppe ouverte, ou vers le
-// « hors enveloppes » d'un compte actif. L'historique est conservé (contribution négative tracée) ;
-// si l'argent change de compte hôte, un virement système suit dans le mois ouvert.
+/**
+ * Clôture une enveloppe en disant où va son contenu.
+ *
+ * C'est la sortie normale d'un projet terminé, et l'alternative à `remove` : rien
+ * n'est effacé, une contribution négative trace le départ des fonds. La destination
+ * est obligatoire dès qu'il reste de l'argent — sans elle, la somme s'évaporerait de
+ * l'invariant sans que rien ne l'explique.
+ *
+ * Vers une **enveloppe** ouverte, ou vers le « hors enveloppes » d'un **compte** actif.
+ * Si l'argent change de compte au passage, un virement système suit.
+ *
+ * @param {number} id L'enveloppe à clôturer.
+ * @param {object} [dest] `{ toEnvelopeId }` ou `{ toAccountId }`.
+ * @returns {object} L'enveloppe clôturée.
+ */
 export function closeInto(id, { toEnvelopeId = null, toAccountId = null } = {}) {
   const existing = get("SELECT * FROM envelopes WHERE id = ?", id);
   if (!existing) throw httpError(404, "Enveloppe introuvable");
@@ -394,6 +532,14 @@ export function closeInto(id, { toEnvelopeId = null, toAccountId = null } = {}) 
 // d'un cycle. AUCUNE dépense n'est créée : c'est l'utilisateur qui saisit ensuite sa
 // ligne de paiement là où la banque l'a prélevé. Décision d'Evan du 05/09 — remplace
 // le ☐ payé automatique pour son usage réel (provision sur un compte, paiement sur un autre).
+
+/**
+ * Vide une enveloppe mensualisée et fait repartir son cycle.
+ *
+ * @param {number} id L'enveloppe, forcément liée à une ligne du template.
+ * @param {object} params `{ toAccountId }` — le compte où l'argent atterrit.
+ * @returns {object} L'enveloppe remise à zéro, échéance avancée.
+ */
 export function liquidate(id, { toAccountId = null } = {}) {
   const existing = get("SELECT * FROM envelopes WHERE id = ?", id);
   if (!existing) throw httpError(404, "Enveloppe introuvable");
@@ -444,6 +590,11 @@ export function liquidate(id, { toAccountId = null } = {}) {
 }
 
 // ─── Contributions ────────────────────────────────────────
+// Chaque mouvement d'une enveloppe est une ligne, jamais une mise à jour de solde.
+// Les genres : « initiale » (mise de départ), « normale » (versement), « depense »
+// (payée depuis l'enveloppe, liée à une entrée du mois), « reaffectation » (entre
+// enveloppes) et « ajustement » (recalage sur le solde réel).
+
 // Contributions de toutes les enveloppes datées dans un mois ('YYYY-MM')
 export function listContributionsByPeriod(period) {
   const start = `${period}-01`;
@@ -469,6 +620,7 @@ export function listContributionsByPeriod(period) {
   }));
 }
 
+// L'historique d'une enveloppe, du plus récent au plus ancien
 export function listContributions(envelopeId) {
   return all(
     `SELECT c.*, a.name AS from_account_name FROM envelope_contributions c
@@ -489,7 +641,19 @@ export function listContributions(envelopeId) {
 }
 
 // ─── Dépense depuis une enveloppe, liée à une entrée du mois ───
-// Appelé après création / modification d'une entrée : crée, met à jour ou retire la contribution « depense ».
+
+/**
+ * Aligne la contribution « depense » d'une entrée sur l'état de cette entrée.
+ *
+ * Appelé après chaque création ou modification d'entrée. Une seule fonction couvre les
+ * trois cas — créer, mettre à jour, retirer — parce que le lien est **dérivé** de
+ * l'entrée : si elle ne désigne plus d'enveloppe, la contribution n'a plus lieu
+ * d'être. Traiter les trois séparément laisserait fatalement passer un cas.
+ *
+ * Le montant est inversé : une dépense retire de l'enveloppe.
+ *
+ * @param {object} entry La ligne `entries` telle qu'elle est en base.
+ */
 export function syncEntryExpense(entry) {
   const existing = get("SELECT * FROM envelope_contributions WHERE entry_id = ?", entry.id);
   if (!entry.envelope_id) {
@@ -512,6 +676,19 @@ export function syncEntryExpense(entry) {
   }
 }
 
+/**
+ * Ajoute un mouvement à une enveloppe.
+ *
+ * Le plafond ne s'applique qu'à ce qui **réserve davantage** sur un compte déjà connu :
+ * un versement sans source, ou depuis le compte hôte lui-même. Un transfert venu d'un
+ * autre compte augmente le solde en même temps qu'il remplit l'enveloppe — le plafonner
+ * bloquerait une opération pourtant équilibrée. Recalages et réaffectations sont les
+ * voies prévues pour corriger, elles ne se plafonnent pas non plus.
+ *
+ * @param {number} envelopeId L'enveloppe.
+ * @param {object} params `{ amount, date, kind, fromAccountId, notes }`.
+ * @returns {object} L'enveloppe à jour.
+ */
 export function addContribution(envelopeId, { amount, date = null, kind = "normale", fromAccountId = null, notes = null }) {
   const envelope = get("SELECT * FROM envelopes WHERE id = ?", envelopeId);
   if (!envelope) throw httpError(404, "Enveloppe introuvable");
@@ -535,6 +712,17 @@ export function addContribution(envelopeId, { amount, date = null, kind = "norma
 // ─── Recalage : aligner les enveloppes d'un compte sur son solde réel ───
 // delta = solde live du compte − Σ enveloppes ouvertes hébergées ; posé en contribution « ajustement »
 // sur l'enveloppe choisie (intérêts, arrondis, sortie non enregistrée…). Historique conservé.
+
+/**
+ * Calcule l'écart entre le solde réel d'un compte et ce que ses enveloppes revendiquent.
+ *
+ * Rien n'est écrit : c'est ce qu'on montre avant de proposer le recalage. L'écart part
+ * ensuite en contribution « ajustement » — jamais en correction silencieuse d'un
+ * montant existant, qui effacerait la trace de la divergence.
+ *
+ * @param {number} envelopeId L'enveloppe qui portera l'ajustement.
+ * @returns {{delta: number, accountBalance: number, envelopesTotal: number}} Et le contexte.
+ */
 export function recalibrationPreview(envelopeId) {
   const envelope = get("SELECT * FROM envelopes WHERE id = ?", envelopeId);
   if (!envelope) throw httpError(404, "Enveloppe introuvable");
@@ -555,6 +743,7 @@ export function recalibrationPreview(envelopeId) {
   };
 }
 
+// Pose l'écart calculé par recalibrationPreview en contribution « ajustement »
 export function recalibrate(envelopeId, { notes = null } = {}) {
   const preview = recalibrationPreview(envelopeId);
   const cents = toCents(preview.delta);
@@ -566,6 +755,11 @@ export function recalibrate(envelopeId, { notes = null } = {}) {
   });
 }
 
+// ─── Dépendance circulaire avec summary ───────────────────
+// summary.service lit les enveloppes pour bâtir ses soldes, et les enveloppes ont
+// besoin de ces mêmes soldes pour vérifier leur invariant. Un import direct dans les
+// deux sens laisserait l'un des deux modules à moitié chargé selon l'ordre de
+// résolution ESM : le point d'entrée injecte donc summary après coup.
 let _summary = null;
 function summaryModule() {
   // Chargé à la demande : summary.service importe aussi ce module (dépendance circulaire)
@@ -574,6 +768,7 @@ function summaryModule() {
 }
 export function bindSummary(mod) { _summary = mod; }
 
+// Retire un mouvement — sauf s'il est le reflet d'une entrée du mois, qui reste maître
 export function removeContribution(envelopeId, contributionId) {
   const c = get("SELECT * FROM envelope_contributions WHERE id = ? AND envelope_id = ?", contributionId, envelopeId);
   if (!c) throw httpError(404, "Contribution introuvable");

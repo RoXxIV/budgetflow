@@ -1,3 +1,10 @@
+// Enveloppes — monté sur /api/envelopes.
+//
+// Le plus gros routeur après les mois, parce qu'une enveloppe a plusieurs sorties :
+// clôturer en réaffectant, liquider un cycle, recaler sur le solde réel. Chacune est
+// un geste distinct, avec ses garde-fous — d'où une route par intention plutôt qu'un
+// PUT générique.
+
 import { Router } from "express";
 import * as service from "../services/envelope.service.js";
 import * as summary from "../services/summary.service.js";
@@ -5,6 +12,7 @@ import * as summary from "../services/summary.service.js";
 service.bindSummary(summary);
 
 const router = Router();
+// wrap : passe l'erreur levée par le service à next() (voir account.routes.js)
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
 
 router.get("/", wrap((req, res) => res.json(service.list())));

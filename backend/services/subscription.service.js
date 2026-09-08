@@ -4,6 +4,10 @@ import { all, get, run, toCents, fromCents, httpError } from "../db/index.js";
 // le template, les mois ou les enveloppes. La simulation par ligne (`sim`) remplace
 // le prix dans les totaux simulés ; un abonnement hypothétique se crée à prix 0 avec
 // juste une simulation, une résiliation se simule avec sim = 0.
+//
+// C'est ce cloisonnement qui fait tout l'intérêt de la page : on y répond à « et si
+// je résiliais Netflix et prenais Spotify Famille ? » sans qu'aucun chiffre du budget
+// réel ne bouge. Les données y sont une COPIE, jamais un lien.
 
 const PERIODS = ["mensuel", "annuel", "hebdo"];
 
@@ -31,6 +35,17 @@ export function list() {
   return all(`${LIST_SQL} ORDER BY s.is_active DESC, s.name COLLATE NOCASE`).map(serialize);
 }
 
+/**
+ * Contrôle et normalise un abonnement, à la création comme à la modification.
+ *
+ * Le même code sert les deux, avec `existing` en repli : un champ absent garde sa
+ * valeur. Le mois n'est conservé que pour un abonnement annuel — sur un mensuel il
+ * n'aurait aucun sens, et le laisser traîner produirait des échéances fantômes.
+ *
+ * @param {object} data Les champs envoyés.
+ * @param {object} [existing] La ligne actuelle, pour une modification.
+ * @returns {object} Les valeurs prêtes à écrire.
+ */
 function validate(data, existing = {}) {
   const name = data.name !== undefined ? String(data.name).trim() : existing.name;
   if (!name) throw httpError(400, "Le nom de l'abonnement est requis");
@@ -75,9 +90,18 @@ export function remove(id) {
   return { message: "Abonnement supprimé" };
 }
 
-// Import initial : les lignes « abonnement » du mois ouvert le plus récent (catégorie dont
-// le nom contient « abonnement ») + les lignes mensualisées du template (Strava, N26…).
-// Une COPIE : les doublons de nom sont ignorés, et rien ne reste lié aux sources.
+/**
+ * Import initial : peuple le tracker à partir du budget réel.
+ *
+ * Deux sources : les lignes du mois dont la catégorie contient « abonnement », et les
+ * lignes mensualisées du template — une charge annuelle lissée EST un abonnement, elle
+ * entre donc en « annuel » avec son échéance.
+ *
+ * C'est une COPIE, à sens unique : les doublons de nom sont ignorés, et rien ne reste
+ * lié aux sources. Modifier un prix ici ne touche pas au budget, et inversement.
+ *
+ * @returns {{imported: number, subscriptions: Array}}
+ */
 export function importCurrent() {
   const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1")
     || get("SELECT * FROM months ORDER BY period DESC LIMIT 1");

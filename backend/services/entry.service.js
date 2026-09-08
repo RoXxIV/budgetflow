@@ -1,3 +1,20 @@
+// Les entrées : ce qui s'est réellement passé sur les comptes.
+//
+// Une entrée est le REEL, la ligne budgétaire est le PREVU. La règle qui gouverne tout
+// l'affichage tient en une phrase : le réel remplace le prévu — une ligne sans entrée
+// compte pour son prévu, une ligne qui en a une compte pour la somme de ses entrées.
+//
+// TROIS NATURES d'entrées cohabitent dans la même table :
+//
+//   - la saisie ordinaire, rattachée ou non à une ligne ;
+//   - la dépense DEPUIS UNE ENVELOPPE (`envelope_id`), qui crée en miroir une
+//     contribution négative — c'est syncEntryExpense qui tient les deux alignés ;
+//   - le VIREMENT SYSTEME (`related_line_id`), sans ligne ni catégorie, donc jamais
+//     compté en dépense : il ne fait que déplacer de l'argent entre deux comptes pour
+//     que les soldes collent au relevé bancaire.
+//
+// Tout ce qui écrit ici passe par assertOpen : un mois clôturé ne bouge plus.
+
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 import { assertOpen } from "./month.service.js";
 
@@ -13,6 +30,7 @@ import * as pots from "./pot.service.js";
 import { syncEntryExpense } from "./envelope.service.js";
 import { nextDueDate } from "./budgetLine.service.js";
 
+// Ligne de base → objet d'API : centimes en euros, entiers en booléens
 function serialize(row) {
   return {
     id: row.id,
@@ -35,6 +53,7 @@ function serialize(row) {
   };
 }
 
+// Les entrées du mois, dans l'ordre chronologique
 export function listByMonth(monthId) {
   return all("SELECT * FROM entries WHERE month_id = ? ORDER BY date, id", monthId).map(serialize);
 }
@@ -59,6 +78,24 @@ function assertEnvelopeCanCover(envelopeId, amountCents, excludeEntryId = null) 
   }
 }
 
+/**
+ * Enregistre une entrée dans un mois ouvert.
+ *
+ * Deux comportements méritent d'être connus.
+ *
+ * **Le repli sur le compte principal** : une entrée sans compte ne bougerait aucun
+ * solde, donc n'existerait pas vraiment. Plutôt que de refuser une saisie rapide, on
+ * suppose le compte principal — le cas de très loin le plus fréquent.
+ *
+ * **La ligne mensualisée** : si la ligne est adossée à une enveloppe, une saisie
+ * manuelle en sort par défaut, SANS entamer la cible (`in_target = 0`). C'est cohérent
+ * avec le cycle : l'enveloppe se vide puis se remplit à nouveau, sa cible n'a pas
+ * bougé. Payer fait alors avancer son échéance d'un cran.
+ *
+ * @param {number} monthId Le mois, qui doit être ouvert.
+ * @param {object} data Les champs de l'entrée.
+ * @returns {object} L'entrée créée.
+ */
 export function create(monthId, data) {
   assertOpen(monthId);
   assertDateOpen(data.date);
@@ -104,12 +141,25 @@ export function create(monthId, data) {
   return serialize(row);
 }
 
+// « 2026-12 » + 1 → « 2027-01 » : on passe par un index de mois absolu, jamais par une
+// Date, qui décalerait selon le fuseau
 const periodPlus = (period, n) => {
   const [y, m] = period.split("-").map(Number);
   const idx = y * 12 + (m - 1) + n;
   return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`;
 };
 
+/**
+ * Modifie une entrée.
+ *
+ * Le contrôle de couverture s'exclut lui-même (`excludeEntryId`) : sans ça, corriger
+ * une dépense de 50 € à 45 € serait refusé, l'ancienne contribution de 50 € étant
+ * encore comptée comme déjà sortie de l'enveloppe.
+ *
+ * @param {number} id L'entrée.
+ * @param {object} data Les champs à changer.
+ * @returns {object} L'entrée modifiée.
+ */
 export function update(id, data) {
   const existing = get("SELECT * FROM entries WHERE id = ?", id);
   if (!existing) throw httpError(404, "Entrée introuvable");
@@ -147,6 +197,17 @@ export function update(id, data) {
   return serialize(row);
 }
 
+/**
+ * Supprime une entrée, et défait ce qu'elle avait entraîné.
+ *
+ * Supprimer ne suffit pas à revenir en arrière : une entrée a pu vider une enveloppe,
+ * faire avancer une échéance, et s'accompagner de virements système. Tout cela se
+ * démonte ici, dans une transaction — une annulation à moitié faite laisserait un trou
+ * que rien ne signalerait.
+ *
+ * @param {number} id L'entrée.
+ * @returns {{message: string}}
+ */
 export function remove(id) {
   return tx(() => removeInner(id));
 }
@@ -183,6 +244,8 @@ function removeInner(id) {
 }
 
 // ─── ☐ payé : crée l'entrée au prévu, à la date du jour récurrent ───
+// Le geste le plus fréquent de l'application : cocher une case pour dire « c'est passé,
+// comme prévu ». Il crée du réel à partir du prévu, sans rien avoir à ressaisir.
 // Ligne mensualisée dont l'enveloppe ne couvre pas le montant : sans shortfallAccountId → 409 ENVELOPE_SHORT
 // (le front propose « vider l'enveloppe et prendre le reste sur … ») ; avec → deux entrées : la part
 // couverte sort de l'enveloppe (compte hôte), le reste du compte indiqué. L'enveloppe ne devient jamais négative.

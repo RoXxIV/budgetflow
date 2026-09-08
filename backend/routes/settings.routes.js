@@ -1,7 +1,10 @@
+// Réglages et parcours de première utilisation — monté sur /api/settings.
+
 import { Router } from "express";
 import * as service from "../services/settings.service.js";
 
 const router = Router();
+// wrap : passe l'erreur levée par le service à next() (voir account.routes.js)
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
 
 router.get("/", wrap((req, res) => res.json(service.getSettings())));

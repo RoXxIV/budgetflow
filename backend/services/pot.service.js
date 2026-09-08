@@ -1,3 +1,10 @@
+// Les cagnottes : les dépenses partagées avec quelqu'un, et le solde qui en découle.
+//
+// Cette formule est **dupliquée côté front** dans `lib/potCalc.js`, pour que l'écran
+// recalcule en direct pendant qu'on saisit. Toute correction ici doit être reportée
+// là-bas — c'est le seul endroit du projet où un calcul existe en deux exemplaires,
+// et c'est un compromis assumé pour l'aperçu immédiat.
+
 import { all, get, fromCents } from "../db/index.js";
 
 /**
@@ -17,6 +24,25 @@ export function listPots(monthId) {
     : all("SELECT * FROM budget_lines WHERE month_id = ? AND is_pot = 1 ORDER BY sort_order, id", monthId);
 }
 
+/**
+ * Calcule le solde d'une cagnotte.
+ *
+ * Deux subtilités portent tout le résultat.
+ *
+ * **La cagnotte par défaut absorbe les orphelins.** Un ½ coché sans cagnotte désignée
+ * n'est pas ignoré : il rejoint la première du mois. Sans cette règle, cocher « partagé »
+ * sans y penser ferait disparaître la dépense du partage — l'oubli silencieux le plus
+ * coûteux qui soit.
+ *
+ * **La cagnotte s'exclut elle-même** (`x.line_id != pot.id`). Le virement d'équilibrage
+ * est saisi sur la ligne de cagnotte ; le compter comme une dépense partagée le ferait
+ * entrer dans le total à répartir, et le solde ne convergerait jamais.
+ *
+ * @param {number} monthId Le mois examiné.
+ * @param {object} pot La ligne de cagnotte.
+ * @param {number|null} defaultPotId L'id de la cagnotte par défaut du mois.
+ * @returns {object} Les montants du partage, dont `toSend` (négatif = on me doit).
+ */
 export function compute(monthId, pot, defaultPotId) {
   const isDefault = pot.id === defaultPotId;
   const scope = isDefault ? "(x.pot_line_id = ? OR x.pot_line_id IS NULL)" : "x.pot_line_id = ?";
@@ -57,6 +83,8 @@ export function compute(monthId, pot, defaultPotId) {
 }
 
 // Toutes les cagnottes d'un mois, calculées
+// La première dans l'ordre d'affichage devient celle par défaut : déplacer une
+// cagnotte en tête change donc où atterrissent les ½ non rattachés.
 export function computeAll(monthId) {
   const pots = listPots(monthId);
   const defaultId = pots[0]?.id ?? null;

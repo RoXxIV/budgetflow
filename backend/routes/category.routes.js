@@ -1,7 +1,10 @@
+// Catégories — monté sur /api/categories.
+
 import { Router } from "express";
 import * as service from "../services/category.service.js";
 
 const router = Router();
+// wrap : passe l'erreur levée par le service à next() (voir account.routes.js)
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
 
 router.get("/", wrap((req, res) => res.json(service.list())));

@@ -2,6 +2,11 @@
 -- Elle produit une contribution liée de type « depense » (montant négatif), synchronisée avec l'entrée.
 -- « in_target » : la dépense fait partie du projet → la cible affichée est corrigée d'autant
 -- (2 700 / 3 500 au lieu de 2 700 / 4 500), le reste à épargner ne bouge pas.
+--
+-- POURQUOI UNE TABLE « _new » — SQLite ne sait pas modifier une contrainte CHECK ni
+-- retirer une colonne qui en fait partie. La seule voie est de rebâtir : créer la
+-- table cible, y recopier les données, supprimer l'ancienne, renommer. Le tout dans
+-- la transaction ouverte par applyMigrations : un échec ne laisse rien à moitié fait.
 
 ALTER TABLE entries ADD COLUMN envelope_id INTEGER REFERENCES envelopes(id) ON DELETE SET NULL;
 ALTER TABLE entries ADD COLUMN envelope_in_target INTEGER NOT NULL DEFAULT 1;

@@ -1,3 +1,18 @@
+// Les calculateurs : estimer une facture à partir de relevés, mois après mois.
+//
+// LE PROBLÈME — l'électricité se paie en mensualités lissées, et la vraie facture
+// tombe une fois par an. Entre-temps, on ne sait pas si on dérive. Un calculateur
+// répond à ça : on saisit ses index de compteur, une formule les convertit en euros,
+// et l'écart avec la mensualité prévue devient visible dès le premier mois.
+//
+// TROIS PIÈCES. Les PARAMÈTRES sont les constantes du contrat (prix du kWh, TVA,
+// abonnement) ; les RELEVÉS sont ce qu'on saisit chaque mois ; la FORMULE les combine.
+//
+// DEUX SORTES DE RELEVÉS, et l'écart compte. Un « index » se lit sur un compteur qui
+// ne redescend jamais : la consommation est la DIFFÉRENCE avec le relevé précédent.
+// Une « valeur » se saisit directement. C'est ce qui permet de reporter automatiquement
+// l'index de fin d'un mois en index de début du suivant.
+
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 import { evaluate, isValidSymbol, symbolsOf } from "../lib/formula.js";
 import { assertOpen } from "./month.service.js";
@@ -27,6 +42,15 @@ export function getById(id) {
   return serialize(row);
 }
 
+/**
+ * Refuse une définition qui ne pourrait pas produire de résultat.
+ *
+ * Le dernier contrôle est le plus utile : la formule est **évaluée** avec des valeurs
+ * factices. Une faute de frappe dans un symbole ou une parenthèse manquante est ainsi
+ * signalée à la saisie, et non des semaines plus tard devant une estimation vide.
+ *
+ * @param {object} definition `{ name, params, readings, formula }`.
+ */
 function validateDefinition({ name, params = [], readings = [], formula }) {
   if (!(name || "").trim()) throw httpError(400, "Le nom du calculateur est requis");
   const symbols = new Set();
@@ -45,7 +69,19 @@ function validateDefinition({ name, params = [], readings = [], formula }) {
   }
 }
 
-// Création / mise à jour complète. Les relevés existants gardent leur id (les saisies mensuelles y sont rattachées).
+/**
+ * Création ou mise à jour complète d'un calculateur.
+ *
+ * La différence de traitement entre paramètres et relevés est le point à comprendre.
+ * Les **paramètres** sont remplacés en bloc : rien n'y est rattaché, ce sont de simples
+ * constantes. Les **relevés**, eux, gardent leur id — les saisies de tous les mois
+ * passés y pendent. Les effacer pour les recréer emporterait l'historique entier des
+ * index avec eux.
+ *
+ * @param {number|null} id Le calculateur, ou null pour en créer un.
+ * @param {object} data `{ name, formula, lineId, themeId, params, readings }`.
+ * @returns {object} Le calculateur enregistré.
+ */
 export function save(id, data) {
   validateDefinition(data);
   return tx(() => {
@@ -93,6 +129,7 @@ export function remove(id) {
 }
 
 // Test d'une formule depuis l'éditeur : { ok, value | error }
+// Ne lève jamais : l'éditeur affiche l'erreur au fil de la frappe, il ne la subit pas.
 export function check(formula, symbols = []) {
   const vars = Object.fromEntries(symbols.map((s) => [s.symbol, Number(s.value) || 1]));
   try {
@@ -103,8 +140,21 @@ export function check(formula, symbols = []) {
 }
 
 // ─── Mois : relevés, estimation, écart ───────────────────
-// Crée les relevés manquants du mois. Pour un index : report du DERNIER index de fin saisi
-// sur un mois antérieur (pas forcément le mois juste avant — un mois sans relevé n'interrompt pas la chaîne).
+
+/**
+ * Crée les relevés manquants du mois, avec leur index de départ.
+ *
+ * Le report vient du DERNIER index de fin saisi sur un mois antérieur — pas
+ * nécessairement le mois juste avant. Un mois sauté n'interrompt donc pas la chaîne :
+ * la consommation englobe simplement la période plus longue, ce qui reste juste.
+ *
+ * Sur un mois clôturé, rien n'est écrit : une simple lecture ne doit pas créer de
+ * données, et surtout pas dans un mois verrouillé. La ligne rendue est virtuelle.
+ *
+ * @param {object} month Le mois en base.
+ * @param {Array<object>} defs Les définitions de relevés du calculateur.
+ * @returns {Array<object>} Une ligne de relevé par définition.
+ */
 function ensureReadings(month, defs) {
   return defs.map((def) => {
     let r = get("SELECT * FROM calculator_readings WHERE def_id = ? AND month_id = ?", def.id, month.id);
@@ -126,6 +176,17 @@ function ensureReadings(month, defs) {
   });
 }
 
+/**
+ * L'état de tous les calculateurs sur un mois : relevés, estimation, écart.
+ *
+ * L'estimation n'est tentée que si TOUS les relevés sont complets — une formule
+ * évaluée avec un trou rendrait un chiffre faux, plus dangereux qu'une case vide.
+ * Une erreur de formule est rendue dans `error` plutôt que levée : les autres
+ * calculateurs de la page doivent rester affichables.
+ *
+ * @param {number} monthId Le mois.
+ * @returns {Array<object>} Un état par calculateur.
+ */
 export function monthState(monthId) {
   const month = get("SELECT * FROM months WHERE id = ?", monthId);
   if (!month) throw httpError(404, "Mois introuvable");
@@ -185,6 +246,8 @@ export function monthState(monthId) {
   });
 }
 
+// Enregistre les relevés saisis. L'UPSERT évite d'avoir à savoir si la ligne du mois
+// existait déjà — ensureReadings a pu la créer, ou pas.
 export function saveReadings(monthId, calcId, readings) {
   assertOpen(monthId);
   tx(() => {
@@ -202,7 +265,18 @@ export function saveReadings(monthId, calcId, readings) {
   return monthState(monthId).find((c) => c.id === calcId);
 }
 
-// Régularisation : pose l'écart (estimé − prévu) en entrée sur la ligne rattachée, remplace la précédente
+/**
+ * Régularisation : pose l'écart (estimé − prévu) en entrée sur la ligne rattachée.
+ *
+ * La précédente régularisation est supprimée d'abord : l'écart est un état, pas un
+ * cumul. Rejouer l'opération après avoir corrigé un relevé doit donner le bon montant,
+ * pas la somme des deux tentatives. La source `'regularisation'` est ce qui permet de
+ * la retrouver et de ne toucher qu'à elle, jamais aux saisies manuelles.
+ *
+ * @param {number} monthId Le mois, ouvert.
+ * @param {number} calcId Le calculateur.
+ * @returns {object} L'état du calculateur après régularisation.
+ */
 export function regularize(monthId, calcId) {
   assertOpen(monthId);
   const state = monthState(monthId).find((c) => c.id === calcId);

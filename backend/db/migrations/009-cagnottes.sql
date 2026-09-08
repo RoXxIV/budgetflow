@@ -3,6 +3,11 @@
 -- payé et ma part. Les entrées marquées ½ s'y rattachent ; le prévu de la ligne est CALCULÉ :
 --   à envoyer = (Σ mes ½ + payé par le partenaire) × ma part − Σ mes ½
 -- ☐ payé enregistre le virement. Les réglages globaux du module (008) disparaissent.
+--
+-- POURQUOI UNE TABLE « _new » — SQLite ne sait pas modifier une contrainte CHECK ni
+-- retirer une colonne qui en fait partie. La seule voie est de rebâtir : créer la
+-- table cible, y recopier les données, supprimer l'ancienne, renommer. Le tout dans
+-- la transaction ouverte par applyMigrations : un échec ne laisse rien à moitié fait.
 
 ALTER TABLE budget_lines ADD COLUMN is_pot INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE budget_lines ADD COLUMN pot_partner_name TEXT;

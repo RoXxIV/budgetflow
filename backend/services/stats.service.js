@@ -1,3 +1,17 @@
+// Les agrégats de la page Stats : une seule requête, tous les graphiques.
+//
+// TOUT EST CALCULÉ ICI, en un appel, plutôt qu'un endpoint par courbe : les séries
+// partagent leurs exclusions et leur axe des mois, et les séparer garantirait qu'elles
+// finissent par ne plus raconter la même histoire.
+//
+// CE QUI EST EXCLU, et pourquoi. Les virements système ne sont pas des dépenses : ils
+// déplacent de l'argent entre deux comptes qu'on possède. Les catégories de type
+// « transfert » non plus. Les compter gonflerait les dépenses de sommes qui n'ont
+// jamais quitté le patrimoine.
+//
+// NULL ET ZÉRO SE DISTINGUENT ici aussi : un solde inconnu laisse un trou dans la
+// courbe (`null`), un mois sans dépense sur un thème vaut bien zéro.
+
 import { all, fromCents } from "../db/index.js";
 import { computeAll as computePots } from "./pot.service.js";
 

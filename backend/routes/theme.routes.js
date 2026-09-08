@@ -1,7 +1,13 @@
+// Thèmes — monté sur /api/themes.
+//
+// /merge existe parce que supprimer un thème débranche ce qui le portait : fusionner
+// est presque toujours ce qu'on voulait vraiment faire.
+
 import { Router } from "express";
 import * as service from "../services/theme.service.js";
 
 const router = Router();
+// wrap : passe l'erreur levée par le service à next() (voir account.routes.js)
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
 
 router.get("/", wrap((req, res) => res.json(service.list())));

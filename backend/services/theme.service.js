@@ -1,3 +1,13 @@
+// Les thèmes : le second axe de lecture, transversal aux catégories.
+//
+// Une catégorie dit la NATURE d'une dépense (courses, logement) ; un thème dit à quoi
+// elle se rattache (« Voiture », « Vacances 2027 »). Les statistiques s'appuient
+// dessus, et un thème peut porter des lignes, des entrées ET des calculateurs.
+//
+// La FUSION est la sortie normale d'un doublon : « Voiture » et « Automobile » se
+// réunissent sans rien perdre. La suppression, elle, débranche — d'où le message qui
+// oriente vers la fusion.
+
 import { all, get, run, tx, httpError } from "../db/index.js";
 
 function serialize(row) {
@@ -62,7 +72,18 @@ export function remove(id, { force = false } = {}) {
   return { message: "Thème supprimé" };
 }
 
-// Fusion : toutes les références du thème source passent sur la cible, la source disparaît
+/**
+ * Fusion : toutes les références du thème source passent sur la cible, la source disparaît.
+ *
+ * Les TROIS tables qui référencent un thème sont reprises — lignes, entrées et
+ * calculateurs. En oublier une laisserait des références vers un thème effacé, et un
+ * calculateur débranché en silence : c'est exactement ce que `usage` compte pour
+ * empêcher une suppression trop confiante.
+ *
+ * @param {number} sourceId Le thème absorbé.
+ * @param {number} targetId Le thème qui subsiste.
+ * @returns {{message: string, moved: object}}
+ */
 export function merge(sourceId, targetId) {
   const source = get("SELECT * FROM themes WHERE id = ?", sourceId);
   const target = get("SELECT * FROM themes WHERE id = ?", targetId);

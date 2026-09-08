@@ -1,3 +1,16 @@
+// Les catégories : ce qui donne son SENS à une ligne budgétaire.
+//
+// Le `type` n'est pas un simple libellé, c'est lui qui pilote l'effet d'une entrée sur
+// les comptes (voir summary.service) :
+//
+//   depense              débite le compte
+//   revenu               le crédite
+//   epargne / transfert  débite l'un, crédite l'autre
+//
+// Une catégorie ne se supprime jamais en cascade : les lignes qui la portaient
+// deviennent « sans catégorie » et restent lisibles. Perdre la classification vaut
+// mieux que perdre l'historique.
+
 import { all, get, run, tx, httpError } from "../db/index.js";
 
 const TYPES = ["depense", "revenu", "epargne", "transfert"];
@@ -71,6 +84,17 @@ export function usage(id) {
   };
 }
 
+/**
+ * Supprime une catégorie ; les lignes qui l'utilisaient deviennent « sans catégorie ».
+ *
+ * Le premier appel refuse et annonce combien de lignes sont concernées — l'écran a
+ * besoin du chiffre pour poser la question. Le second, avec `force`, exécute.
+ *
+ * @param {number} id La catégorie.
+ * @param {object} [options]
+ * @param {boolean} [options.force] Confirmer malgré l'usage.
+ * @returns {{message: string}}
+ */
 export function remove(id, { force = false } = {}) {
   const existing = get("SELECT * FROM categories WHERE id = ?", id);
   if (!existing) throw httpError(404, "Catégorie introuvable");

@@ -1,7 +1,17 @@
+// Le budget type — monté sur /api/template.
+//
+// Le template n'a pas de table à lui : ce sont les lignes budgétaires SANS mois
+// (`month_id IS NULL`). D'où le `null` passé aux services, là où les routes de mois
+// passent un identifiant.
+//
+// Les routes de propagation sont le cœur du fichier : pousser une ligne — ou tout le
+// template — vers un mois existant, sans jamais toucher au réel déjà saisi.
+
 import { Router } from "express";
 import * as lines from "../services/budgetLine.service.js";
 
 const router = Router();
+// wrap : passe l'erreur levée par le service à next() (voir account.routes.js)
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
 
 // Le template = les lignes budgétaires sans mois (month_id IS NULL)

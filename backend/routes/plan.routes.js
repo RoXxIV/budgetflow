@@ -1,3 +1,9 @@
+// Plan de financement — monté sur /api/plan.
+//
+// Aucune de ces routes n'écrit : le plan est un bac à sable. Le client envoie sa
+// situation, le serveur rend le tableau. Seule /averages lit la base, pour proposer
+// des chiffres tirés du vécu plutôt que du vide.
+
 import { Router } from "express";
 import { computePlan, shareFor } from "../services/plan.service.js";
 import { averages } from "../services/planAverages.service.js";

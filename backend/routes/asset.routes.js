@@ -1,7 +1,13 @@
+// Investissements — monté sur /api/assets.
+//
+// Trois niveaux imbriqués : l'actif, ses mouvements (versements et retraits), ses
+// valorisations. Les mouvements sont des faits, les valorisations des observations.
+
 import { Router } from "express";
 import * as service from "../services/asset.service.js";
 
 const router = Router();
+// wrap : passe l'erreur levée par le service à next() (voir account.routes.js)
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
 const id = (req, name = "id") => Number(req.params[name]);
 

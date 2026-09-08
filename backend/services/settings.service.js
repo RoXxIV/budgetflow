@@ -1,3 +1,12 @@
+// Les réglages de l'application, et l'état du parcours de première utilisation.
+//
+// La table `app_settings` n'a qu'une seule ligne, d'id 1, posée par la migration 001 :
+// ce sont des réglages globaux, il n'y a rien à créer ni à choisir.
+//
+// L'avancement du guide est DÉDUIT du contenu de la base plutôt que mémorisé étape par
+// étape. Fermer l'application au milieu de la configuration la fait reprendre au bon
+// endroit, sans qu'aucun état ne se désynchronise de la réalité.
+
 import { get, run } from "../db/index.js";
 
 // ─── Première utilisation ─────────────────────────────────
@@ -9,6 +18,16 @@ import { get, run } from "../db/index.js";
 // qu'une app fermée en cours de route reprenne à la bonne étape.
 const ONBOARDING_STEPS = ["compte", "categories", "themes", "template"];
 
+/**
+ * Où en est la première utilisation.
+ *
+ * Le drapeau `onboarding_done` répond à ce que le contenu ne peut pas dire : le guide
+ * ne crée pas de mois, rien ne signerait donc sa fin. La présence d'un mois, elle, est
+ * un second garde-fou — une installation qui vit sa vie ne doit jamais revoir le guide,
+ * même si le drapeau manque (cas d'une base migrée).
+ *
+ * @returns {object} Ce dont le routeur a besoin pour décider où envoyer l'utilisateur.
+ */
 export function getOnboarding() {
   const has = (sql, ...params) => !!get(sql, ...params);
   const hasAccounts = has("SELECT id FROM accounts WHERE is_active = 1 LIMIT 1");
@@ -67,6 +86,7 @@ export function getSettings() {
   return serialize(get("SELECT * FROM app_settings WHERE id = 1"));
 }
 
+// Mise à jour partielle : chaque champ absent garde sa valeur actuelle
 export function updateSettings(data) {
   const current = get("SELECT * FROM app_settings WHERE id = 1");
   run(

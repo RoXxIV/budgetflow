@@ -1,3 +1,18 @@
+// Les investissements : ce qu'on y a mis, ce que ça vaut, ce que ça a rapporté.
+//
+// TROIS TABLES, TROIS NATURES DE FAITS. Un `asset` est le placement lui-même ; les
+// `asset_movements` sont les versements et retraits, des faits certains ; les
+// `asset_valuations` sont ce que le placement valait à une date, une observation qu'on
+// relève de temps en temps.
+//
+// LA VALEUR EST « VIVANTE ». On ne demande pas de revaloriser après chaque versement :
+// la dernière valorisation sert d'ANCRAGE, ajusté des mouvements postérieurs à sa date.
+// Sans cet ajustement, verser 200 € après la dernière valorisation ferait apparaître
+// une moins-value de 200 € qui n'existe pas.
+//
+// UN RETRAIT N'EST PAS UNE PERTE. D'où la performance : (valeur + retiré − investi).
+// Retirer 1 000 € d'un placement n'appauvrit personne, l'argent a juste changé d'endroit.
+
 import { all, get, run, toCents, fromCents, httpError } from "../db/index.js";
 
 // Une saisie datée dans un mois clôturé est refusée
@@ -9,6 +24,16 @@ function assertPeriodOpen(date) {
 const mainAccountId = () => get("SELECT id FROM accounts WHERE is_main = 1 LIMIT 1")?.id ?? null;
 
 // ─── Actifs ──────────────────────────────────────────────
+
+/**
+ * Met un actif en forme, avec sa valeur vivante et sa performance.
+ *
+ * `value` reste null tant qu'aucune valorisation n'a été saisie : on connaît alors
+ * l'investi, pas ce que ça vaut, et afficher l'un pour l'autre serait mentir.
+ *
+ * @param {object} row La ligne `assets`.
+ * @returns {object} L'actif exposé par l'API.
+ */
 function serialize(row) {
   const invested = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM asset_movements WHERE asset_id = ? AND kind = 'versement'", row.id).s;
   const withdrawn = get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM asset_movements WHERE asset_id = ? AND kind = 'retrait'", row.id).s;
@@ -45,6 +70,7 @@ function serialize(row) {
 
 const LIST_SQL = "SELECT a.*, acc.name AS account_name FROM assets a LEFT JOIN accounts acc ON acc.id = a.account_id";
 
+// Tous les actifs, les ouverts d'abord, par ordre alphabétique insensible à la casse
 export function list() {
   return all(`${LIST_SQL} ORDER BY a.closed_at IS NOT NULL, a.name COLLATE NOCASE`).map(serialize);
 }
@@ -55,6 +81,8 @@ export function getById(id) {
   return serialize(row);
 }
 
+// Crée un actif. `monthlyDca` est le versement programmé : il alimentera le ☐ versé
+// et la ligne « à venir » du reste à vivre.
 export function create({ name, type = null, accountId = null, monthlyDca = 0 }) {
   name = (name || "").trim();
   if (!name) throw httpError(400, "Le nom de l'actif est requis");
@@ -84,6 +112,7 @@ export function update(id, data) {
   return getById(id);
 }
 
+// Suppression réservée à un actif sans mouvement : sinon la clôture, qui garde tout
 export function remove(id) {
   if (!get("SELECT id FROM assets WHERE id = ?", id)) throw httpError(404, "Actif introuvable");
   const n = get("SELECT COUNT(*) AS n FROM asset_movements WHERE asset_id = ?", id).n;
@@ -124,6 +153,17 @@ export function listMovementsByPeriod(period) {
     .map(serializeMovement);
 }
 
+/**
+ * Enregistre un versement ou un retrait.
+ *
+ * Le compte de contrepartie est celui d'où vient (ou où va) l'argent : c'est lui qui
+ * fait bouger les soldes dans le bilan du mois. À défaut, le compte principal — un
+ * mouvement sans contrepartie ne déplacerait rien et laisserait le bilan faux.
+ *
+ * @param {number} assetId L'actif.
+ * @param {object} params `{ kind, amount, date, counterpartAccountId, notes, source }`.
+ * @returns {object} L'actif à jour.
+ */
 export function addMovement(assetId, { kind = "versement", amount, date = null, counterpartAccountId = null, notes = null, source = "manuelle" }) {
   const asset = get("SELECT * FROM assets WHERE id = ?", assetId);
   if (!asset) throw httpError(404, "Actif introuvable");
@@ -148,7 +188,18 @@ export function removeMovement(assetId, movementId) {
   return getById(assetId);
 }
 
-// ☐ versé : le DCA du mois, une seule fois par mois
+/**
+ * ☐ versé : le DCA du mois, une seule fois par mois.
+ *
+ * N'IMPORTE QUEL mouvement du mois bloque la case, pas seulement un DCA précédent :
+ * c'est la même règle que le ☐ payé des lignes — le réel remplace le prévu. Evan
+ * arrondit souvent son versement à la main (155 € au lieu de 150 €) ; laisser la case
+ * en rajouter ferait compter l'argent deux fois.
+ *
+ * @param {number} monthId Le mois, ouvert.
+ * @param {number} assetId L'actif, qui doit avoir un DCA défini.
+ * @returns {object} L'actif à jour.
+ */
 export function dca(monthId, assetId) {
   const month = get("SELECT * FROM months WHERE id = ?", monthId);
   if (!month) throw httpError(404, "Mois introuvable");
@@ -173,6 +224,7 @@ export function dca(monthId, assetId) {
   return addMovement(assetId, { kind: "versement", amount: fromCents(asset.monthly_dca_cents), date, source: "dca" });
 }
 
+// Décocher : ne retire que le mouvement créé par la case, jamais une saisie manuelle
 export function undca(monthId, assetId) {
   const month = get("SELECT * FROM months WHERE id = ?", monthId);
   if (!month) throw httpError(404, "Mois introuvable");
@@ -191,6 +243,8 @@ export function listValuations(assetId) {
     .map((v) => ({ id: v.id, date: v.date, value: fromCents(v.value_cents) }));
 }
 
+// Pose un nouvel ancrage de valeur. Ressaisir à la même date remplace l'ancrage :
+// les mouvements du jour sont présumés déjà reflétés dans le chiffre relevé.
 export function addValuation(assetId, { value, date = null }) {
   if (!get("SELECT id FROM assets WHERE id = ?", assetId)) throw httpError(404, "Actif introuvable");
   const cents = toCents(value);

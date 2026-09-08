@@ -1,3 +1,22 @@
+// Le bilan d'un mois : les quatre tuiles du haut de page, et les soldes de comptes.
+//
+// TOUT LE CALCUL VIT ICI. Le front n'additionne rien — pas par principe décoratif :
+// les mêmes chiffres apparaissent sur plusieurs écrans, et deux implémentations
+// finiraient par diverger sans que personne ne sache laquelle a raison.
+//
+// LE PRINCIPE — un solde n'est jamais stocké. Il vaut toujours :
+//
+//     snapshot de début de mois  +  Σ des mouvements réels du mois
+//
+// Les mouvements viennent de trois sources : les entrées du mois, les contributions
+// d'enveloppe **avec un compte source** (un transfert réel), et les mouvements
+// d'investissement. Une enveloppe alimentée sans compte source ne bouge rien : elle
+// réserve de l'argent déjà présent.
+//
+// NULL N'EST PAS ZÉRO. Sans snapshot ni mouvement, un solde vaut `null` : on ne sait
+// pas. Afficher 0 € serait une affirmation fausse, et les tuiles qui en dépendent
+// préfèrent se taire plutôt que d'annoncer un chiffre inventé.
+
 import { all, get, fromCents, httpError } from "../db/index.js";
 import { getSnapshots } from "./month.service.js";
 import * as pots from "./pot.service.js";
@@ -6,6 +25,12 @@ import * as envelopesModule from "./envelope.service.js";
 /**
  * Patrimoine total : comptes inclus, au solde live du mois en cours ; pour un compte investissement
  * hébergeant des actifs valorisés, la VALEUR DE MARCHÉ (dernières valorisations) remplace le solde.
+ *
+ * La substitution est le point à retenir : sur un PEA, le solde comptable — ce qui a
+ * été versé — n'est pas ce que le compte vaut. La valeur de marché est **ancrée** sur
+ * la dernière valorisation saisie, puis ajustée des versements et retraits postérieurs
+ * à sa date : sans cet ajustement, un versement fait après la dernière valorisation
+ * disparaîtrait du patrimoine jusqu'à la valorisation suivante.
  */
 export function getNetWorth() {
   const month = get("SELECT * FROM months WHERE closed_at IS NULL ORDER BY period DESC LIMIT 1")
@@ -61,6 +86,8 @@ export function getSummary(monthId) {
   const snapshots = getSnapshots(monthId);
 
   // Lignes du mois avec type de catégorie et réel
+  // Une ligne sans catégorie est traitée en dépense : c'est le cas le plus fréquent et
+  // le moins dangereux — la compter en revenu gonflerait le disponible à tort.
   const lines = all(
     `SELECT bl.*, COALESCE(c.type, 'depense') AS category_type,
        COALESCE((SELECT SUM(e.amount_cents) FROM entries e WHERE e.line_id = bl.id), 0) AS actual_cents,
@@ -101,6 +128,9 @@ export function getSummary(monthId) {
   const envelopesByAccount = Object.fromEntries(envelopeRows.map((r) => [r.account_id, r.total_cents || 0]));
 
   // ─── Deltas par compte (mouvements réels du mois) ───────
+  // Un virement est une seule ligne qui touche deux comptes : d'où `move()`, appelé
+  // deux fois avec des signes opposés. Écrire deux entrées symétriques laisserait la
+  // porte ouverte à ce que l'une survive à la suppression de l'autre.
   const delta = {};
   const move = (accountId, cents) => {
     if (accountId) delta[accountId] = (delta[accountId] || 0) + cents;
@@ -132,6 +162,9 @@ export function getSummary(monthId) {
   }
 
   // ─── Soldes par compte ──────────────────────────────────
+  // `current` reste null quand il n'y a NI snapshot NI mouvement : le compte est
+  // inconnu, pas vide. Dès qu'un mouvement existe, on répond, quitte à partir de zéro —
+  // le chiffre est alors un delta assumé, et la saisie du solde le recalera.
   const snapshotByAccount = Object.fromEntries(snapshots.map((s) => [s.accountId, s.balance]));
   const accountRows = accounts.map((a) => {
     const start = snapshotByAccount[a.id] ?? null;
@@ -153,6 +186,8 @@ export function getSummary(monthId) {
   });
 
   // ─── Tuiles ─────────────────────────────────────────────
+  // DISPONIBLE — ce qu'il reste vraiment sur le compte principal, enveloppes déduites.
+  // C'est le chiffre qui répond à « est-ce que je peux dépenser ça ? ».
   const main = accountRows.find((a) => a.isMain) || null;
   const disponible = main && main.current !== null
     ? Math.round((main.current - (envelopesByAccount[main.accountId] ? fromCents(envelopesByAccount[main.accountId]) : 0)) * 100) / 100
@@ -202,11 +237,14 @@ export function getSummary(monthId) {
     }
   }
 
+  // PROJETÉ — où finira le mois si tout ce qui est prévu se réalise. Le réel est déjà
+  // dans le solde : n'ajouter que ce qui n'a PAS encore eu lieu évite de compter deux fois.
   const projete = disponible !== null
     ? Math.round((disponible + fromCents(revenusRestants - prevusRestants)) * 100) / 100
     : null;
 
   // ─── Mis de côté / objectif ─────────────────────────────
+  // MIS DE CÔTÉ — ce qui a quitté le quotidien pour être gardé, sous ses trois formes.
   const savingsFromLines = lines
     .filter((l) => l.category_type === "epargne")
     .reduce((s, l) => s + l.actual_cents, 0);
@@ -220,6 +258,9 @@ export function getSummary(monthId) {
     .reduce((s, m) => s + m.amount_cents, 0);
   const misDeCote = fromCents(savingsFromLines + savingsFromContribs + savingsFromAssets);
 
+  // OBJECTIF — un pourcentage du revenu de référence. Ce revenu est le MAX du réel et
+  // du prévu : en début de mois le salaire n'est pas encore tombé, et un objectif qui
+  // partirait de zéro pour grimper d'un coup ne servirait à rien.
   const revActual = lines.filter((l) => l.category_type === "revenu").reduce((s, l) => s + l.actual_cents, 0);
   const revPlanned = lines.filter((l) => l.category_type === "revenu").reduce((s, l) => s + l.planned_amount_cents, 0);
   const incomeReference = fromCents(Math.max(revActual, revPlanned));

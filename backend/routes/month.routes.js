@@ -1,3 +1,15 @@
+// Les mois — monté sur /api/months. Le routeur central de l'application.
+//
+// Tout ce qui se rattache à un mois passe par ici : ses lignes, ses entrées, ses
+// soldes de début, ses relevés de calculateurs, ses mouvements d'investissement. Les
+// ressources sont volontairement imbriquées sous /:id — une ligne ou une entrée
+// n'existe pas hors de son mois.
+//
+// DEUX GARDES REVIENNENT partout. `assertOpen` refuse toute écriture dans un mois
+// clôturé. `assertInMonth` vérifie qu'une ligne appartient bien au mois de l'URL :
+// sans lui, passer l'id d'un mois ouvert permettrait de modifier la ligne d'un mois
+// clôturé (revue du 04/09).
+
 import { Router } from "express";
 import * as months from "../services/month.service.js";
 import * as budgetLines from "../services/budgetLine.service.js";
@@ -8,6 +20,7 @@ import * as calculators from "../services/calculator.service.js";
 import * as assets from "../services/asset.service.js";
 
 const router = Router();
+// wrap : passe l'erreur levée par le service à next() (voir account.routes.js)
 const wrap = (fn) => (req, res, next) => { try { fn(req, res); } catch (err) { next(err); } };
 const id = (req, name = "id") => Number(req.params[name]);
 

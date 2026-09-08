@@ -1,10 +1,36 @@
+// Les lignes budgétaires — la même table sert deux rôles, et c'est la clé du fichier.
+//
+//     month_id IS NULL   →  une ligne du TEMPLATE, le budget type
+//     month_id = 12       →  sa COPIE dans un mois, qui vit sa vie propre
+//
+// La copie garde le lien vers son origine (`template_line_id`), ce qui permet les deux
+// gestes du quotidien : « appliquer au mois » pousse la définition du template vers la
+// copie, « reporter dans le template » fait l'inverse. Aucun des deux ne touche au
+// RÉEL du mois : seule la définition circule, jamais les entrées.
+//
+// Une ligne peut aussi être une CAGNOTTE (`is_pot`), dont le prévu n'est pas saisi mais
+// calculé par pot.service, ou être MENSUALISÉE — une charge annuelle adossée à une
+// enveloppe qu'on remplit tous les mois.
+
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 
 // ─── Périodicité : « tous les N mois », ancrée sur un mois ───
+// L'ancrage est un NUMÉRO DE MOIS (1 = janvier), pas une date : une charge trimestrielle
+// ancrée en février tombe en février, mai, août, novembre — quelle que soit l'année.
 const monthIndex = (period) => { const [y, m] = period.split("-").map(Number); return y * 12 + (m - 1); };
 const periodOf = (idx) => `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`;
 
-// La ligne tombe-t-elle sur ce mois ('YYYY-MM') ?
+/**
+ * La ligne tombe-t-elle sur ce mois ('YYYY-MM') ?
+ *
+ * Le double modulo n'est pas une coquetterie : `(m - anchor)` est négatif pour les
+ * mois qui précèdent l'ancrage dans l'année, et `%` garde le signe en JavaScript.
+ * Sans lui, une ligne ancrée en novembre ne tomberait jamais en février.
+ *
+ * @param {object} line La ligne, avec `interval_months` et `anchor_month`.
+ * @param {string} period Le mois testé.
+ * @returns {boolean} Vrai pour toute ligne mensuelle.
+ */
 export function cycleMatches(line, period) {
   const interval = line.interval_months || 1;
   if (interval <= 1 || !line.anchor_month) return true;
@@ -12,9 +38,19 @@ export function cycleMatches(line, period) {
   return (((m - line.anchor_month) % interval) + interval) % interval === 0;
 }
 
-// Prochaine occurrence (date ISO) à partir d'un mois donné inclus.
-// Le jour est borné au dernier jour du mois cible : « le 31 » en février donnerait 2026-02-31,
-// une date invalide qui rendait la mensualité suggérée NaN (revue du 04/09).
+/**
+ * Prochaine occurrence (date ISO) à partir d'un mois donné inclus.
+ *
+ * Le jour est borné au dernier jour du mois cible : « le 31 » en février donnerait
+ * 2026-02-31, une date invalide qui rendait la mensualité suggérée NaN (revue du 04/09).
+ *
+ * La boucle s'arrête à 24 mois : au-delà, c'est que la périodicité est incohérente, et
+ * mieux vaut rendre null que tourner.
+ *
+ * @param {object} line La ligne et son cycle.
+ * @param {string} fromPeriod Le mois de départ, inclus.
+ * @returns {string|null} La date ISO de l'échéance.
+ */
 export function nextDueDate(line, fromPeriod) {
   const interval = line.interval_months || 1;
   let idx = monthIndex(fromPeriod);
@@ -31,7 +67,16 @@ export function nextDueDate(line, fromPeriod) {
 }
 const currentPeriod = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`; };
 
-// Sérialisation commune des lignes budgétaires (template et mois)
+/**
+ * Sérialisation commune des lignes budgétaires (template et mois).
+ *
+ * `monthlyAmount` mérite l'attention : une charge annuelle de 120 € ne pèse pas 120 €
+ * dans un mois-type, elle en pèse 10. Les totaux du Template s'appuient sur cette part
+ * mensuelle — sans elle, ils additionneraient des euros par an et des euros par mois.
+ *
+ * @param {object} row La ligne en base.
+ * @returns {object} La ligne exposée par l'API.
+ */
 export function serialize(row) {
   return {
     intervalMonths: row.interval_months || 1,
@@ -79,6 +124,17 @@ export function getById(id) {
   return serialize(row);
 }
 
+/**
+ * Crée une ligne, dans le template (`monthId` null) ou dans un mois.
+ *
+ * Une cagnotte est forcée à un prévu de zéro : son montant est un résultat, calculé à
+ * partir des ½ qui lui sont rattachés. Le laisser saisissable donnerait deux sources
+ * de vérité pour le même chiffre.
+ *
+ * @param {number|null} monthId Le mois, ou null pour le template.
+ * @param {object} data Les champs de la ligne.
+ * @returns {object} La ligne créée, placée en fin de liste.
+ */
 export function create(monthId, data) {
   const label = (data.label || "").trim();
   if (!label) throw httpError(400, "Le libellé de la ligne est requis");
@@ -114,10 +170,32 @@ export function create(monthId, data) {
   return getById(Number(id));
 }
 
+/**
+ * Modifie une ligne, avec deux propagations volontaires.
+ *
+ * **Vers l'enveloppe liée** — sur une ligne mensualisée du template, le nom, la cible
+ * et l'échéance de l'enveloppe suivent la ligne : ce sont deux faces du même objet, les
+ * laisser diverger n'aurait aucun sens.
+ *
+ * **Vers les entrées** — sur une ligne de MOIS, les champs « partagés » (thème, moyen
+ * de paiement, ½, cagnotte, compte) sont répercutés sur TOUTES les entrées de la ligne.
+ * C'est un changement de masse, validé par Evan : corriger le thème d'une ligne doit
+ * corriger ses dix entrées, sinon les statistiques restent fausses. Montants, dates et
+ * détails, eux, restent propres à chaque entrée.
+ *
+ * Deux exclusions dans cette propagation de compte : une dépense payée depuis une
+ * enveloppe garde son compte hôte, et un virement système garde le sien — dans les
+ * deux cas, le compte n'est pas un choix de saisie mais une conséquence.
+ *
+ * @param {number} id La ligne.
+ * @param {object} data Les champs à changer ; ceux absents gardent leur valeur.
+ * @returns {object} La ligne modifiée.
+ */
 export function update(id, data) {
   const existing = get("SELECT * FROM budget_lines WHERE id = ?", id);
   if (!existing) throw httpError(404, "Ligne introuvable");
 
+  // Distingue « champ absent, on garde » de « champ envoyé, on écrase »
   const label = data.label !== undefined ? String(data.label).trim() : existing.label;
   if (!label) throw httpError(400, "Le libellé de la ligne est requis");
   const fromAcc = data.fromAccountId !== undefined ? (data.fromAccountId || null) : existing.from_account_id;
@@ -199,6 +277,12 @@ export function update(id, data) {
 // ─── Mensualisation : enveloppe liée à une ligne non mensuelle du template ───
 // enabled → crée l'enveloppe (nom = libellé, cible = prévu, échéance = prochaine occurrence) sur le compte choisi
 // (aucun = virtuelle sur le compte principal) ; disabled → délie (l'enveloppe reste, à clôturer si vide).
+//
+// À quoi ça sert : une assurance annuelle de 600 € ne se subit pas au mois d'échéance.
+// Mensualisée, elle devient 50 € mis de côté chaque mois dans une enveloppe, et le
+// paiement se fait sur l'argent déjà provisionné.
+
+/** Active ou coupe la mensualisation d'une ligne du template. */
 export function setMonthlyized(lineId, { enabled, accountId = null }) {
   return tx(() => setMonthlyizedInner(lineId, { enabled, accountId }));
 }
@@ -241,7 +325,8 @@ function setMonthlyizedInner(lineId, { enabled, accountId = null }) {
   return getById(lineId);
 }
 
-// orders = [{ id, order }]
+// orders = [{ id, order }] — l'ordre d'affichage, en une transaction pour qu'un
+// glisser-déposer interrompu ne laisse pas la liste à moitié renumérotée
 export function reorder(orders) {
   tx(() => {
     for (const { id, order } of orders) {
@@ -321,6 +406,18 @@ export function applyAllToMonth(monthId, { onlyUnpaid = true } = {}) {
   return { ...plan, applied: ordered.length };
 }
 
+/**
+ * Supprime une ligne — et ses entrées, qui suivent en cascade.
+ *
+ * Le refus quand des entrées existent n'est pas définitif : il annonce le nombre, et
+ * l'appel se rejoue avec `force`. C'est une confirmation, pas un blocage — l'écran a
+ * besoin du chiffre pour poser la question honnêtement.
+ *
+ * @param {number} id La ligne.
+ * @param {object} [options]
+ * @param {boolean} [options.force] Supprimer malgré les entrées.
+ * @returns {{message: string}}
+ */
 export function remove(id, { force = false } = {}) {
   return tx(() => removeInner(id, { force }));
 }
@@ -352,8 +449,18 @@ function removeInner(id, { force = false } = {}) {
   return { message: "Ligne supprimée" + suffix };
 }
 
-// « Appliquer au mois » : la ligne du template est copiée dans un mois (ou sa copie mise à jour).
-// Le réel du mois n'est jamais touché ; seule la définition de la ligne est propagée.
+/**
+ * « Appliquer au mois » : la ligne du template est copiée dans un mois (ou sa copie mise à jour).
+ *
+ * Le réel du mois n'est jamais touché ; seule la définition de la ligne est propagée.
+ * Le rattachement de cagnotte est **retraduit** au passage : la copie doit pointer vers
+ * la cagnotte DE CE MOIS, pas vers celle du template — sinon le calcul du partage irait
+ * lire des montants qui ne concernent pas ce mois.
+ *
+ * @param {number} templateLineId La ligne du template.
+ * @param {number} monthId Le mois destinataire, ouvert.
+ * @returns {object} La ligne du mois, avec `created` selon qu'elle vient de naître.
+ */
 export function applyToMonth(templateLineId, monthId) {
   const tpl = get("SELECT * FROM budget_lines WHERE id = ? AND month_id IS NULL", templateLineId);
   if (!tpl) throw httpError(404, "Ligne du template introuvable");
@@ -397,7 +504,16 @@ export function applyToMonth(templateLineId, monthId) {
   return { ...getById(Number(lastInsertRowid)), created: true };
 }
 
-// « Reporter dans le template » : la ligne du mois devient le nouveau standard
+/**
+ * « Reporter dans le template » : la ligne du mois devient le nouveau standard.
+ *
+ * Le geste du mois où l'on constate que le loyer a changé pour de bon. Ne remontent que
+ * les champs de DÉFINITION : ni les notes, ni la périodicité, ni l'enveloppe liée —
+ * ceux-là se règlent depuis l'écran Template, où l'on voit les conséquences.
+ *
+ * @param {number} id La ligne de mois.
+ * @returns {object} La ligne du template mise à jour.
+ */
 export function applyToTemplate(id) {
   const line = get("SELECT * FROM budget_lines WHERE id = ?", id);
   if (!line) throw httpError(404, "Ligne introuvable");

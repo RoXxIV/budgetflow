@@ -1,3 +1,17 @@
+// Les mois : l'unité de temps de toute l'application.
+//
+// Un mois n'est pas une vue sur les données, c'est un **objet gelé**. À sa naissance,
+// il recopie le budget type ligne par ligne ; à partir de là il vit sa vie propre.
+// Modifier le template ensuite ne rétroagit sur aucun mois déjà créé — c'est ce qui
+// permet de relire janvier tel qu'il a été vécu, et non tel qu'on budgète aujourd'hui.
+//
+// Deux états : ouvert, où l'on saisit ; **clôturé**, où plus rien ne bouge. La clôture
+// n'est pas un archivage décoratif, elle verrouille : les entrées, les contributions
+// d'enveloppe datées dedans, et la suppression du mois lui-même.
+//
+// Les soldes de comptes sont **saisis**, pas déduits. Chaque mois porte ses snapshots
+// de début de période, et c'est sur eux que se rebâtissent tous les soldes courants.
+
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 import * as budgetLines from "./budgetLine.service.js";
 import * as pots from "./pot.service.js";
@@ -7,6 +21,7 @@ const MONTH_NAMES = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 
+// « 2026-09 » → « Septembre 2026 » : les messages d'erreur nomment le mois, pas sa période
 export function monthName(period) {
   const [y, m] = period.split("-").map(Number);
   return `${MONTH_NAMES[m - 1]} ${y}`;
@@ -28,11 +43,16 @@ function serialize(row) {
 
 // ─── « Annuler ce mois-ci » : mensualité d'enveloppe ou DCA non versé CE mois ───
 // Le Reste à vivre cesse de déduire la cible ; rien d'autre ne bouge, tout revient le mois suivant.
+// C'est une exception ponctuelle, pas une modification : le mois suivant repart de la
+// règle habituelle sans qu'on ait rien à réactiver.
+
+// Les exceptions posées sur ce mois
 export function listSkips(monthId) {
   getById(monthId);
   return all("SELECT kind, target_id AS targetId FROM month_skips WHERE month_id = ?", monthId);
 }
 
+// INSERT OR IGNORE : reposer deux fois la même exception ne doit pas échouer
 export function addSkip(monthId, { kind, targetId }) {
   assertOpen(monthId);
   if (!["envelope", "asset"].includes(kind) || !Number(targetId)) throw httpError(400, "Cible invalide");
@@ -40,6 +60,7 @@ export function addSkip(monthId, { kind, targetId }) {
   return listSkips(monthId);
 }
 
+// Retire l'exception : la cible redevient déduite du reste à vivre
 export function removeSkip(monthId, kind, targetId) {
   assertOpen(monthId);
   run("DELETE FROM month_skips WHERE month_id = ? AND kind = ? AND target_id = ?", monthId, kind, Number(targetId));
@@ -54,6 +75,7 @@ export function setNotes(id, notes) {
   return getById(id);
 }
 
+// Tous les mois, du plus récent au plus ancien
 export function list() {
   return all("SELECT * FROM months ORDER BY period DESC").map(serialize);
 }
@@ -65,6 +87,8 @@ export function getById(id) {
 }
 
 // « Mois en cours » : le mois ouvert du calendrier, sinon le mois ouvert le plus récent, sinon null
+// Le repli compte : le 1er octobre, avant d'avoir créé octobre, on veut atterrir sur
+// septembre plutôt que sur un écran vide.
 export function current() {
   const now = new Date();
   const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -73,6 +97,7 @@ export function current() {
   return row ? serialize(row) : null;
 }
 
+// Le garde-fou de la clôture : toute écriture dans un mois passe par ici
 export function assertOpen(monthId) {
   const row = get("SELECT * FROM months WHERE id = ?", monthId);
   if (!row) throw httpError(404, "Mois introuvable");
@@ -80,7 +105,17 @@ export function assertOpen(monthId) {
   return row;
 }
 
-// Lignes du mois avec le réel calculé (somme des entrées)
+/**
+ * Les lignes du mois, chacune avec son réel.
+ *
+ * Le **prévu** vient de la ligne, le **réel** est la somme de ses entrées : jamais
+ * stocké, donc jamais désynchronisé. Une cagnotte fait exception sur le prévu — sa
+ * part à envoyer se recalcule à partir de ce que le partenaire a déjà payé, c'est un
+ * résultat, pas une saisie.
+ *
+ * @param {number} monthId Le mois.
+ * @returns {Array<object>} Les lignes, dans leur ordre d'affichage.
+ */
 export function getLines(monthId) {
   const rows = all(
     `SELECT bl.*, COALESCE((SELECT SUM(e.amount_cents) FROM entries e WHERE e.line_id = bl.id), 0) AS actual_cents,
@@ -106,6 +141,10 @@ export function getLines(monthId) {
 }
 
 // ─── Snapshots ────────────────────────────────────────────
+// Le solde de chaque compte au DÉBUT du mois, saisi par l'utilisateur d'après sa
+// banque. C'est le seul point d'ancrage réel de l'application : tout solde affiché
+// ailleurs est ce chiffre plus les mouvements enregistrés depuis.
+
 export function getSnapshots(monthId) {
   return all("SELECT * FROM account_snapshots WHERE month_id = ?", monthId).map((s) => ({
     id: s.id,
@@ -114,6 +153,18 @@ export function getSnapshots(monthId) {
   }));
 }
 
+/**
+ * Enregistre ou corrige des soldes de début de mois.
+ *
+ * Un solde absent, vide ou `null` est **ignoré**, pas effacé : l'écran n'envoie pas
+ * toujours tous les comptes, et un champ laissé vide veut dire « je ne sais pas
+ * encore », jamais « remets à zéro ». Sans cette précaution, ouvrir le formulaire et
+ * l'enregistrer sans rien saisir détruirait des soldes déjà connus.
+ *
+ * @param {number} monthId Le mois, qui doit être ouvert.
+ * @param {Array<{accountId: number, balance: number}>} snapshots Les soldes à poser.
+ * @returns {Array<object>} Tous les snapshots du mois après coup.
+ */
 export function upsertSnapshots(monthId, snapshots) {
   assertOpen(monthId);
   tx(() => {
@@ -133,6 +184,18 @@ export function upsertSnapshots(monthId, snapshots) {
 // Période proposée = mois suivant le dernier mois existant, sinon mois courant.
 // Soldes proposés = solde LIVE de fin du dernier mois (début + mouvements) : une suggestion
 // que l'utilisateur corrige (arrondis bancaires, intérêts…) — chaque mois repart de sa saisie.
+
+/**
+ * Prépare le formulaire de création du mois suivant.
+ *
+ * Rien n'est écrit : ce sont des **propositions**. Le solde de fin calculé pour le
+ * mois précédent est presque toujours juste à quelques centimes près — intérêts,
+ * arrondis, une opération oubliée — et c'est justement le moment où l'utilisateur
+ * confronte l'application à sa banque. Reporter ces chiffres automatiquement ferait
+ * dériver l'ancrage réel de mois en mois.
+ *
+ * @returns {Promise<{period: string, snapshots: Array, envelopes: Array}>} De quoi remplir le formulaire.
+ */
 export async function prefill() {
   const latest = get("SELECT * FROM months ORDER BY period DESC LIMIT 1");
   let period;
@@ -159,6 +222,32 @@ export async function prefill() {
 }
 
 // ─── Création : duplication du template ───────────────────
+
+/**
+ * Crée un mois en y recopiant le budget type.
+ *
+ * C'est l'opération la plus structurante de l'application, et elle est **irréversible
+ * dans son principe** : les lignes copiées appartiennent désormais au mois, elles ne
+ * suivront plus le template.
+ *
+ * Trois choses s'y jouent, dans cet ordre :
+ *
+ *  1. **La copie du template**, filtrée par la périodicité — une charge trimestrielle
+ *     n'entre que les mois où son cycle tombe. Les rattachements « ½ » sont recâblés
+ *     dans un second passage : ils doivent pointer vers la copie de la cagnotte **dans
+ *     ce mois**, pas vers celle du template, sans quoi le calcul du mois irait lire un
+ *     montant qui ne le concerne pas.
+ *  2. **Les soldes de début**, tels que l'utilisateur les a corrigés.
+ *  3. **Le recalage des enveloppes** : l'écart entre le cumul enregistré et le montant
+ *     réel devient une contribution « ajustement », jamais une réécriture — la
+ *     divergence reste lisible dans l'historique.
+ *
+ * Le refus sans compte actif n'est pas une formalité : un mois suit des soldes, il n'a
+ * rien à suivre sans compte, et c'est ce refus qui impose l'ordre du guide de bienvenue.
+ *
+ * @param {object} params `{ period, snapshots, envelopes }`.
+ * @returns {object} Le mois créé.
+ */
 export function create({ period, snapshots = [], envelopes = [] }) {
   if (!PERIOD_RE.test(period || "")) throw httpError(400, "Période invalide (attendu : YYYY-MM)");
   const existing = get("SELECT id FROM months WHERE period = ?", period);
@@ -226,6 +315,7 @@ export function create({ period, snapshots = [], envelopes = [] }) {
   });
 }
 
+// Clôture ou réouverture. Rouvrir n'efface rien : le verrou saute, c'est tout.
 export function setClosed(id, isClosed) {
   const row = get("SELECT * FROM months WHERE id = ?", id);
   if (!row) throw httpError(404, "Mois introuvable");
@@ -233,6 +323,18 @@ export function setClosed(id, isClosed) {
   return getById(id);
 }
 
+/**
+ * Supprime un mois et tout ce qu'il contenait.
+ *
+ * La cascade emporte ses lignes, ses entrées et ses snapshots — c'est voulu : une
+ * ligne de mois orpheline n'a aucun sens, et les soldes des mois suivants repartent
+ * de leurs propres snapshots. Le passage obligé par la réouverture n'est pas
+ * décoratif : un mois clôturé est fermé jusqu'à la dernière entrée, sa suppression
+ * demande donc le même geste délibéré que sa modification.
+ *
+ * @param {number} id Le mois, qui doit être ouvert.
+ * @returns {{message: string}}
+ */
 export function remove(id) {
   const row = get("SELECT * FROM months WHERE id = ?", id);
   if (!row) throw httpError(404, "Mois introuvable");
