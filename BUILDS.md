@@ -15,6 +15,20 @@ dans sa transaction. Rien à lancer à la main. Une migration qui échoue est an
 non inscrite : le serveur refuse de démarrer plutôt que de servir un schéma à moitié
 migré.
 
+**Changer de numéro de version fait apparaître une étape de désinstallation.** À numéro
+identique, NSIS réinstalle par-dessus sans rien désinstaller ; dès que le numéro change,
+il lance d'abord l'ancien désinstalleur, et **une fenêtre s'ouvre avec une case
+« Supprimer les données de l'application »**.
+
+> **Cette case doit rester décochée.** Cochée, elle exécute
+> `RmDir /r "$APPDATAr.revaw.budgetflow2"` — le dossier de la base, ses trois fichiers,
+> sans confirmation. Le garde-fou `$UpdateMode <> 1` du script ne protège que les mises à
+> jour lancées par un updater : lors d'une installation à la main, la suppression a bien
+> lieu.
+
+Décochée, cette étape ne touche que le programme (`AppData\Local\BudgetFlow2`). Vu pour
+la première fois le 09/09 en passant de 1.0.0 à 2.0.1.
+
 **Une migration ne se rejoue pas à l'envers.** Revenir à un exe plus ancien ferait
 tourner du code sur un schéma plus récent. C'est le seul cas où une copie des trois
 fichiers (`budget.db`, `-wal`, `-shm`) sauve la mise — à faire avant chaque installation.
