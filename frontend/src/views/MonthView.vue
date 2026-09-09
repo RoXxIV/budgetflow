@@ -416,6 +416,28 @@ const todoLines = computed(() => {
   }
   return list.sort((a, b) => ((a.due || '') < (b.due || '') ? -1 : 1)).slice(0, 6)
 })
+
+/**
+ * Le pense-bête se replie dès qu'il devient encombrant.
+ *
+ * Avec cinq échéances il occupait toute la hauteur et **repoussait les comptes hors de
+ * l'écran** (Evan, 09/09). Il reste un rappel, pas le contenu principal de la page.
+ *
+ * Le seuil : ouvert jusqu'à trois lignes, replié au-delà. Court, il ne gêne personne ;
+ * long, il vole la place. Un clic prend le dessus et vaut pour la session, comme les
+ * sections du registre — même geste, même durée de vie.
+ */
+const todoManualOpen = ref(null)
+const todoOpen = computed({
+  get: () => todoManualOpen.value ?? todoLines.value.length <= 3,
+  set: (v) => { todoManualOpen.value = v },
+})
+
+// Replié : les trois premiers libellés, puis « +n ». Même forme que `sectionPreview`.
+const todoPreview = computed(() => {
+  const noms = todoLines.value.slice(0, 3).map((t) => t.line.label || 'Sans libellé')
+  return noms.join(', ') + (todoLines.value.length > 3 ? ' +' + (todoLines.value.length - 3) : '')
+})
 /**
  * Saute du pense-bête à la ligne concernée dans le registre.
  *
@@ -1265,8 +1287,24 @@ async function onSnapshotsSaved(liste) {
 
       <!-- À faire ce mois (addendum §5) : absent quand il n'y a rien à faire -->
       <div v-if="todoLines.length" class="panel todo-panel">
-        <div class="side-head"><span class="side-title">À faire ce mois</span><span class="num side-total">{{ todoLines.length }}</span></div>
-        <div v-for="t in todoLines" :key="'todo' + t.line.id" class="reg-grid reg-row" :class="t.kind === 'soon' ? 'is-soon' : 'is-alert'" @click="jumpToLine(t)">
+        <div class="reg-sec-head" @click="todoOpen = !todoOpen">
+          <div class="reg-grid">
+            <span></span>
+            <span class="reg-sec-main">
+              <span class="reg-sec-title">À faire ce mois</span>
+              <!-- Replié, le compteur et l'aperçu disent ce qu'on ne voit plus. Déplié,
+                   la liste parle d'elle-même : le nombre n'y ajoute rien (Evan, 09/09). -->
+              <template v-if="!todoOpen">
+                <span class="reg-sec-count num">{{ todoLines.length }}</span>
+                <span class="sec-preview">{{ todoPreview }}</span>
+              </template>
+            </span>
+            <span class="num reg-sec-prev"></span>
+            <span class="num reg-sec-real"></span>
+            <PhCaretDown :size="14" class="chev" :class="{ 'is-open': todoOpen }" />
+          </div>
+        </div>
+        <div v-for="t in (todoOpen ? todoLines : [])" :key="'todo' + t.line.id" class="reg-grid reg-row" :class="t.kind === 'soon' ? 'is-soon' : 'is-alert'" @click="jumpToLine(t)">
           <span class="cell-point">
             <button
               v-if="showCheckbox(t.line)"
