@@ -1,6 +1,6 @@
 # Journal des builds
 
-Un build produit `src-tauri/target/release/bundle/nsis/BudgetFlow2_1.0.0_x64-setup.exe`.
+Un build produit `src-tauri/target/release/bundle/nsis/BudgetFlow2_<version>_x64-setup.exe`.
 Chaque ligne dit **d'où il vient** (le commit) et **ce qu'il change pour la base** — c'est
 la seule information qu'on regrette de ne pas avoir le jour où quelque chose cloche.
 
@@ -25,11 +25,42 @@ sur une machine neuve démarre sur le guide de bienvenue.
 
 ---
 
+## Les versions
+
+`MAJEUR.MINEUR.CORRECTIF`, décidé le 09/09/2026.
+
+| | Quand il bouge |
+|---|---|
+| **MAJEUR** | la génération d'app. `1` = celle retirée du repo, **`2` = celle-ci** |
+| **MINEUR** | une nouvelle fonctionnalité |
+| **CORRECTIF** | uniquement des corrections, aucun comportement nouveau |
+
+Le numéro vit à **cinq endroits, qui doivent rester identiques** — `tauri.conf.json` et
+`Cargo.toml` (+ `Cargo.lock`) parce que le build les exige, `frontend/package.json` et
+`backend/package.json` par cohérence :
+
+```
+src-tauri/tauri.conf.json    src-tauri/Cargo.toml    src-tauri/Cargo.lock
+frontend/package.json        backend/package.json
+```
+
+**Une couture assumée** : les installeurs du 06/09 et du 09/09 portent `1.0.0`, gravé
+dans leurs fichiers. On ne réécrit pas l'histoire — le versionnage commence à **2.0.0**,
+et le premier exe à le porter sera le prochain.
+
+**Changer le numéro ne touche pas la base.** La copie de la seed est gardée par
+`if !db_path.exists()`, qui ne connaît pas la version. Seuls le nom de l'installeur et
+l'entrée « Programmes et fonctionnalités » de Windows changent.
+
+Chaque branche de travail porte la version qu'elle produira : `v2.0.1-fix`, `v2.1.0-…`.
+
+---
+
 ## Les builds
 
 ### 09/09/2026 — découpage, revue, sauvegarde des données
 
-Commit : `652b845` · migrations : **23** · seed : **vierge**
+Version : **1.0.0** *(avant le versionnage)* · commit : `652b845` · migrations : **23** · seed : **vierge**
 
 Le premier build depuis la revue complète du code. Beaucoup de choses, dont trois qui
 touchent la base.
@@ -75,7 +106,7 @@ mais alors les TROIS fichiers.
 
 ### 06/09/2026 22:33 — dernier build avant la revue
 
-Commit : `a4d8e79` · migrations : **20** · seed : base de dev d'alors (401 écritures)
+Version : **1.0.0** *(avant le versionnage)* · commit : `a4d8e79` · migrations : **20** · seed : base de dev d'alors (401 écritures)
 
 C'est la version installée sur le poste d'Evan jusqu'au 09/09. Elle ne connaît ni la
 sauvegarde des données, ni l'annulation d'une ligne, ni le plan de financement.
@@ -94,5 +125,5 @@ Quatre étapes : frontend Vite (API sur le port 3004), runtime backend copié sa
 `data/`, `tests/` ni `scripts/`, **seed vierge générée** (le script échoue si elle
 contient la moindre donnée), puis `tauri build`.
 
-Après un build, ajouter une entrée ici : date, commit, migrations, et ce qui change pour
-la base.
+Après un build, ajouter une entrée ici : date, **version**, commit, migrations, et ce qui
+change pour la base. Le numéro de version se pose AVANT le build, sur les cinq fichiers.
