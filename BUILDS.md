@@ -58,6 +58,36 @@ Chaque branche de travail porte la version qu'elle produira : `v2.0.1-fix`, `v2.
 
 ## Les builds
 
+### 09/09/2026 23:02 — 2.0.1, cinq corrections
+
+Version : **2.0.1** · commit : `79a1f63` · migrations : **23** · seed : **vierge**
+
+**Le premier installeur qui porte un vrai numéro de version**, et le premier à en
+remplacer un autre dans « Programmes et fonctionnalités » (la 1.0.0).
+
+**Aucune migration nouvelle** — la base reste au niveau 23. Une installation par-dessus
+la 1.0.0 ne touche donc pas au schéma : rien à migrer, rien à redouter de ce côté.
+
+Cinq corrections, dont **une seule faussait un chiffre** :
+
+| | Ce que ça corrige |
+|---|---|
+| `029a9b7` | « Appliquer à ce mois » posait une charge **annuelle** dans un mois qui ne la doit pas — et la retirait aussitôt du Reste à vivre. Vécu sur Strava, ancrée en juillet, posée dans septembre : **600,15 € affichés au lieu de 680,14 €**. Le refus vit dans le service, pas dans le bouton |
+| `6125713` | la **cible** d'une enveloppe mensualisée redescend dans sa ligne du Template |
+| `12278ee` | son **nom** aussi — même piège, la ligne l'écrasait au coup suivant |
+| `f711c23` | « À faire ce mois » se replie ; son en-tête avait perdu tout style au découpage de MonthView |
+| `1a991fc` | le message d'attente des valorisations dit l'état réel au lieu d'une règle trompeuse |
+
+**Sorti de la version** : la ligne annuelle sans année d'ancrage. C'est un chantier
+(migration + `cycleMatches` + `nextDueDate` + Template + plan), pas un correctif.
+
+**Vérifié avant le build** — `npm test` 247/247 ; la vraie route interrogée sur le serveur
+de dev répond **409** avec le bon message et ne crée aucune ligne ; la synchro d'enveloppe
+rejouée sur une copie de la base réelle. Seed vierge : 19 tables, 23 migrations, un seul
+fichier, aucune donnée (le script casse le build sinon).
+
+---
+
 ### 09/09/2026 — découpage, revue, sauvegarde des données
 
 Version : **1.0.0** *(avant le versionnage)* · commit : `652b845` · migrations : **23** · seed : **vierge**
@@ -120,6 +150,10 @@ Sa seed contenait les données réelles — c'est ce build qui a fait découvrir
 ```
 build-app.cmd
 ```
+
+**Toujours avec son chemin absolu** depuis un shell qui n'est pas `cmd` : `cmd /c
+"build-app.cmd"` ne resout pas un `.cmd` du dossier courant et echoue avant la premiere
+etape. Le piege s'est presente deux fois le 09/09.
 
 Quatre étapes : frontend Vite (API sur le port 3004), runtime backend copié sans
 `data/`, `tests/` ni `scripts/`, **seed vierge générée** (le script échoue si elle
