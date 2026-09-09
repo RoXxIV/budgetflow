@@ -139,6 +139,26 @@ const repartition = computed(() => {
 // ─── Évolution (brief §5b) : valorisations mensuelles vs investi cumulé ───
 const history = ref(null) // { labels, valeur[], investi[] } — null si < 3 mois de valorisations
 const historyError = ref(false) // panne API ≠ « pas encore 3 valorisations » : deux messages différents
+// Les mois DÉJÀ valorisés ('YYYY-MM'), pour dire où l'on en est plutôt que d'énoncer une
+// règle. Evan a saisi six valorisations le même mois et cherché pourquoi rien ne venait :
+// le seuil compte les MOIS, pas les saisies, et l'ancien message ne le disait pas.
+const historyMonths = ref([])
+
+// « 2026-09 » → « septembre 2026 ». UTC : en local, le 1er du mois peut reculer d'un jour.
+const moisEnToutesLettres = (m) => {
+  const [y, mo] = m.split('-').map(Number)
+  return new Date(Date.UTC(y, mo - 1, 1)).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+}
+
+/** Ce qui manque encore, en clair — jamais « trois valorisations », qui induisait en erreur. */
+const evoAttente = computed(() => {
+  const n = historyMonths.value.length
+  if (!n) return "Aucune valorisation enregistrée. La courbe s'affichera après trois mois de valorisations."
+  const reste = 3 - n
+  const mois = historyMonths.value.map(moisEnToutesLettres).join(', ')
+  return `${n === 1 ? 'Un mois valorisé' : `${n} mois valorisés`} (${mois}) — la courbe s'affichera après `
+    + `${reste === 1 ? 'un mois de plus' : `${reste} mois de plus`}. Plusieurs valorisations dans le même mois comptent pour un.`
+})
 /**
  * Reconstruit l'historique du graphique : la valeur du portefeuille face à l'investi.
  *
@@ -159,7 +179,7 @@ const historyError = ref(false) // panne API ≠ « pas encore 3 valorisations �
 async function loadHistory() {
   const list = assets.value.filter((a) => !a.isClosed)
   historyError.value = false
-  if (!list.length) { history.value = null; return }
+  if (!list.length) { history.value = null; historyMonths.value = []; return }
   try {
     const [valsRes, movsRes] = await Promise.all([
       Promise.all(list.map((a) => getAssetValuations(a.id))),
@@ -168,6 +188,7 @@ async function loadHistory() {
     const vals = valsRes.map((r) => [...r.data].sort((x, y) => x.date.localeCompare(y.date)))
     const movs = movsRes.flatMap((r) => r.data)
     const months = [...new Set(vals.flat().map((v) => v.date.slice(0, 7)))].sort()
+    historyMonths.value = months
     if (months.length < 3) { history.value = null; return }
     const labels = months.map((m) => {
       const [y, mo] = m.split('-').map(Number)
@@ -611,7 +632,7 @@ async function deleteMovement(asset, m) {
       </div>
       <LineChart v-if="history" :labels="history.labels" :series="chartSeries" :height="200" minimal-axis />
       <p v-else-if="historyError" class="evo-empty">Impossible de charger l'historique — rechargez la page.</p>
-      <p v-else class="evo-empty">L'évolution s'affichera après trois valorisations mensuelles.</p>
+      <p v-else class="evo-empty">{{ evoAttente }}</p>
     </div>
   </div>
 </template>
