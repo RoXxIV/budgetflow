@@ -207,6 +207,10 @@
 .link-accent:disabled { color: var(--c-ink-3); cursor: default; }
 .link-accent:disabled:hover { color: var(--c-ink-3); text-decoration: none; }
 
+/* Champ non modifiable : sa valeur reste lisible, seule la saisie est fermée. Le curseur
+   « default » dit qu'il n'y a rien à cliquer, sans effacer l'information. */
+.input:disabled { background: var(--c-surface-sunken); color: var(--c-ink-2); cursor: default; }
+
 /* Un mot qui porte une explication au survol : le pointillé le dit sans l'écrire */
 .has-tip {
   text-decoration: underline dotted var(--c-ink-3);

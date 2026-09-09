@@ -761,7 +761,13 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
         <label class="field">
           <span class="flex items-center gap-1">Échéance dans (optionnelle) <HelpTip text="Le nombre de mois avant l'échéance, à partir du mois en cours. 0 = ce mois-ci. L'app en déduit le mois visé et la part à mettre de côté chaque mois." /></span>
           <div class="flex items-center gap-2">
-            <input v-model="envelopeForm.months" type="number" min="0" step="1" class="input w-20" placeholder="12" />
+            <!-- Mensualisée : l'échéance vient du cycle de la ligne du Template et ne
+                 peut pas remonter (d'une date on ne déduit pas une périodicité). -->
+            <input
+              v-model="envelopeForm.months" type="number" min="0" step="1" class="input w-20" placeholder="12"
+              :disabled="editingEnvelopeIsLinked"
+              :title="editingEnvelopeIsLinked ? 'Calculée depuis le cycle de la ligne du Template' : ''"
+            />
             <span class="text-[13px]" :class="targetMonthLabel ? 'text-gray-500' : 'text-gray-400'">
               {{ targetMonthLabel ? 'mois → ' + targetMonthLabel : 'mois' }}
             </span>
@@ -794,7 +800,9 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
         <template v-else-if="simulating">Calcul…</template>
       </p>
       <p v-if="editingEnvelopeIsLinked" class="text-[12px] mt-1 text-amber-600">
-        Enveloppe pilotée par une ligne mensualisée du template : son échéance sera recalculée automatiquement au prochain cycle.
+        Enveloppe pilotée par une ligne mensualisée du Template. Sa <b>cible</b> et le prévu de
+        la ligne sont un seul et même montant : le corriger ici corrige aussi le prélèvement.
+        Son <b>échéance</b> vient du cycle de la ligne et ne se modifie que là-bas.
       </p>
 
       <!-- Rappel du disponible : l'invariant Σ enveloppes ≤ solde du compte -->

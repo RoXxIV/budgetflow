@@ -299,3 +299,48 @@ test("appliquer au mois : une copie devenue hors cycle ne se rafraîchit plus no
   lines.update(l.id, { intervalMonths: 12, anchorMonth: (m % 12) + 1 });
   refuse(() => lines.applyToMonth(l.id, month.id), 409);
 });
+
+// ─── Enveloppe mensualisée : la cible et le prévu sont UN SEUL montant (09/09) ───
+// La ligne propageait déjà vers son enveloppe ; la réciproque manquait. Vécu par Evan
+// sur « N26 Go » : enveloppe ramenée à 95 €, ligne restée à 118,80 €, et « Appliquer le
+// Template » proposait donc d'injecter 118,80 € dans septembre.
+//
+// En fin de fichier : ces tests changent le prévu d'`annuel`, et rien ne doit s'appuyer
+// dessus après eux.
+
+test("mensualisée : corriger la cible de l'enveloppe corrige le prévu de la ligne", () => {
+  const envId = lines.getById(annuel.id).envelopeId;
+  envelopes.update(envId, { targetAmount: 95 });
+  assert.ok(eq(lines.getById(annuel.id).plannedAmount, 95), "le prélèvement suit la tirelire");
+  assert.ok(eq(envelopes.getById(envId).targetAmount, 95), "et l'enveloppe garde sa valeur");
+});
+
+test("mensualisée : le sens historique marche toujours, et les deux ne bouclent pas", () => {
+  const envId = lines.getById(annuel.id).envelopeId;
+  lines.update(annuel.id, { plannedAmount: 150 });
+  assert.ok(eq(envelopes.getById(envId).targetAmount, 150), "la tirelire suit le prélèvement");
+  assert.ok(eq(lines.getById(annuel.id).plannedAmount, 150), "et rien ne l'a réécrite au retour");
+});
+
+test("mensualisée : l'échéance envoyée à l'enveloppe est ignorée — elle vient du cycle", () => {
+  const envId = lines.getById(annuel.id).envelopeId;
+  const avant = envelopes.getById(envId).deadline;
+  envelopes.update(envId, { deadline: "2099-01-01" });
+  assert.equal(envelopes.getById(envId).deadline, avant,
+    "d'une date on ne déduit pas une périodicité : l'échéance reste celle de la ligne");
+});
+
+test("mensualisée : changer la cible ne touche QUE sa ligne", () => {
+  const autre = lines.create(null, { label: "Assurance vélo", categoryId: catDep.id, plannedAmount: 60, fromAccountId: main.id, intervalMonths: 12, anchorMonth: 5 });
+  const envId = lines.getById(annuel.id).envelopeId;
+  envelopes.update(envId, { targetAmount: 300 });
+  assert.ok(eq(lines.getById(autre.id).plannedAmount, 60), "la ligne voisine n'a pas bougé");
+});
+
+test("enveloppe LIBRE : ni cible ni échéance ne sont contraintes", () => {
+  const libre = envelopes.create({ name: "Vacances", accountId: main.id, targetAmount: 800, deadline: "2099-01-01" });
+  envelopes.update(libre.id, { targetAmount: 900, deadline: "2098-06-01" });
+  const apres = envelopes.getById(libre.id);
+  assert.ok(eq(apres.targetAmount, 900));
+  assert.equal(apres.deadline, "2098-06-01", "sans ligne derrière, l'échéance reste éditable");
+});
