@@ -330,6 +330,13 @@ test("mensualisée : l'échéance envoyée à l'enveloppe est ignorée — elle 
     "d'une date on ne déduit pas une périodicité : l'échéance reste celle de la ligne");
 });
 
+test("mensualisée : renommer l'enveloppe renomme la ligne (même piège que la cible)", () => {
+  const envId = lines.getById(annuel.id).envelopeId;
+  envelopes.update(envId, { name: "Assurance auto" });
+  assert.equal(lines.getById(annuel.id).label, "Assurance auto", "le libellé de la ligne suit");
+  assert.equal(envelopes.getById(envId).name, "Assurance auto");
+});
+
 test("mensualisée : changer la cible ne touche QUE sa ligne", () => {
   const autre = lines.create(null, { label: "Assurance vélo", categoryId: catDep.id, plannedAmount: 60, fromAccountId: main.id, intervalMonths: 12, anchorMonth: 5 });
   const envId = lines.getById(annuel.id).envelopeId;

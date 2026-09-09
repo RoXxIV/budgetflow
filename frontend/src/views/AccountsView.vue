@@ -800,8 +800,8 @@ const KIND_LABELS = { normale: '', initiale: 'initiale', ajustement: 'ajustement
         <template v-else-if="simulating">Calcul…</template>
       </p>
       <p v-if="editingEnvelopeIsLinked" class="text-[12px] mt-1 text-amber-600">
-        Enveloppe pilotée par une ligne mensualisée du Template. Sa <b>cible</b> et le prévu de
-        la ligne sont un seul et même montant : le corriger ici corrige aussi le prélèvement.
+        Enveloppe pilotée par une ligne mensualisée du Template. Son <b>nom</b> et sa <b>cible</b>
+        sont ceux de la ligne : les corriger ici corrige aussi le prélèvement.
         Son <b>échéance</b> vient du cycle de la ligne et ne se modifie que là-bas.
       </p>
 

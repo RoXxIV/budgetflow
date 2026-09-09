@@ -353,9 +353,9 @@ export function reallocate(fromId, { toEnvelopeId, amount, notes = null }) {
  * est seule sur ce compte et il portait exactement son nom. C'est la situation « un
  * compte = un projet », où voir les deux noms diverger n'aurait aucun sens.
  *
- * **Changer la cible d'une enveloppe MENSUALISÉE** change le prévu de sa ligne du
- * Template (09/09). La ligne propageait déjà vers l'enveloppe ; la réciproque manquait,
- * et corriger le montant depuis la page Comptes n'avait aucun effet sur le prélèvement.
+ * **Changer la cible ou le nom d'une enveloppe MENSUALISÉE** change sa ligne du Template
+ * (09/09). La ligne propageait déjà vers l'enveloppe ; la réciproque manquait, et
+ * corriger le montant depuis la page Comptes n'avait aucun effet sur le prélèvement.
  * L'échéance, elle, reste calculée depuis le cycle de la ligne et ignore ce qu'on lui
  * envoie ici.
  *
@@ -398,13 +398,17 @@ export function update(id, data) {
     run("UPDATE envelopes SET name = ?, account_id = ?, target_amount_cents = ?, deadline = ?, closed_at = ? WHERE id = ?",
       name, accountId, target, deadline, closedAt, id);
 
-    // LA CIBLE, elle, redescend dans la ligne (décision d'Evan, 09/09). Sans ça, corriger
-    // le montant depuis la page Comptes ne changeait rien au prélèvement : vécu sur
-    // « N26 Go », enveloppe ramenée à 95 € pendant que la ligne prélevait toujours 118,80 €.
+    // LA CIBLE ET LE NOM, eux, redescendent dans la ligne (décision d'Evan, 09/09). Sans
+    // ça, corriger le montant depuis la page Comptes ne changeait rien au prélèvement :
+    // vécu sur « N26 Go », enveloppe ramenée à 95 € pendant que la ligne prélevait
+    // toujours 118,80 €. Le nom suit la même règle — la ligne le propageait déjà vers
+    // l'enveloppe, donc le renommer ici « marchait » puis se faisait écraser à la
+    // prochaine modification de la ligne. Même piège, même correction.
     // Écriture DIRECTE, sans repasser par budgetLine.update() : celle-ci repropage vers
     // l'enveloppe, et les deux services s'appelleraient sans fin.
-    if (ligneLiee && target !== existing.target_amount_cents) {
-      run("UPDATE budget_lines SET planned_amount_cents = ? WHERE id = ?", target ?? 0, ligneLiee.id);
+    if (ligneLiee && (target !== existing.target_amount_cents || name !== existing.name)) {
+      run("UPDATE budget_lines SET label = ?, planned_amount_cents = ? WHERE id = ?",
+        name, target ?? 0, ligneLiee.id);
     }
 
     // Changement de compte hôte avec de l'argent dedans : l'argent doit physiquement suivre
