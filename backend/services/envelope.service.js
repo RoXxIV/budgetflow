@@ -353,6 +353,12 @@ export function reallocate(fromId, { toEnvelopeId, amount, notes = null }) {
  * est seule sur ce compte et il portait exactement son nom. C'est la situation « un
  * compte = un projet », où voir les deux noms diverger n'aurait aucun sens.
  *
+ * **Changer la cible ou le nom d'une enveloppe MENSUALISÉE** change sa ligne du Template
+ * (09/09). La ligne propageait déjà vers l'enveloppe ; la réciproque manquait, et
+ * corriger le montant depuis la page Comptes n'avait aucun effet sur le prélèvement.
+ * L'échéance, elle, reste calculée depuis le cycle de la ligne et ignore ce qu'on lui
+ * envoie ici.
+ *
  * @param {number} id L'enveloppe.
  * @param {object} data Les champs à changer ; ceux absents gardent leur valeur.
  * @returns {object} L'enveloppe modifiée.
@@ -371,13 +377,39 @@ export function update(id, data) {
       throw httpError(400, "Compte hôte invalide ou désactivé");
     }
     const target = data.targetAmount !== undefined ? toCents(data.targetAmount) : existing.target_amount_cents;
-    const deadline = resolveDeadline(data, existing.deadline);
+
+    // ─── Enveloppe adossée à une ligne mensualisée ───────────
+    // Les deux sont deux faces du même objet : la tirelire et le prélèvement qu'elle
+    // finance. La ligne propage déjà vers l'enveloppe (budgetLine.service) ; l'inverse
+    // manquait, et laissait les deux diverger en silence.
+    const ligneLiee = get("SELECT id, label FROM budget_lines WHERE month_id IS NULL AND envelope_id = ?", id);
+
+    // L'ÉCHÉANCE ne s'édite pas ici : elle est CALCULÉE depuis le cycle de la ligne
+    // (`nextDueDate`), et l'opération n'est pas inversible — d'un « 2027-09-01 » on ne
+    // saurait pas déduire une périodicité, et `anchor_month` ne porte même pas d'année.
+    // Ignorée plutôt que refusée : le formulaire renvoie tous ses champs à chaque
+    // enregistrement, et un nombre de mois reconverti en date peut glisser d'un jour
+    // sans que personne y ait touché — un refus se déclencherait alors tout seul.
+    const deadline = ligneLiee ? existing.deadline : resolveDeadline(data, existing.deadline);
     const closedAt = data.isClosed !== undefined
       ? (data.isClosed ? (existing.closed_at || new Date().toISOString()) : null)
       : existing.closed_at;
 
     run("UPDATE envelopes SET name = ?, account_id = ?, target_amount_cents = ?, deadline = ?, closed_at = ? WHERE id = ?",
       name, accountId, target, deadline, closedAt, id);
+
+    // LA CIBLE ET LE NOM, eux, redescendent dans la ligne (décision d'Evan, 09/09). Sans
+    // ça, corriger le montant depuis la page Comptes ne changeait rien au prélèvement :
+    // vécu sur « N26 Go », enveloppe ramenée à 95 € pendant que la ligne prélevait
+    // toujours 118,80 €. Le nom suit la même règle — la ligne le propageait déjà vers
+    // l'enveloppe, donc le renommer ici « marchait » puis se faisait écraser à la
+    // prochaine modification de la ligne. Même piège, même correction.
+    // Écriture DIRECTE, sans repasser par budgetLine.update() : celle-ci repropage vers
+    // l'enveloppe, et les deux services s'appelleraient sans fin.
+    if (ligneLiee && (target !== existing.target_amount_cents || name !== existing.name)) {
+      run("UPDATE budget_lines SET label = ?, planned_amount_cents = ? WHERE id = ?",
+        name, target ?? 0, ligneLiee.id);
+    }
 
     // Changement de compte hôte avec de l'argent dedans : l'argent doit physiquement suivre
     // → virement système ancien hôte → nouvel hôte (une enveloppe virtuelle « attend » sur le compte principal)

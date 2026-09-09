@@ -63,6 +63,28 @@ async function applyToCurrentMonth(line, { ask = true } = {}) {
   } catch (e) { apiError(e) }
 }
 
+/**
+ * Le cycle de cette ligne tombe-t-il sur le mois en cours ?
+ *
+ * Sert uniquement à ne pas PROPOSER un geste que le serveur refusera : `applyToMonth()`
+ * porte le vrai garde-fou et répond 409. Si les deux venaient à diverger, c'est le
+ * service qui gagne et l'utilisateur voit son message — jamais une ligne posée à tort.
+ *
+ * @param {number|string} intervalMonths La périodicité, en mois.
+ * @param {number|string} anchorMonth Le mois d'ancrage (1 = janvier).
+ * @returns {boolean} Vrai pour toute ligne mensuelle, et tant qu'aucun mois n'est chargé.
+ */
+function cycleTombeSurLeMois(intervalMonths, anchorMonth) {
+  const interval = Number(intervalMonths) || 1
+  if (interval <= 1 || !anchorMonth || !currentMonth.value) return true
+  const m = Number(currentMonth.value.period.split('-')[1])
+  return (((m - Number(anchorMonth)) % interval) + interval) % interval === 0
+}
+
+/** Pourquoi le geste est indisponible — la même phrase que le refus du serveur. */
+const horsCycleTitre = (label, intervalMonths, anchorMonth) =>
+  `« ${label || 'Cette ligne'} » revient ${Number(intervalMonths) === 12 ? 'chaque ' + MONTHS[anchorMonth - 1] : 'en ' + MONTHS[anchorMonth - 1] + ', puis tous les ' + intervalMonths + ' mois'} : ${currentMonth.value?.name} n'est pas un de ses mois.`
+
 // ─── Appliquer tout le Template au mois en cours ─────────
 // Un mois ne se remplit du Template qu'à sa naissance : ce geste comble le décalage
 // pour les lignes ajoutées ou corrigées depuis. On montre d'abord ce que ça donnerait.
@@ -837,7 +859,10 @@ const formCategoryType = computed(() => {
           <button
             v-if="currentMonth"
             class="link-accent"
-            :title="'Enregistre la ligne, puis la copie ou la met à jour dans ' + currentMonth.name + ' — le réel du mois n\'est pas touché'"
+            :disabled="!cycleTombeSurLeMois(form.intervalMonths, form.anchorMonth)"
+            :title="cycleTombeSurLeMois(form.intervalMonths, form.anchorMonth)
+              ? 'Enregistre la ligne, puis la copie ou la met à jour dans ' + currentMonth.name + ' — le réel du mois n\'est pas touché'
+              : horsCycleTitre(form.label, form.intervalMonths, form.anchorMonth)"
             @click="submitAndApply"
           >
             Appliquer à {{ currentMonth.name }} et sauvegarder
@@ -958,7 +983,13 @@ const formCategoryType = computed(() => {
               <button class="btn-icon" title="Actions" @click="menuLineId = menuLineId === line.id ? null : line.id">⋯</button>
               <div v-if="menuLineId === line.id" class="menu">
                 <button class="menu-item" @click="menuLineId = null; openEdit(line)">Modifier</button>
-                <button v-if="currentMonth" class="menu-item" @click="menuLineId = null; applyToCurrentMonth(line)">Appliquer à {{ currentMonth.name }}</button>
+                <button
+                  v-if="currentMonth"
+                  class="menu-item"
+                  :disabled="!cycleTombeSurLeMois(line.intervalMonths, line.anchorMonth)"
+                  :title="cycleTombeSurLeMois(line.intervalMonths, line.anchorMonth) ? '' : horsCycleTitre(line.label, line.intervalMonths, line.anchorMonth)"
+                  @click="menuLineId = null; applyToCurrentMonth(line)"
+                >Appliquer à {{ currentMonth.name }}</button>
                 <template v-if="grp.orig">
                   <button class="menu-item" :disabled="i === 0" @click="menuLineId = null; moveLine(grp.orig, i, -1)">Monter</button>
                   <button class="menu-item" :disabled="i === grp.lines.length - 1" @click="menuLineId = null; moveLine(grp.orig, i, 1)">Descendre</button>
