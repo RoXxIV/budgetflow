@@ -203,6 +203,9 @@
 
 .link-accent { color: var(--c-accent); font-size: var(--t-small); font-weight: 500; cursor: pointer; }
 .link-accent:hover { color: var(--c-accent-hover); text-decoration: underline; }
+/* Indisponible : le lien reste lisible pour qu'on puisse survoler et lire POURQUOI */
+.link-accent:disabled { color: var(--c-ink-3); cursor: default; }
+.link-accent:disabled:hover { color: var(--c-ink-3); text-decoration: none; }
 
 /* Un mot qui porte une explication au survol : le pointillé le dit sans l'écrire */
 .has-tip {

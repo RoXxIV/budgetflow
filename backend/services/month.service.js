@@ -15,17 +15,11 @@
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
 import * as budgetLines from "./budgetLine.service.js";
 import * as pots from "./pot.service.js";
+import { monthName } from "../lib/periode.js";
 
-const MONTH_NAMES = [
-  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
-];
-
-// « 2026-09 » → « Septembre 2026 » : les messages d'erreur nomment le mois, pas sa période
-export function monthName(period) {
-  const [y, m] = period.split("-").map(Number);
-  return `${MONTH_NAMES[m - 1]} ${y}`;
-}
+// « 2026-09 » → « Septembre 2026 ». Vit dans lib/periode.js depuis le 09/09 :
+// budgetLine.service en a besoin aussi, et ne peut pas importer ce fichier-ci.
+export { monthName };
 const formatPeriodName = monthName;
 
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;

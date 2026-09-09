@@ -229,3 +229,73 @@ test("propagation groupée : refusée sur un mois clôturé", () => {
   refuse(() => lines.planApplyAll(m.id), 409);
   refuse(() => lines.applyAllToMonth(m.id), 409);
 });
+
+// ─── Le cycle fait foi AUSSI ligne par ligne (09/09) ─────
+// Trouvé à l'usage par Evan. « Appliquer à ce mois » — la route par ligne, et le bouton
+// de la modale d'édition — posait une charge ANNUELLE dans un mois qui ne la doit pas.
+// Sur ses données réelles : Strava, ancrée en JUILLET, atterrie dans septembre avec ses
+// 79,99 €, retirés du Reste à vivre pour une charge qui n'aurait pas lieu (600,15 €
+// affichés au lieu de 680,14 €). `planApplyAll` filtrait déjà ; ce chemin-ci, non.
+//
+// Les mois créés ici partent à +6 et au-delà : les tests précédents occupent jusqu'à +5,
+// et la base est partagée par tout le fichier.
+
+test("appliquer au mois : une annuelle est refusée hors de son mois d'ancrage", () => {
+  const [, m] = currentPeriod().split("-").map(Number);
+  const ailleurs = (m % 12) + 1; // le mois suivant : jamais celui du mois courant
+  const annuelle = lines.create(null, {
+    label: "Strava", categoryId: catDep.id, plannedAmount: 79.99,
+    fromAccountId: main.id, intervalMonths: 12, anchorMonth: ailleurs,
+  });
+  refuse(() => lines.applyToMonth(annuelle.id, month.id), 409);
+  assert.ok(!months.getLines(month.id).some((l) => l.templateLineId === annuelle.id),
+    "et rien n'a été créé au passage");
+});
+
+test("appliquer au mois : le refus dit QUAND la ligne revient, en toutes lettres", () => {
+  const juillet = lines.create(null, {
+    label: "Assurance moto", categoryId: catDep.id, plannedAmount: 200,
+    fromAccountId: main.id, intervalMonths: 12, anchorMonth: 7,
+  });
+  const cible = months.create({ period: [...Array(6)].reduce(nextPeriodOf, currentPeriod()) });
+  const e = refuse(() => lines.applyToMonth(juillet.id, cible.id), 409);
+  assert.match(e.message, /Assurance moto/, "la ligne est nommée");
+  assert.match(e.message, /chaque juillet/, "et son cycle est écrit en français");
+  assert.ok(!e.message.includes(cible.period),
+    `le mois est nommé, pas affiché en 'YYYY-MM' (${e.message})`);
+});
+
+test("appliquer au mois : une trimestrielle passe sur son mois, pas sur le suivant", () => {
+  const period = [...Array(7)].reduce(nextPeriodOf, currentPeriod());
+  const [, m] = period.split("-").map(Number);
+  const trim = lines.create(null, {
+    label: "Eau", categoryId: catDep.id, plannedAmount: 90,
+    fromAccountId: main.id, intervalMonths: 3, anchorMonth: m,
+  });
+  const sien = months.create({ period });
+  assert.ok(lines.applyToMonth(trim.id, sien.id).id, "sur son mois, elle passe");
+  const suivant = months.create({ period: nextPeriodOf(period) });
+  refuse(() => lines.applyToMonth(trim.id, suivant.id), 409);
+});
+
+test("appliquer au mois : une ligne MENSUELLE n'est jamais concernée par ce refus", () => {
+  // Le garde-fou ne doit pas gêner le geste quotidien : sans cycle, tous les mois sont
+  // les siens. C'est le cas de l'immense majorité des lignes.
+  // La ligne est créée ici et pas reprise du décor : `loyer` a pu être supprimée par les
+  // tests de suppression qui précèdent, et ce test ne parle pas de ça.
+  const mensuelle = lines.create(null, { label: "Cantine", categoryId: catDep.id, plannedAmount: 45, fromAccountId: main.id });
+  assert.ok(lines.applyToMonth(mensuelle.id, month.id), "une mensuelle passe partout");
+});
+
+test("appliquer au mois : une copie devenue hors cycle ne se rafraîchit plus non plus", () => {
+  // Le cas tordu : la ligne était mensuelle, sa copie existe déjà dans le mois, puis on
+  // la passe en annuelle ancrée ailleurs. Le refus doit valoir pour la MISE À JOUR comme
+  // pour la création — sinon la copie continuerait de se recharger dans un mois qui ne
+  // la doit pas.
+  const [, m] = currentPeriod().split("-").map(Number);
+  const l = lines.create(null, { label: "Antivirus", categoryId: catDep.id, plannedAmount: 60, fromAccountId: main.id });
+  lines.applyToMonth(l.id, month.id);
+  assert.ok(months.getLines(month.id).some((c) => c.templateLineId === l.id), "la copie existe");
+  lines.update(l.id, { intervalMonths: 12, anchorMonth: (m % 12) + 1 });
+  refuse(() => lines.applyToMonth(l.id, month.id), 409);
+});

@@ -13,6 +13,7 @@
 // enveloppe qu'on remplit tous les mois.
 
 import { all, get, run, tx, toCents, fromCents, httpError } from "../db/index.js";
+import { MONTH_NAMES, monthName } from "../lib/periode.js";
 
 // ─── Périodicité : « tous les N mois », ancrée sur un mois ───
 // L'ancrage est un NUMÉRO DE MOIS (1 = janvier), pas une date : une charge trimestrielle
@@ -36,6 +37,23 @@ export function cycleMatches(line, period) {
   if (interval <= 1 || !line.anchor_month) return true;
   const [, m] = period.split("-").map(Number);
   return (((m - line.anchor_month) % interval) + interval) % interval === 0;
+}
+
+/**
+ * Le cycle d'une ligne, en français — pour les messages de refus.
+ *
+ * « chaque juillet », « en février puis tous les 3 mois ». Un refus qui dit seulement
+ * « ce n'est pas son mois » oblige à rouvrir la ligne pour comprendre ; celui-ci porte
+ * la réponse avec lui.
+ *
+ * @param {object} line La ligne et son cycle.
+ * @returns {string} Une formule qui se glisse après « revient ».
+ */
+function cycleLabel(line) {
+  const interval = line.interval_months || 1;
+  if (interval <= 1 || !line.anchor_month) return "chaque mois";
+  const mois = MONTH_NAMES[line.anchor_month - 1].toLowerCase();
+  return interval === 12 ? `chaque ${mois}` : `en ${mois}, puis tous les ${interval} mois`;
 }
 
 /**
@@ -465,6 +483,10 @@ function removeInner(id, { force = false } = {}) {
  * « Appliquer au mois » : la ligne du template est copiée dans un mois (ou sa copie mise à jour).
  *
  * Le réel du mois n'est jamais touché ; seule la définition de la ligne est propagée.
+ *
+ * **Le cycle est vérifié ici, et pas seulement à l'écran** (09/09) : la route est
+ * publique, et sans ce contrôle une charge annuelle pouvait être posée dans n'importe
+ * quel mois — où elle était aussitôt déduite du Reste à vivre.
  * Le rattachement de cagnotte est **retraduit** au passage : la copie doit pointer vers
  * la cagnotte DE CE MOIS, pas vers celle du template — sinon le calcul du partage irait
  * lire des montants qui ne concernent pas ce mois.
@@ -479,6 +501,16 @@ export function applyToMonth(templateLineId, monthId) {
   const month = get("SELECT * FROM months WHERE id = ?", monthId);
   if (!month) throw httpError(404, "Mois introuvable");
   if (month.closed_at) throw httpError(409, "Ce mois est clôturé");
+
+  // LE CYCLE FAIT FOI. Une charge annuelle n'a rien à faire dans un mois qui ne la doit
+  // pas. `planApplyAll` filtrait déjà, la création d'un mois aussi — ce chemin-ci, non,
+  // et il est exposé par une route publique et par un bouton de la modale d'édition.
+  // Constaté sur les données réelles le 09/09 : Strava, annuelle ancrée en JUILLET,
+  // posée dans septembre avec ses 79,99 € — autant retiré du Reste à vivre pour une
+  // charge qui n'aurait pas lieu (600,15 € affichés au lieu de 680,14 €).
+  if (!cycleMatches(tpl, month.period)) {
+    throw httpError(409, `« ${tpl.label} » revient ${cycleLabel(tpl)} : ${monthName(month.period)} n'est pas un de ses mois. Pour une dépense exceptionnelle, ajoutez une ligne directement dans le mois.`);
+  }
 
   // Cagnotte par défaut des ½ : on vise la copie de la cagnotte dans ce mois, si elle existe
   const potCopy = tpl.pot_line_id
